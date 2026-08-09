@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions: {}
+
+jobs:
+  release:
+    name: Validate and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Install Poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Restore pinned PDF cache
+        uses: actions/cache@v4
+        with:
+          path: eval-data/pdfs
+          key: pdf-release-${{ runner.os }}-${{ hashFiles('eval-data/annotations/*.json') }}
+          restore-keys: |
+            pdf-release-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Fetch pinned PDF evaluation set
+        run: npm run eval:pdf-assets:fetch
+
+      - name: Run quality gate
+        run: npm run release:check
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF_NAME" != "v${package_version}" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
+            exit 1
+          fi
+
+      - name: Build Web interface
+        run: npm run web:build
+
+      - name: Build self-contained source archives
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          archive_root="paper-agent-v${package_version}"
+          stage="dist/${archive_root}"
+          rm -rf "$stage"
+          mkdir -p "$stage/dist"
+          cp -R .github deployment docs scripts skills src test web "$stage/"
+          mkdir -p "$stage/eval-data/artifacts"
+          cp -R eval-data/annotations "$stage/eval-data/"
+          cp -R eval-data/artifacts/annotations "$stage/eval-data/artifacts/"
+          cp eval-data/README.md eval-data/baseline.json eval-data/expansion-sources.json eval-data/system-behavior-scenarios.json "$stage/eval-data/"
+          cp eval-data/artifacts/README.md eval-data/artifacts/sources.json "$stage/eval-data/artifacts/"
+          cp -R dist/web "$stage/dist/"
+          cp LICENSE README.md README.zh-CN.md biome.json package.json package-lock.json paper-agent.ps1 run.sh tsconfig.json vite.config.ts vitest.config.ts "$stage/"
+          chmod 0755 "$stage/run.sh"
+          tar -C dist -czf "dist/${archive_root}.tar.gz" "$archive_root"
+          (cd dist && zip -qr "${archive_root}.zip" "$archive_root")
+          rm -rf "$stage"
+          sha256sum "dist/${archive_root}.tar.gz" "dist/${archive_root}.zip" > dist/SHA256SUMS
+
+      - name: Verify release archive contract
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          archive_root="paper-agent-v${package_version}"
+          mkdir -p dist/verify
+          tar -C dist/verify -xzf "dist/${archive_root}.tar.gz"
+          test -f "dist/verify/${archive_root}/package-lock.json"
+          test -f "dist/verify/${archive_root}/scripts/web-server.ts"
+          test -f "dist/verify/${archive_root}/dist/web/index.html"
+          test -f "dist/verify/${archive_root}/test/local-web-server.test.ts"
+          test -f "dist/verify/${archive_root}/eval-data/baseline.json"
+          test -f "dist/verify/${archive_root}/biome.json"
+          test -f "dist/verify/${archive_root}/vitest.config.ts"
+          PAPER_AGENT_NODE_BIN="$(command -v node)" bash "dist/verify/${archive_root}/run.sh" --version | grep -F "${package_version}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

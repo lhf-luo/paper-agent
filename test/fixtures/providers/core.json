@@ -1,0 +1,16 @@
+{
+	"totalHits": 1,
+	"results": [
+		{
+			"id": 777,
+			"title": "Open access state machine learning",
+			"abstract": "A replayable CORE fixture.",
+			"authors": [{ "name": "Core Author" }],
+			"yearPublished": 2023,
+			"publisher": "Fixture Press",
+			"documentType": "research",
+			"doi": "10.1000/core.fixture",
+			"downloadUrl": "https://example.org/core.pdf"
+		}
+	]
+}

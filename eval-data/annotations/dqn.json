@@ -1,0 +1,68 @@
+{
+	"schemaVersion": 2,
+	"annotationStatus": "human-reviewed",
+	"pdfPath": "../pdfs/dqn-1312.5602.pdf",
+	"pdfSha256": "8db04120cace173151c77e0faa6f3eaa4207009da66b9417597dc70bfee56d9c",
+	"annotatedPages": [2, 7, 8],
+	"metadata": {
+		"paperId": "arxiv:1312.5602",
+		"title": "Playing Atari with Deep Reinforcement Learning",
+		"domains": ["reinforcement-learning"],
+		"layouts": ["single-column", "multi-panel", "caption-below"],
+		"sourceUrl": "https://arxiv.org/abs/1312.5602"
+	},
+	"assets": [
+		{
+			"type": "figure",
+			"identifier": "1",
+			"page": 2,
+			"region": {
+				"x": 104,
+				"y": 77,
+				"width": 404,
+				"height": 101
+			},
+			"mentionPages": [2],
+			"caption": "Figure 1: Screen shots from five Atari 2600 Games: (Left-to-right) Pong, Breakout, Space Invaders, Seaquest, Beam Rider"
+		},
+		{
+			"type": "figure",
+			"identifier": "2",
+			"page": 7,
+			"region": {
+				"x": 104,
+				"y": 80,
+				"width": 404,
+				"height": 148
+			},
+			"mentionPages": [6],
+			"caption": "Figure 2: The two plots on the left show average reward per episode on Breakout and Seaquest respectively during training. The statistics were computed by running an \u000f-greedy policy with \u000f = 0.05 for 10000 steps. The two plots on the right show the average maximum predicted action-value of a held out set of states on Breakout and Seaquest respectively. One epoch corresponds to 50000 minibatch weight updates or roughly 30 minutes of training time."
+		},
+		{
+			"type": "figure",
+			"identifier": "3",
+			"page": 7,
+			"region": {
+				"x": 104,
+				"y": 241,
+				"width": 404,
+				"height": 102
+			},
+			"mentionPages": [7],
+			"caption": "Figure 3: The leftmost plot shows the predicted value function for a 30 frame segment of the game Seaquest. The three screenshots correspond to the frames labeled by A, B, and C respectively."
+		},
+		{
+			"type": "table",
+			"identifier": "1",
+			"page": 8,
+			"region": {
+				"x": 104,
+				"y": 78,
+				"width": 405,
+				"height": 162
+			},
+			"mentionPages": [7],
+			"caption": "Table 1: The upper table compares average total reward for various learning methods by running an \u03b5-greedy policy with \u03b5 = 0.05 for a fixed number of steps. The lower table reports results of the single best performing episode for HNeat and DQN. HNeat produces deterministic policies that always get the same score while DQN used an \u03b5-greedy policy with \u03b5 = 0.05."
+		}
+	]
+}

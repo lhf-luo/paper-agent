@@ -1,0 +1,20 @@
+services:
+  team-corpus:
+    build:
+      context: ../..
+      dockerfile: deployment/team-corpus/Dockerfile
+    restart: unless-stopped
+    environment:
+      PAPER_AGENT_TEAM_AUTH_FILE: /run/secrets/team-auth.json
+      PAPER_AGENT_TEAM_ROOT: /data/corpus
+      PAPER_AGENT_TEAM_BACKUP_ROOT: /backups
+    ports:
+      - "127.0.0.1:4317:4317"
+    volumes:
+      - ./auth.json:/run/secrets/team-auth.json:ro
+      - team-corpus-data:/data
+      - team-corpus-backups:/backups
+
+volumes:
+  team-corpus-data:
+  team-corpus-backups:

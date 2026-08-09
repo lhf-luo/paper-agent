@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/alphacode-2203.07814.pdf",
+  "pdfSha256": "4facd32698069e8eda5e3714f12be8519dbe2a184e9386e37a9939d7f4030bea",
+  "annotatedPages": [3, 9, 18],
+  "metadata": {
+    "paperId": "arxiv:2203.07814",
+    "title": "Competition-Level Code Generation with AlphaCode",
+    "domains": ["artificial-intelligence", "code-generation"],
+    "layouts": ["single-column", "pipe-caption", "multi-panel", "multiple-tables-per-page", "long-caption"],
+    "sourceUrl": "https://arxiv.org/abs/2203.07814"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "1", "page": 3, "region": { "x": 55, "y": 65, "width": 485, "height": 285 }, "mentionPages": [3] },
+    { "type": "figure", "identifier": "4", "page": 9, "region": { "x": 95, "y": 75, "width": 440, "height": 180 }, "mentionPages": [9] },
+    { "type": "table", "identifier": "7", "page": 18, "region": { "x": 150, "y": 240, "width": 300, "height": 120 }, "mentionPages": [18] },
+    { "type": "table", "identifier": "8", "page": 18, "region": { "x": 55, "y": 525, "width": 485, "height": 175 }, "mentionPages": [18, 40, 41, 57] }
+  ]
+}

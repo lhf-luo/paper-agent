@@ -1,0 +1,13 @@
+# Artifact discovery evaluation
+
+This evaluation is deliberately separated from the PDF figure/table release set. `sources.json` defines a 30-paper public-PDF target set. The local PDF files, detector snapshots, acquisition runs, and reviewer workspaces are ignored by Git.
+
+Run `npm run eval:artifacts:fetch` to verify every already-pinned PDF and download missing files. A source without a pinned hash is rejected by default; after checking that the source entry identifies the intended arXiv paper, run `npm run eval:artifacts:fetch -- --accept-new-hashes` once to record the downloaded SHA-256 and change that source to `available`. Then run `npm run eval:artifacts:bootstrap` to create `candidates/*.json`. These snapshots are detector output, not gold labels: `expectedArtifacts` and `ignoredUrls` stay empty, `allPagesReviewed` stays false, and the status stays `machine-generated-candidate`.
+
+The preferred review path is `paper-agent` → **Quality evaluation**. The local service verifies the PDF magic, pinned SHA-256, `pdfinfo` page count, source/candidate identity, reviewer metadata, complete physical-page checklist, and one explicit decision for every detector candidate. Browser recovery state is only a draft in `localStorage`; the evaluator never reads it. A reviewed JSON file is written to `annotations/` only after the exact annotation and existing-file hash have been included in a prepared fingerprint and the reviewer grants one-time confirmation. The final write uses a temporary file and atomic rename.
+
+For a non-GUI review aid, run `npm run eval:artifacts:review-workspace` or `npm run eval:artifacts:review-workspace -- --slug=paper-slug`. Those generated checklists and candidate tables remain local-only and do not become gold automatically. Regardless of interface, a real researcher must inspect every physical page, independently decide which repository, dataset, supplement, project, or archival DOI belongs to the paper, record citation-only or unrelated candidates with reasons, and add detector misses explicitly. See [the full review guide](../../docs/artifact-evaluation.md).
+
+`npm run eval:artifacts` reports exact/alias URL precision and recall, kind accuracy, page accuracy, and provenance completeness. `npm run eval:artifacts:check` is intentionally strict: it requires at least 30 fully human-reviewed papers, at least 20 gold artifacts, precision/recall/kind accuracy of 0.90, and complete discovery provenance. It must not be added to a release claim until those human reviews exist.
+
+Downloaded PDFs and generated candidate snapshots remain local-only and are ignored by Git. Only the source manifest and independently reviewed annotations are versioned.

@@ -1,0 +1,107 @@
+{
+	"name": "pi-paper-agent",
+	"version": "0.1.0",
+	"description": "Evidence-driven research agent for analyzing papers, code artifacts, and primary sources with Pi",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "biome lint . && npm run typecheck && npm run typecheck:web && npm run web:build && vitest run",
+		"eval:artifacts": "node scripts/evaluate-artifact-discovery.ts eval-data/artifacts",
+		"eval:artifacts:bootstrap": "node scripts/bootstrap-artifact-evaluation.ts eval-data/artifacts",
+		"eval:artifacts:check": "node scripts/evaluate-artifact-discovery.ts eval-data/artifacts --check",
+		"eval:artifacts:fetch": "node scripts/fetch-artifact-eval-set.ts eval-data/artifacts",
+		"eval:artifacts:review-workspace": "node scripts/prepare-artifact-review.ts eval-data/artifacts",
+		"eval:pdf-assets": "node scripts/evaluate-pdf-assets.ts eval-data/annotations",
+		"eval:pdf-assets:bootstrap": "node scripts/bootstrap-pdf-asset-expansion.ts",
+		"eval:pdf-assets:check": "node scripts/evaluate-pdf-assets.ts eval-data/annotations --check",
+		"eval:pdf-assets:fetch": "node scripts/fetch-pdf-asset-eval-set.ts eval-data/annotations",
+		"format": "biome check --write .",
+		"team-server": "node scripts/team-corpus-server.ts",
+		"team-token-hash": "node scripts/hash-team-token.ts",
+		"start:web": "node scripts/web-server.ts",
+		"status": "node scripts/status.ts",
+		"test:live": "node scripts/live-integration-smoke.ts",
+		"test:cli-smoke": "node scripts/cli-smoke.ts",
+		"test:team-server": "node scripts/team-corpus-smoke.ts",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"typecheck:web": "tsc -p web/tsconfig.json",
+		"verify": "node scripts/verify.ts --mode quick",
+		"verify:full": "node scripts/verify.ts --mode full",
+		"verify:live": "node scripts/verify.ts --mode live",
+		"web:build": "vite build",
+		"web:dev": "vite",
+		"release:check": "npm run check && npm run eval:pdf-assets:check"
+	},
+	"files": [
+		"deployment",
+		"docs",
+		"eval-data/README.md",
+		"eval-data/annotations",
+		"eval-data/artifacts/README.md",
+		"eval-data/artifacts/annotations",
+		"eval-data/artifacts/sources.json",
+		"eval-data/baseline.json",
+		"eval-data/expansion-sources.json",
+		"eval-data/system-behavior-scenarios.json",
+		"src",
+		"skills",
+		"scripts",
+		"test",
+		"biome.json",
+		"LICENSE",
+		"README.md",
+		"README.zh-CN.md",
+		"paper-agent.ps1",
+		"run.sh",
+		"tsconfig.json",
+		"vite.config.ts",
+		"vitest.config.ts",
+		"dist/web",
+		"web"
+	],
+	"keywords": [
+		"pi-package",
+		"paper-reading",
+		"research-agent"
+	],
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.5",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@types/node": "24.12.4",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4",
+		"@vitejs/plugin-react": "^6.0.5",
+		"typebox": "1.1.38",
+		"typescript": "5.9.3",
+		"vite": "^8.2.0",
+		"vitest": "4.1.9"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/A6y55/paper-agent.git"
+	},
+	"dependencies": {
+		"pdfjs-dist": "^6.2.108",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8"
+	},
+	"overrides": {
+		"brace-expansion": "5.0.9",
+		"protobufjs": "7.6.5",
+		"undici": "8.9.0"
+	}
+}

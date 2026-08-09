@@ -1,0 +1,21 @@
+[Unit]
+Description=Paper Agent team literature corpus
+After=network.target
+
+[Service]
+Type=simple
+User=paper-agent
+Group=paper-agent
+WorkingDirectory=/opt/paper-agent
+EnvironmentFile=/etc/paper-agent/team-corpus.env
+ExecStartPre=/usr/bin/node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 19)) { console.error('Paper Agent requires Node.js >=22.19.0; found ' + process.version); process.exit(1); }"
+ExecStart=/usr/bin/node scripts/team-corpus-server.ts
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent /var/backups/paper-agent
+
+[Install]
+WantedBy=multi-user.target

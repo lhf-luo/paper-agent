@@ -1,0 +1,106 @@
+{
+	"schemaVersion": 2,
+	"annotationStatus": "human-reviewed",
+	"pdfPath": "../pdfs/unet-1505.04597.pdf",
+	"pdfSha256": "a3172b2124f38e260dc2c7ed968d87c31bc94dbc19a42a7ab3dcbd7534319c44",
+	"annotatedPages": [2, 3, 5, 6, 7],
+	"metadata": {
+		"paperId": "arxiv:1505.04597",
+		"title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+		"domains": ["computer-vision", "medical-imaging"],
+		"layouts": ["single-column", "multi-panel", "caption-above-table"],
+		"sourceUrl": "https://arxiv.org/abs/1505.04597"
+	},
+	"assets": [
+		{
+			"type": "figure",
+			"identifier": "1",
+			"page": 2,
+			"region": {
+				"x": 131,
+				"y": 89,
+				"width": 353,
+				"height": 305
+			},
+			"mentionPages": [2, 4],
+			"caption": "Fig. 1. U-net architecture (example for 32x32 pixels in the lowest resolution). Each blue box corresponds to a multi-channel feature map. The number of channels is denoted on top of the box. The x-y-size is provided at the lower left edge of the box. White boxes represent copied feature maps. The arrows denote the different operations."
+		},
+		{
+			"type": "figure",
+			"identifier": "2",
+			"page": 3,
+			"region": {
+				"x": 131,
+				"y": 89,
+				"width": 354,
+				"height": 196
+			},
+			"mentionPages": [3, 4, 6],
+			"caption": "Fig. 2. Overlap-tile strategy for seamless segmentation of arbitrary large images (here segmentation of neuronal structures in EM stacks). Prediction of the segmentation in the yellow area, requires image data within the blue area as input. Missing input data is extrapolated by mirroring"
+		},
+		{
+			"type": "figure",
+			"identifier": "3",
+			"page": 5,
+			"region": {
+				"x": 131,
+				"y": 89,
+				"width": 353,
+				"height": 165
+			},
+			"subfigureRegions": [
+				{ "label": "a", "region": { "x": 142, "y": 115, "width": 80, "height": 74 } },
+				{ "label": "b", "region": { "x": 223, "y": 115, "width": 81, "height": 74 } },
+				{ "label": "c", "region": { "x": 305, "y": 115, "width": 80, "height": 74 } },
+				{ "label": "d", "region": { "x": 387, "y": 115, "width": 86, "height": 74 } }
+			],
+			"mentionPages": [3, 7],
+			"caption": "Fig. 3. HeLa cells on glass recorded with DIC (differential interference contrast) mi- croscopy. (a) raw image. (b) overlay with ground truth segmentation. Different colors indicate different instances of the HeLa cells. (c) generated segmentation mask (white: foreground, black: background). (d) map with a pixel-wise loss weight to force the network to learn the border pixels."
+		},
+		{
+			"type": "table",
+			"identifier": "1",
+			"page": 6,
+			"region": {
+				"x": 131,
+				"y": 512,
+				"width": 353,
+				"height": 155
+			},
+			"mentionPages": [6],
+			"caption": "Table 1. Ranking on the EM segmentation challenge [14] (march 6th, 2015), sorted by warping error."
+		},
+		{
+			"type": "figure",
+			"identifier": "4",
+			"page": 7,
+			"region": {
+				"x": 131,
+				"y": 89,
+				"width": 354,
+				"height": 154
+			},
+			"subfigureRegions": [
+				{ "label": "a", "region": { "x": 136, "y": 115, "width": 91, "height": 74 } },
+				{ "label": "b", "region": { "x": 227, "y": 115, "width": 90, "height": 74 } },
+				{ "label": "c", "region": { "x": 319, "y": 115, "width": 80, "height": 74 } },
+				{ "label": "d", "region": { "x": 400, "y": 115, "width": 80, "height": 74 } }
+			],
+			"mentionPages": [],
+			"caption": "Fig. 4. Result on the ISBI cell tracking challenge. (a) part of an input image of the “PhC-U373” data set. (b) Segmentation result (cyan mask) with manual ground truth (yellow border) (c) input image of the “DIC-HeLa” data set. (d) Segmentation result (random colored masks) with manual ground truth (yellow border)."
+		},
+		{
+			"type": "table",
+			"identifier": "2",
+			"page": 7,
+			"region": {
+				"x": 145,
+				"y": 254,
+				"width": 325,
+				"height": 101
+			},
+			"mentionPages": [],
+			"caption": "Table 2. Segmentation results (IOU) on the ISBI cell tracking challenge 2015."
+		}
+	]
+}

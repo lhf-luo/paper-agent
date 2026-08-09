@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/vit-2010.11929.pdf",
+  "pdfSha256": "8ce7b83971a14508ca711a27c875c9b6914c4f6767cf3150fb1ca6c07aa056d6",
+  "annotatedPages": [
+    7,
+    17
+  ],
+  "metadata": {
+    "paperId": "arxiv:2010.11929",
+    "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "domains": [
+      "computer-vision",
+      "transformers"
+    ],
+    "layouts": ["single-column", "side-by-side-figures", "multiple-assets"],
+    "sourceUrl": "https://arxiv.org/abs/2010.11929"
+  },
+  "assets": [
+    {
+      "type": "figure",
+      "identifier": "3",
+      "page": 7,
+      "region": {
+        "x": 104,
+        "y": 99,
+        "width": 206,
+        "height": 190
+      },
+      "mentionPages": [
+        6,
+        14,
+        15
+      ],
+      "caption": "Figure 3: Transfer to ImageNet. While"
+    },
+    {
+      "type": "figure",
+      "identifier": "4",
+      "page": 7,
+      "region": {
+        "x": 306,
+        "y": 99,
+        "width": 202,
+        "height": 190
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Figure 4: Linear few-shot evaluation on Ima-"
+    },
+    {
+      "type": "figure",
+      "identifier": "5",
+      "page": 7,
+      "region": {
+        "x": 104,
+        "y": 303,
+        "width": 404,
+        "height": 215
+      },
+      "mentionPages": [
+        8,
+        15,
+        16
+      ],
+      "caption": "Figure 5: Performance versus pre-training compute for different architectures: Vision Transformers, ResNets, and hybrids. Vision Transformers generally outperform ResNets with the same compu- tational budget. Hybrids improve upon pure Transformers for smaller model sizes, but the gap vanishes for larger models."
+    },
+    {
+      "type": "figure",
+      "identifier": "9",
+      "page": 17,
+      "region": {
+        "x": 104,
+        "y": 68,
+        "width": 404,
+        "height": 201
+      },
+      "mentionPages": [
+        17
+      ],
+      "caption": "Figure 9: Comparison of class-token and global average pooling classifiers. Both work similarly well, but require different learning-rates."
+    },
+    {
+      "type": "table",
+      "identifier": "8",
+      "page": 17,
+      "region": {
+        "x": 104,
+        "y": 277,
+        "width": 404,
+        "height": 102
+      },
+      "mentionPages": [
+        18
+      ],
+      "caption": "Table 8: Results of the ablation study on positional embeddings with ViT-B/16 model evaluated on ImageNet 5-shot linear."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 2,
+	"annotationStatus": "human-reviewed",
+	"pdfPath": "../pdfs/patch-management-2012.00544.pdf",
+	"pdfSha256": "8e1b6ee35b2f98d8092778841f6335dbca159e94aabc0f1198c0f2590519c8f4",
+	"annotatedPages": [13, 14, 15],
+	"metadata": {
+		"paperId": "arxiv:2012.00544",
+		"title": "Software Security Patch Management -- A Systematic Literature Review of Challenges, Approaches, Tools and Practices",
+		"domains": ["software-security", "patch-management", "systematic-review"],
+		"layouts": ["single-column", "continued-table", "repeated-table-header", "mixed-figure-and-table"],
+		"sourceUrl": "https://arxiv.org/abs/2012.00544"
+	},
+	"assets": [
+		{
+			"type": "figure",
+			"identifier": "5",
+			"page": 13,
+			"region": { "x": 122, "y": 70, "width": 370, "height": 300 },
+			"mentionPages": [12]
+		},
+		{
+			"type": "table",
+			"identifier": "5",
+			"page": 13,
+			"region": { "x": 75, "y": 394, "width": 455, "height": 308 },
+			"continuationRegions": [
+				{ "page": 14, "region": { "x": 75, "y": 68, "width": 455, "height": 600 } },
+				{ "page": 15, "region": { "x": 75, "y": 68, "width": 455, "height": 305 } }
+			],
+			"mentionPages": [12]
+		}
+	]
+}

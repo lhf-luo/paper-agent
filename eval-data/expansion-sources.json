@@ -1,0 +1,80 @@
+[
+	{
+		"slug": "resnet",
+		"arxivId": "1512.03385",
+		"title": "Deep Residual Learning for Image Recognition",
+		"domains": ["computer-vision", "deep-learning"]
+	},
+	{
+		"slug": "dropout",
+		"arxivId": "1207.0580",
+		"title": "Improving neural networks by preventing co-adaptation of feature detectors",
+		"domains": ["computer-vision", "deep-learning"]
+	},
+	{
+		"slug": "gpt3",
+		"arxivId": "2005.14165",
+		"title": "Language Models are Few-Shot Learners",
+		"domains": ["artificial-intelligence", "nlp"]
+	},
+	{
+		"slug": "rag",
+		"arxivId": "2005.11401",
+		"title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+		"domains": ["artificial-intelligence", "nlp", "retrieval"]
+	},
+	{
+		"slug": "vit",
+		"arxivId": "2010.11929",
+		"title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+		"domains": ["computer-vision", "transformers"]
+	},
+	{
+		"slug": "unet",
+		"arxivId": "1505.04597",
+		"title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+		"domains": ["computer-vision", "medical-imaging"]
+	},
+	{
+		"slug": "dqn",
+		"arxivId": "1312.5602",
+		"title": "Playing Atari with Deep Reinforcement Learning",
+		"domains": ["reinforcement-learning"]
+	},
+	{
+		"slug": "yolo",
+		"arxivId": "1506.02640",
+		"title": "You Only Look Once: Unified, Real-Time Object Detection",
+		"domains": ["computer-vision", "object-detection"]
+	},
+	{
+		"slug": "diffusion",
+		"arxivId": "2006.11239",
+		"title": "Denoising Diffusion Probabilistic Models",
+		"domains": ["generative-models", "deep-learning"]
+	},
+	{
+		"slug": "clip",
+		"arxivId": "2103.00020",
+		"title": "Learning Transferable Visual Models From Natural Language Supervision",
+		"domains": ["multimodal", "computer-vision"]
+	},
+	{
+		"slug": "mask-rcnn",
+		"arxivId": "1703.06870",
+		"title": "Mask R-CNN",
+		"domains": ["computer-vision", "instance-segmentation"]
+	},
+	{
+		"slug": "gat",
+		"arxivId": "1710.10903",
+		"title": "Graph Attention Networks",
+		"domains": ["graph-learning", "deep-learning"]
+	},
+	{
+		"slug": "chain-of-thought",
+		"arxivId": "2201.11903",
+		"title": "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+		"domains": ["artificial-intelligence", "reasoning"]
+	}
+]

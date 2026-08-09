@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/gpt3-2005.14165.pdf",
+  "pdfSha256": "97fd272f1fdfc18677462d0292f5fbf26ca86b4d1b485c2dba03269b643a0e83",
+  "annotatedPages": [
+    9,
+    11,
+    12
+  ],
+  "metadata": {
+    "paperId": "arxiv:2005.14165",
+    "title": "Language Models are Few-Shot Learners",
+    "domains": [
+      "artificial-intelligence",
+      "nlp"
+    ],
+    "layouts": ["single-column", "full-width", "mixed-figure-table"],
+    "sourceUrl": "https://arxiv.org/abs/2005.14165"
+  },
+  "assets": [
+    {
+      "type": "figure",
+      "identifier": "2.2",
+      "page": 9,
+      "region": {
+        "x": 68,
+        "y": 69,
+        "width": 476,
+        "height": 286
+      },
+      "mentionPages": [],
+      "caption": "Figure 2.2: Total compute used during training. Based on the analysis in Scaling Laws For Neural Language Models [KMH + 20] we train much larger models on many fewer tokens than is typical. As a consequence, although GPT-3 3B is almost 10x larger than RoBERTa-Large (355M params), both models took roughly 50 petaflop/s-days of compute during pre-training. Methodology for these calculations can be found in Appendix D."
+    },
+    {
+      "type": "table",
+      "identifier": "2.2",
+      "page": 9,
+      "region": {
+        "x": 67,
+        "y": 365,
+        "width": 477,
+        "height": 150
+      },
+      "mentionPages": [],
+      "caption": "Table 2.2: Datasets used to train GPT-3. “Weight in training mix” refers to the fraction of examples during training that are drawn from a given dataset, which we intentionally do not make proportional to the size of the dataset. As a result, when we train for 300 billion tokens, some datasets are seen up to 3.4 times during training while other datasets are seen less than once."
+    },
+    {
+      "type": "figure",
+      "identifier": "3.1",
+      "page": 11,
+      "region": {
+        "x": 68,
+        "y": 79,
+        "width": 477,
+        "height": 289
+      },
+      "mentionPages": [],
+      "caption": "Figure 3.1: Smooth scaling of performance with compute. Performance (measured in terms of cross-entropy validation loss) follows a power-law trend with the amount of compute used for training. The power-law behavior observed in [KMH + 20] continues for an additional two orders of magnitude with only small deviations from the predicted curve. For this figure, we exclude embedding parameters from compute and parameter counts."
+    },
+    {
+      "type": "table",
+      "identifier": "3.1",
+      "page": 11,
+      "region": {
+        "x": 67,
+        "y": 377,
+        "width": 478,
+        "height": 90
+      },
+      "mentionPages": [],
+      "caption": "Table 3.1: Zero-shot results on PTB language modeling dataset. Many other common language modeling datasets are omitted because they are derived from Wikipedia or other sources which are included in GPT-3’s training data. [RWC + 19]"
+    },
+    {
+      "type": "figure",
+      "identifier": "3.2",
+      "page": 12,
+      "region": {
+        "x": 68,
+        "y": 228,
+        "width": 477,
+        "height": 255
+      },
+      "mentionPages": [],
+      "caption": "Figure 3.2: On LAMBADA, the few-shot capability of language models results in a strong boost to accuracy. GPT-3 2.7B outperforms the SOTA 17B parameter Turing-NLG [Tur20] in this setting, and GPT-3 175B advances the state of the art by 18%. Note zero-shot uses a different format from one-shot and few-shot as described in the text."
+    },
+    {
+      "type": "table",
+      "identifier": "3.2",
+      "page": 12,
+      "region": {
+        "x": 67,
+        "y": 68,
+        "width": 477,
+        "height": 129
+      },
+      "mentionPages": [],
+      "caption": "Table 3.2: Performance on cloze and completion tasks. GPT-3 significantly improves SOTA on LAMBADA while achieving respectable performance on two difficult completion prediction datasets. a [Tur20] b [RWC + 19] c [LDL19] [LCH + 20]"
+    }
+  ]
+}

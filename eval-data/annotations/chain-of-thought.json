@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/chain-of-thought-2201.11903.pdf",
+  "pdfSha256": "7d9f878c23b460e4566aa4ec9201b1abfb3b8faefb2b1356e411cb90fef72a12",
+  "annotatedPages": [
+    32,
+    33
+  ],
+  "metadata": {
+    "paperId": "arxiv:2201.11903",
+    "title": "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+    "domains": [
+      "artificial-intelligence",
+      "reasoning"
+    ],
+    "layouts": ["single-column", "multiple-tables", "caption-above"],
+    "sourceUrl": "https://arxiv.org/abs/2201.11903"
+  },
+  "assets": [
+    {
+      "type": "table",
+      "identifier": "13",
+      "page": 32,
+      "region": {
+        "x": 103,
+        "y": 103,
+        "width": 417,
+        "height": 112
+      },
+      "mentionPages": [],
+      "caption": "Table 13: Examples of correct and incorrect chains of thought produced by LaMDA 137B on the letter concatenation task."
+    },
+    {
+      "type": "table",
+      "identifier": "14",
+      "page": 32,
+      "region": {
+        "x": 103,
+        "y": 230,
+        "width": 417,
+        "height": 105
+      },
+      "mentionPages": [],
+      "caption": "Table 14: Examples of correct and incorrect chains of thought produced by LaMDA 137B on the coinflip task."
+    },
+    {
+      "type": "table",
+      "identifier": "15",
+      "page": 32,
+      "region": {
+        "x": 103,
+        "y": 396,
+        "width": 417,
+        "height": 194
+      },
+      "mentionPages": [],
+      "caption": "Table 15: Examples of correct and incorrect chains of thought produced by LaMDA 137B on CSQA."
+    },
+    {
+      "type": "table",
+      "identifier": "16",
+      "page": 33,
+      "region": {
+        "x": 103,
+        "y": 75,
+        "width": 417,
+        "height": 195
+      },
+      "mentionPages": [],
+      "caption": "Table 16: Examples of correct and incorrect chains of thought produced by LaMDA 137B on StrategyQA."
+    },
+    {
+      "type": "table",
+      "identifier": "17",
+      "page": 33,
+      "region": {
+        "x": 103,
+        "y": 280,
+        "width": 417,
+        "height": 225
+      },
+      "mentionPages": [],
+      "caption": "Table 17: Examples of correct and incorrect chains of thought produced by LaMDA 137B on Date Understanding."
+    },
+    {
+      "type": "table",
+      "identifier": "18",
+      "page": 33,
+      "region": {
+        "x": 103,
+        "y": 515,
+        "width": 417,
+        "height": 205
+      },
+      "mentionPages": [],
+      "caption": "Table 18: Examples of correct and incorrect chains of thought produced by LaMDA 137B on Sports Understanding."
+    }
+  ]
+}

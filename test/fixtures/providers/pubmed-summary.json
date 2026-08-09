@@ -1,0 +1,14 @@
+{
+	"result": {
+		"uids": ["42424242"],
+		"42424242": {
+			"uid": "42424242",
+			"pubdate": "2024 Jan",
+			"title": "Evidence-guided biomedical analysis",
+			"authors": [{ "name": "Example A" }],
+			"fulljournalname": "Journal of Fixtures",
+			"pubtype": ["Journal Article"],
+			"articleids": [{ "idtype": "doi", "value": "10.1000/pubmed.fixture" }]
+		}
+	}
+}

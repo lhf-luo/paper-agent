@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/attention-1706.03762.pdf",
+  "pdfSha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+  "annotatedPages": [3, 4, 8],
+  "metadata": {
+    "paperId": "arxiv:1706.03762",
+    "title": "Attention Is All You Need",
+    "domains": ["artificial-intelligence", "nlp"],
+    "layouts": ["single-column", "architecture-diagram", "two-panel", "table-caption-above"],
+    "sourceUrl": "https://arxiv.org/abs/1706.03762"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "1", "page": 3, "region": { "x": 195, "y": 55, "width": 220, "height": 365 }, "mentionPages": [3] },
+    { "type": "figure", "identifier": "2", "page": 4, "region": { "x": 150, "y": 55, "width": 360, "height": 245 }, "mentionPages": [4, 5] },
+    { "type": "table", "identifier": "2", "page": 8, "region": { "x": 155, "y": 65, "width": 370, "height": 185 }, "mentionPages": [8] }
+  ]
+}

@@ -1,0 +1,22 @@
+node_modules/
+coverage/
+dist/
+*.tsbuildinfo
+.DS_Store
+.paper-agent/
+/artifacts/
+
+# Pi login credentials (current and legacy storage names)
+auth.json
+oauth.json
+deployment/team-corpus/auth.json
+deployment/team-corpus/backups/
+
+# Local PDF evaluation materials; source manifests, gold annotations, and baselines remain versionable.
+eval-data/pdfs/
+eval-data/rendered/
+eval-data/debug/
+eval-data/expansion-candidates/
+eval-data/artifacts/candidates/
+eval-data/artifacts/runs/
+eval-data/artifacts/review-workspaces/

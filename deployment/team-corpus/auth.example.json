@@ -1,0 +1,19 @@
+{
+	"identities": [
+		{
+			"name": "researcher-name",
+			"tokenSha256": "replace-with-64-character-sha256",
+			"roles": ["reader", "contributor"]
+		},
+		{
+			"name": "reviewer-name",
+			"tokenSha256": "replace-with-64-character-sha256",
+			"roles": ["reader", "reviewer"]
+		},
+		{
+			"name": "corpus-admin",
+			"tokenSha256": "replace-with-64-character-sha256",
+			"roles": ["admin"]
+		}
+	]
+}

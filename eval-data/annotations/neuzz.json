@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/neuzz-1807.05620.pdf",
+  "pdfSha256": "53f451eb1a702d9deae6169f51546359444fdd1e28a7a6002afc9a06e5e20fd1",
+  "annotatedPages": [3, 4, 11],
+  "metadata": {
+    "paperId": "arxiv:1807.05620",
+    "title": "NEUZZ: Efficient Fuzzing with Neural Program Smoothing",
+    "domains": ["software-security", "fuzzing", "ai-for-security"],
+    "layouts": ["two-column", "full-width", "multi-panel", "figure-and-table"],
+    "sourceUrl": "https://arxiv.org/abs/1807.05620"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "1", "page": 3, "region": { "x": 45, "y": 45, "width": 260, "height": 155 }, "mentionPages": [2] },
+    { "type": "figure", "identifier": "2", "page": 3, "region": { "x": 310, "y": 45, "width": 255, "height": 118 }, "mentionPages": [3, 7] },
+    { "type": "figure", "identifier": "3", "page": 4, "region": { "x": 55, "y": 40, "width": 505, "height": 160 }, "mentionPages": [4, 5] },
+    { "type": "figure", "identifier": "4", "page": 11, "region": { "x": 45, "y": 45, "width": 520, "height": 220 }, "mentionPages": [10] },
+    { "type": "table", "identifier": "VII", "page": 11, "region": { "x": 60, "y": 488, "width": 230, "height": 110 }, "mentionPages": [11] }
+  ]
+}

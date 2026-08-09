@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/mask-rcnn-1703.06870.pdf",
+  "pdfSha256": "b595a882b763d55d933543131f32a2c4b6f41d0818d418ef46a2b66f946b67a8",
+  "annotatedPages": [
+    5,
+    8
+  ],
+  "metadata": {
+    "paperId": "arxiv:1703.06870",
+    "title": "Mask R-CNN",
+    "domains": [
+      "computer-vision",
+      "instance-segmentation"
+    ],
+    "layouts": ["two-column", "full-width-figure", "side-by-side-tables"],
+    "sourceUrl": "https://arxiv.org/abs/1703.06870"
+  },
+  "assets": [
+    {
+      "type": "figure",
+      "identifier": "5",
+      "page": 5,
+      "region": {
+        "x": 46,
+        "y": 190,
+        "width": 503,
+        "height": 155
+      },
+      "mentionPages": [
+        5
+      ],
+      "caption": "Figure 5. More results of Mask R-CNN on COCO test images, using ResNet-101-FPN and running at 5 fps, with 35.7 mask AP (Table 1)."
+    },
+    {
+      "type": "table",
+      "identifier": "1",
+      "page": 5,
+      "region": {
+        "x": 46,
+        "y": 347,
+        "width": 503,
+        "height": 137
+      },
+      "mentionPages": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "caption": "Table 1. Instance segmentation mask AP on COCO test-dev."
+    },
+    {
+      "type": "figure",
+      "identifier": "7",
+      "page": 8,
+      "region": {
+        "x": 46,
+        "y": 68,
+        "width": 504,
+        "height": 166
+      },
+      "mentionPages": [
+        8
+      ],
+      "caption": "Figure 7. Keypoint detection results on COCO test using Mask R-CNN (ResNet-50-FPN), with person segmentation masks predicted from the same model. This model has a keypoint AP of 63.1 and runs at 5 fps."
+    },
+    {
+      "type": "table",
+      "identifier": "4",
+      "page": 8,
+      "region": {
+        "x": 46,
+        "y": 238,
+        "width": 264,
+        "height": 79
+      },
+      "mentionPages": [
+        8
+      ],
+      "caption": "Table 4. Keypoint detection AP on COCO test-dev. Ours is a"
+    },
+    {
+      "type": "table",
+      "identifier": "5",
+      "page": 8,
+      "region": {
+        "x": 306,
+        "y": 238,
+        "width": 243,
+        "height": 73
+      },
+      "mentionPages": [
+        8
+      ],
+      "caption": "Table 5. Multi-task learning of box, mask, and keypoint about the"
+    },
+    {
+      "type": "table",
+      "identifier": "6",
+      "page": 8,
+      "region": {
+        "x": 306,
+        "y": 351,
+        "width": 243,
+        "height": 63
+      },
+      "mentionPages": [
+        7,
+        8
+      ],
+      "caption": "Table 6. RoIAlign vs. RoIPool for keypoint detection on minival."
+    }
+  ]
+}

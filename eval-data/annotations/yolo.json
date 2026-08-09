@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/yolo-1506.02640.pdf",
+  "pdfSha256": "54bcd2dd05dc618849e8a94d8b88fe3eeb37f80e96e200600d38f1f733931678",
+  "annotatedPages": [
+    1,
+    6,
+    8
+  ],
+  "metadata": {
+    "paperId": "arxiv:1506.02640",
+    "title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "domains": [
+      "computer-vision",
+      "object-detection"
+    ],
+    "layouts": ["two-column", "full-width-figure", "multiple-assets"],
+    "sourceUrl": "https://arxiv.org/abs/1506.02640"
+  },
+  "assets": [
+    {
+      "type": "figure",
+      "identifier": "1",
+      "page": 1,
+      "region": {
+        "x": 306,
+        "y": 74,
+        "width": 244,
+        "height": 201
+      },
+      "mentionPages": [
+        1
+      ],
+      "caption": "Figure 1: The YOLO Detection System. Processing images"
+    },
+    {
+      "type": "figure",
+      "identifier": "4",
+      "page": 6,
+      "region": {
+        "x": 306,
+        "y": 71,
+        "width": 243,
+        "height": 147
+      },
+      "mentionPages": [
+        6
+      ],
+      "caption": "Figure 4: Error Analysis: Fast R-CNN vs. YOLO These"
+    },
+    {
+      "type": "table",
+      "identifier": "1",
+      "page": 6,
+      "region": {
+        "x": 46,
+        "y": 70,
+        "width": 264,
+        "height": 181
+      },
+      "mentionPages": [],
+      "caption": "Table 1: Real-Time Systems on P ASCAL VOC 2007. Compar-"
+    },
+    {
+      "type": "table",
+      "identifier": "2",
+      "page": 6,
+      "region": {
+        "x": 306,
+        "y": 560,
+        "width": 243,
+        "height": 106
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Table 2: Model combination experiments on VOC 2007. We"
+    },
+    {
+      "type": "figure",
+      "identifier": "5",
+      "page": 8,
+      "region": {
+        "x": 46,
+        "y": 70,
+        "width": 503,
+        "height": 213
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Figure 5: Generalization results on Picasso and People-Art datasets."
+    },
+    {
+      "type": "figure",
+      "identifier": "6",
+      "page": 8,
+      "region": {
+        "x": 46,
+        "y": 293,
+        "width": 503,
+        "height": 237
+      },
+      "mentionPages": [],
+      "caption": "Figure 6: Qualitative Results. YOLO running on sample artwork and natural images from the internet. It is mostly accurate although it"
+    }
+  ]
+}

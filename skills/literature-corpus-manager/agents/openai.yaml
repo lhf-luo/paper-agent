@@ -1,0 +1,4 @@
+interface:
+  display_name: "Literature Corpus Manager"
+  short_description: "Collect and reuse traceable research materials"
+  default_prompt: "Use $literature-corpus-manager personal-first: search existing corpora, collect missing papers with provenance into personal scope, keep notes and screening private, and promote only explicitly selected, reviewed records to the team workflow."

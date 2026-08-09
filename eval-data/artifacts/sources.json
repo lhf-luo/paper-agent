@@ -1,0 +1,389 @@
+[
+  {
+    "slug": "aflfast",
+    "title": "Coverage-based Greybox Fuzzing as Markov Chain",
+    "paperId": "arxiv:1603.04031",
+    "pdfPath": "../pdfs/aflfast-1603.04031.pdf",
+    "pdfSha256": "80705d2aba542d32e40aebbbb5395e70292371327d9d52faa4eaa01ae3da8e03",
+    "sourceUrl": "https://arxiv.org/pdf/1603.04031",
+    "status": "available",
+    "tags": [
+      "software-security",
+      "fuzzing"
+    ]
+  },
+  {
+    "slug": "alphacode",
+    "title": "Competition-Level Code Generation with AlphaCode",
+    "paperId": "arxiv:2203.07814",
+    "pdfPath": "../pdfs/alphacode-2203.07814.pdf",
+    "pdfSha256": "4facd32698069e8eda5e3714f12be8519dbe2a184e9386e37a9939d7f4030bea",
+    "sourceUrl": "https://arxiv.org/pdf/2203.07814",
+    "status": "available",
+    "tags": [
+      "ai",
+      "code-generation"
+    ]
+  },
+  {
+    "slug": "angr",
+    "title": "SoK: (State of) The Art of War: Offensive Techniques in Binary Analysis",
+    "paperId": "arxiv:1603.00803",
+    "pdfPath": "../pdfs/angr-1603.00803.pdf",
+    "pdfSha256": "b1505a713dda194a9f08cbf574da089ee90d12a212b0f6396071e3554e2d4377",
+    "sourceUrl": "https://arxiv.org/pdf/1603.00803",
+    "status": "available",
+    "tags": [
+      "reverse-engineering",
+      "binary-analysis"
+    ]
+  },
+  {
+    "slug": "attention",
+    "title": "Attention Is All You Need",
+    "paperId": "arxiv:1706.03762",
+    "pdfPath": "../pdfs/attention-1706.03762.pdf",
+    "pdfSha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+    "sourceUrl": "https://arxiv.org/pdf/1706.03762",
+    "status": "available",
+    "tags": [
+      "ai",
+      "nlp"
+    ]
+  },
+  {
+    "slug": "bert",
+    "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "paperId": "arxiv:1810.04805",
+    "pdfPath": "../pdfs/bert-1810.04805.pdf",
+    "pdfSha256": "5692a5514787a8c6727b4ff3b726a3385798bc68e12138d1d4af83947e2acf6e",
+    "sourceUrl": "https://arxiv.org/pdf/1810.04805",
+    "status": "available",
+    "tags": [
+      "ai",
+      "nlp"
+    ]
+  },
+  {
+    "slug": "candidate-2306.08869",
+    "title": "Artifact evaluation candidate arXiv:2306.08869",
+    "paperId": "arxiv:2306.08869",
+    "pdfPath": "../pdfs/candidate-2306.08869.pdf",
+    "pdfSha256": "2ce1dbcba3b1ccf2a886fe92fc956e98b4180805c196e89c56c672b12b871546",
+    "sourceUrl": "https://arxiv.org/pdf/2306.08869",
+    "status": "available",
+    "tags": [
+      "evaluation-candidate"
+    ]
+  },
+  {
+    "slug": "candidate-2502.07049",
+    "title": "Artifact evaluation candidate arXiv:2502.07049",
+    "paperId": "arxiv:2502.07049",
+    "pdfPath": "../pdfs/candidate-2502.07049.pdf",
+    "pdfSha256": "ff2bf232631623434f181a061318e6dc088b43f7d8d4cbc4f7a112cf0f123ac9",
+    "sourceUrl": "https://arxiv.org/pdf/2502.07049",
+    "status": "available",
+    "tags": [
+      "evaluation-candidate"
+    ]
+  },
+  {
+    "slug": "candidate-2509.20385",
+    "title": "Artifact evaluation candidate arXiv:2509.20385",
+    "paperId": "arxiv:2509.20385",
+    "pdfPath": "../pdfs/candidate-2509.20385.pdf",
+    "pdfSha256": "fb0d2ee744d5e624887ed5e842bc5ffd9bb102144d97a322db0f7006446b08cd",
+    "sourceUrl": "https://arxiv.org/pdf/2509.20385",
+    "status": "available",
+    "tags": [
+      "evaluation-candidate"
+    ]
+  },
+  {
+    "slug": "chain-of-thought",
+    "title": "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+    "paperId": "arxiv:2201.11903",
+    "pdfPath": "../pdfs/chain-of-thought-2201.11903.pdf",
+    "pdfSha256": "7d9f878c23b460e4566aa4ec9201b1abfb3b8faefb2b1356e411cb90fef72a12",
+    "sourceUrl": "https://arxiv.org/pdf/2201.11903",
+    "status": "available",
+    "tags": [
+      "ai",
+      "reasoning"
+    ]
+  },
+  {
+    "slug": "clip",
+    "title": "Learning Transferable Visual Models From Natural Language Supervision",
+    "paperId": "arxiv:2103.00020",
+    "pdfPath": "../pdfs/clip-2103.00020.pdf",
+    "pdfSha256": "6478b6e571a7d6fcd846d8ef77bfd60c285f1986abb8f475eedc43de403074f5",
+    "sourceUrl": "https://arxiv.org/pdf/2103.00020",
+    "status": "available",
+    "tags": [
+      "ai",
+      "multimodal"
+    ]
+  },
+  {
+    "slug": "diffusion",
+    "title": "Denoising Diffusion Probabilistic Models",
+    "paperId": "arxiv:2006.11239",
+    "pdfPath": "../pdfs/diffusion-2006.11239.pdf",
+    "pdfSha256": "aee5e07a802e8dfd2a386374c94fd61d1d056cb7e1e0fec4f28e8120ff5d8505",
+    "sourceUrl": "https://arxiv.org/pdf/2006.11239",
+    "status": "available",
+    "tags": [
+      "ai",
+      "generative-models"
+    ]
+  },
+  {
+    "slug": "dqn",
+    "title": "Playing Atari with Deep Reinforcement Learning",
+    "paperId": "arxiv:1312.5602",
+    "pdfPath": "../pdfs/dqn-1312.5602.pdf",
+    "pdfSha256": "8db04120cace173151c77e0faa6f3eaa4207009da66b9417597dc70bfee56d9c",
+    "sourceUrl": "https://arxiv.org/pdf/1312.5602",
+    "status": "available",
+    "tags": [
+      "ai",
+      "reinforcement-learning"
+    ]
+  },
+  {
+    "slug": "dropout",
+    "title": "Improving Neural Networks by Preventing Co-adaptation of Feature Detectors",
+    "paperId": "arxiv:1207.0580",
+    "pdfPath": "../pdfs/dropout-1207.0580.pdf",
+    "pdfSha256": "997046169952532654f9ab620d511ed4e49eb30018893b7de144fdb485030358",
+    "sourceUrl": "https://arxiv.org/pdf/1207.0580",
+    "status": "available",
+    "tags": [
+      "ai",
+      "deep-learning"
+    ]
+  },
+  {
+    "slug": "firmalice",
+    "title": "FIRMALICE: Automatic Detection of Authentication Bypass Vulnerabilities in Binary Firmware",
+    "paperId": "arxiv:1505.03683",
+    "pdfPath": "../pdfs/firmalice-1505.03683.pdf",
+    "pdfSha256": "3b2dfb5754206d9f252dc23bf88dc47d47af8fc59706d893915324be6041ec68",
+    "sourceUrl": "https://arxiv.org/pdf/1505.03683",
+    "status": "available",
+    "tags": [
+      "software-security",
+      "firmware"
+    ]
+  },
+  {
+    "slug": "fuzzing-survey",
+    "title": "The Art, Science, and Engineering of Fuzzing: A Survey",
+    "paperId": "arxiv:1812.00140",
+    "pdfPath": "../pdfs/fuzzing-survey-1812.00140.pdf",
+    "pdfSha256": "b683da872e369882f0b8ebcb7423058e1317aa9571f8187ccd1c6148e3ac3992",
+    "sourceUrl": "https://arxiv.org/pdf/1812.00140",
+    "status": "available",
+    "tags": [
+      "software-security",
+      "fuzzing"
+    ]
+  },
+  {
+    "slug": "gat",
+    "title": "Graph Attention Networks",
+    "paperId": "arxiv:1710.10903",
+    "pdfPath": "../pdfs/gat-1710.10903.pdf",
+    "pdfSha256": "a7d811a44e1c65bf27da3a01859f23a8edbe33b8f96114b4b5066aedb078f284",
+    "sourceUrl": "https://arxiv.org/pdf/1710.10903",
+    "status": "available",
+    "tags": [
+      "ai",
+      "graph-learning"
+    ]
+  },
+  {
+    "slug": "gemini",
+    "title": "Neural Network-based Graph Embedding for Cross-Platform Binary Code Similarity Detection",
+    "paperId": "arxiv:1708.06525",
+    "pdfPath": "../pdfs/gemini-1708.06525.pdf",
+    "pdfSha256": "4504f0a909d35b2acfd7915b3c91b248cdd6a2ad21b2e31532573637df3ec346",
+    "sourceUrl": "https://arxiv.org/pdf/1708.06525",
+    "status": "available",
+    "tags": [
+      "reverse-engineering",
+      "ai-for-security"
+    ]
+  },
+  {
+    "slug": "gpt3",
+    "title": "Language Models are Few-Shot Learners",
+    "paperId": "arxiv:2005.14165",
+    "pdfPath": "../pdfs/gpt3-2005.14165.pdf",
+    "pdfSha256": "97fd272f1fdfc18677462d0292f5fbf26ca86b4d1b485c2dba03269b643a0e83",
+    "sourceUrl": "https://arxiv.org/pdf/2005.14165",
+    "status": "available",
+    "tags": [
+      "ai",
+      "nlp"
+    ]
+  },
+  {
+    "slug": "mask-rcnn",
+    "title": "Mask R-CNN",
+    "paperId": "arxiv:1703.06870",
+    "pdfPath": "../pdfs/mask-rcnn-1703.06870.pdf",
+    "pdfSha256": "b595a882b763d55d933543131f32a2c4b6f41d0818d418ef46a2b66f946b67a8",
+    "sourceUrl": "https://arxiv.org/pdf/1703.06870",
+    "status": "available",
+    "tags": [
+      "ai",
+      "computer-vision"
+    ]
+  },
+  {
+    "slug": "neuzz",
+    "title": "NEUZZ: Efficient Fuzzing with Neural Program Smoothing",
+    "paperId": "arxiv:1807.05620",
+    "pdfPath": "../pdfs/neuzz-1807.05620.pdf",
+    "pdfSha256": "53f451eb1a702d9deae6169f51546359444fdd1e28a7a6002afc9a06e5e20fd1",
+    "sourceUrl": "https://arxiv.org/pdf/1807.05620",
+    "status": "available",
+    "tags": [
+      "software-security",
+      "fuzzing"
+    ]
+  },
+  {
+    "slug": "patch-management",
+    "title": "Software Security Patch Management",
+    "paperId": "arxiv:2012.00544",
+    "pdfPath": "../pdfs/patch-management-2012.00544.pdf",
+    "pdfSha256": "8e1b6ee35b2f98d8092778841f6335dbca159e94aabc0f1198c0f2590519c8f4",
+    "sourceUrl": "https://arxiv.org/pdf/2012.00544",
+    "status": "available",
+    "tags": [
+      "software-security",
+      "systematic-review"
+    ]
+  },
+  {
+    "slug": "rag",
+    "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    "paperId": "arxiv:2005.11401",
+    "pdfPath": "../pdfs/rag-2005.11401.pdf",
+    "pdfSha256": "23e3249e9a1e75418d82efecab0ea8c4d033b89c93742f63208d47ce01f21233",
+    "sourceUrl": "https://arxiv.org/pdf/2005.11401",
+    "status": "available",
+    "tags": [
+      "ai",
+      "retrieval"
+    ]
+  },
+  {
+    "slug": "resnet",
+    "title": "Deep Residual Learning for Image Recognition",
+    "paperId": "arxiv:1512.03385",
+    "pdfPath": "../pdfs/resnet-1512.03385.pdf",
+    "pdfSha256": "1e0651b6810ecba34a3dbc5b5b0209226f889004607c1f203540a48d64e5a93a",
+    "sourceUrl": "https://arxiv.org/pdf/1512.03385",
+    "status": "available",
+    "tags": [
+      "ai",
+      "computer-vision"
+    ]
+  },
+  {
+    "slug": "safe",
+    "title": "SAFE: Self-Attentive Function Embeddings for Binary Similarity",
+    "paperId": "arxiv:1811.05296",
+    "pdfPath": "../pdfs/safe-1811.05296.pdf",
+    "pdfSha256": "40f75b06ce2de7c8647635083854c1439093028f673ae96deab0e437924bf2d8",
+    "sourceUrl": "https://arxiv.org/pdf/1811.05296",
+    "status": "available",
+    "tags": [
+      "reverse-engineering",
+      "binary-analysis"
+    ]
+  },
+  {
+    "slug": "unet",
+    "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+    "paperId": "arxiv:1505.04597",
+    "pdfPath": "../pdfs/unet-1505.04597.pdf",
+    "pdfSha256": "a3172b2124f38e260dc2c7ed968d87c31bc94dbc19a42a7ab3dcbd7534319c44",
+    "sourceUrl": "https://arxiv.org/pdf/1505.04597",
+    "status": "available",
+    "tags": [
+      "ai",
+      "medical-imaging"
+    ]
+  },
+  {
+    "slug": "vit",
+    "title": "An Image is Worth 16x16 Words",
+    "paperId": "arxiv:2010.11929",
+    "pdfPath": "../pdfs/vit-2010.11929.pdf",
+    "pdfSha256": "8ce7b83971a14508ca711a27c875c9b6914c4f6767cf3150fb1ca6c07aa056d6",
+    "sourceUrl": "https://arxiv.org/pdf/2010.11929",
+    "status": "available",
+    "tags": [
+      "ai",
+      "computer-vision"
+    ]
+  },
+  {
+    "slug": "yolo",
+    "title": "You Only Look Once: Unified, Real-Time Object Detection",
+    "paperId": "arxiv:1506.02640",
+    "pdfPath": "../pdfs/yolo-1506.02640.pdf",
+    "pdfSha256": "54bcd2dd05dc618849e8a94d8b88fe3eeb37f80e96e200600d38f1f733931678",
+    "sourceUrl": "https://arxiv.org/pdf/1506.02640",
+    "status": "available",
+    "tags": [
+      "ai",
+      "computer-vision"
+    ]
+  },
+  {
+    "slug": "segment-anything",
+    "title": "Segment Anything",
+    "paperId": "arxiv:2304.02643",
+    "pdfPath": "../pdfs/segment-anything-2304.02643.pdf",
+    "sourceUrl": "https://arxiv.org/pdf/2304.02643",
+    "status": "available",
+    "tags": [
+      "artifact-focused",
+      "computer-vision"
+    ],
+    "pdfSha256": "c6ca524e47200c3e542587ca76ac1dbc89cc67340f948c819250d16fdbd90cfb"
+  },
+  {
+    "slug": "llama2",
+    "title": "Llama 2: Open Foundation and Fine-Tuned Chat Models",
+    "paperId": "arxiv:2307.09288",
+    "pdfPath": "../pdfs/llama2-2307.09288.pdf",
+    "sourceUrl": "https://arxiv.org/pdf/2307.09288",
+    "status": "available",
+    "tags": [
+      "artifact-focused",
+      "large-language-models"
+    ],
+    "pdfSha256": "1df284ce95f783002074bfe8f21d47c646b396ceb1736ea3ec0ea212fc070d91"
+  },
+  {
+    "slug": "lora",
+    "title": "LoRA: Low-Rank Adaptation of Large Language Models",
+    "paperId": "arxiv:2106.09685",
+    "pdfPath": "../pdfs/lora-2106.09685.pdf",
+    "sourceUrl": "https://arxiv.org/pdf/2106.09685",
+    "status": "available",
+    "tags": [
+      "artifact-focused",
+      "large-language-models"
+    ],
+    "pdfSha256": "e9a0d3128767db616085dc0f4e6e455e672e89af823e8ed1282793682787395a"
+  }
+]

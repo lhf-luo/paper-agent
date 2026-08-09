@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/diffusion-2006.11239.pdf",
+  "pdfSha256": "aee5e07a802e8dfd2a386374c94fd61d1d056cb7e1e0fec4f28e8120ff5d8505",
+  "annotatedPages": [
+    6,
+    7
+  ],
+  "metadata": {
+    "paperId": "arxiv:2006.11239",
+    "title": "Denoising Diffusion Probabilistic Models",
+    "domains": [
+      "generative-models",
+      "deep-learning"
+    ],
+    "layouts": ["single-column", "side-by-side-figures", "algorithm"],
+    "sourceUrl": "https://arxiv.org/abs/2006.11239"
+  },
+  "assets": [
+    {
+      "type": "algorithm",
+      "identifier": "3",
+      "page": 6,
+      "region": {
+        "x": 103,
+        "y": 235,
+        "width": 207,
+        "height": 74
+      },
+      "mentionPages": [
+        6,
+        13
+      ],
+      "caption": "Algorithm 3 Sending x 0"
+    },
+    {
+      "type": "algorithm",
+      "identifier": "4",
+      "page": 6,
+      "region": {
+        "x": 306,
+        "y": 235,
+        "width": 203,
+        "height": 74
+      },
+      "mentionPages": [
+        6,
+        13
+      ],
+      "caption": "Algorithm 4 Receiving"
+    },
+    {
+      "type": "figure",
+      "identifier": "3",
+      "page": 6,
+      "region": {
+        "x": 104,
+        "y": 67,
+        "width": 206,
+        "height": 152
+      },
+      "mentionPages": [
+        6
+      ],
+      "caption": "Figure 3: LSUN Church samples. FID=7.89"
+    },
+    {
+      "type": "figure",
+      "identifier": "4",
+      "page": 6,
+      "region": {
+        "x": 306,
+        "y": 67,
+        "width": 200,
+        "height": 152
+      },
+      "mentionPages": [],
+      "caption": "Figure 4: LSUN Bedroom samples. FID=4.90"
+    },
+    {
+      "type": "figure",
+      "identifier": "5",
+      "page": 7,
+      "region": {
+        "x": 104,
+        "y": 187,
+        "width": 404,
+        "height": 114
+      },
+      "mentionPages": [
+        7,
+        13
+      ],
+      "caption": "Figure 5: Unconditional CIFAR10 test set rate-distortion vs. time. Distortion is measured in root mean squared"
+    },
+    {
+      "type": "figure",
+      "identifier": "6",
+      "page": 7,
+      "region": {
+        "x": 104,
+        "y": 405,
+        "width": 404,
+        "height": 93
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Figure 6: Unconditional CIFAR10 progressive generation (x̂ 0 over time, from left to right). Extended samples"
+    },
+    {
+      "type": "figure",
+      "identifier": "7",
+      "page": 7,
+      "region": {
+        "x": 104,
+        "y": 502,
+        "width": 405,
+        "height": 100
+      },
+      "mentionPages": [
+        7,
+        15
+      ],
+      "caption": "Figure 7: When conditioned on the same latent, CelebA-HQ 256 × 256 samples share high-level attributes."
+    }
+  ]
+}

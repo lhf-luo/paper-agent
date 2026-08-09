@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/gemini-1708.06525.pdf",
+  "pdfSha256": "4504f0a909d35b2acfd7915b3c91b248cdd6a2ad21b2e31532573637df3ec346",
+  "annotatedPages": [4, 10, 11],
+  "metadata": {
+    "paperId": "arxiv:1708.06525",
+    "title": "Neural Network-based Graph Embedding for Cross-Platform Binary Code Similarity Detection",
+    "domains": ["reverse-engineering", "binary-analysis", "ai-for-security"],
+    "layouts": ["two-column", "column-figure", "full-width", "six-panel"],
+    "sourceUrl": "https://arxiv.org/abs/1708.06525"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "2", "page": 4, "region": { "x": 45, "y": 45, "width": 265, "height": 225 }, "mentionPages": [3] },
+    { "type": "figure", "identifier": "6", "page": 10, "region": { "x": 45, "y": 65, "width": 520, "height": 380 }, "mentionPages": [10] },
+    { "type": "figure", "identifier": "7", "page": 11, "region": { "x": 45, "y": 65, "width": 520, "height": 370 }, "mentionPages": [] }
+  ]
+}

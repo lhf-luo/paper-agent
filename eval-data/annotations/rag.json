@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/rag-2005.11401.pdf",
+  "pdfSha256": "23e3249e9a1e75418d82efecab0ea8c4d033b89c93742f63208d47ce01f21233",
+  "annotatedPages": [
+    2,
+    7,
+    8
+  ],
+  "metadata": {
+    "paperId": "arxiv:2005.11401",
+    "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    "domains": [
+      "artificial-intelligence",
+      "nlp",
+      "retrieval"
+    ],
+    "layouts": ["single-column", "side-by-side-tables", "multiple-assets"],
+    "sourceUrl": "https://arxiv.org/abs/2005.11401"
+  },
+  "assets": [
+    {
+      "type": "figure",
+      "identifier": "1",
+      "page": 2,
+      "region": {
+        "x": 103,
+        "y": 69,
+        "width": 406,
+        "height": 167
+      },
+      "mentionPages": [
+        2
+      ],
+      "caption": "Figure 1: Overview of our approach. We combine a pre-trained retriever (Query Encoder + Document Index) with a pre-trained seq2seq model (Generator) and fine-tune end-to-end. For query x, we use Maximum Inner Product Search (MIPS) to find the top-K documents z i . For final prediction y, we treat z as a latent variable and marginalize over seq2seq predictions given different documents."
+    },
+    {
+      "type": "figure",
+      "identifier": "2",
+      "page": 7,
+      "region": {
+        "x": 103,
+        "y": 70,
+        "width": 407,
+        "height": 102
+      },
+      "mentionPages": [
+        6
+      ],
+      "caption": "Figure 2: RAG-Token document posterior p(z i |x, y i , y −i ) for each generated token for input “Hem- ingway\" for Jeopardy generation with 5 retrieved documents. The posterior for document 1 is high when generating “A Farewell to Arms\" and for document 2 when generating “The Sun Also Rises\"."
+    },
+    {
+      "type": "table",
+      "identifier": "3",
+      "page": 7,
+      "region": {
+        "x": 103,
+        "y": 193,
+        "width": 405,
+        "height": 126
+      },
+      "mentionPages": [
+        6
+      ],
+      "caption": "Table 3: Examples from generation tasks. RAG models generate more specific and factually accurate responses. ‘?’ indicates factually incorrect responses, * indicates partially correct responses."
+    },
+    {
+      "type": "figure",
+      "identifier": "3",
+      "page": 8,
+      "region": {
+        "x": 104,
+        "y": 495,
+        "width": 406,
+        "height": 108
+      },
+      "mentionPages": [
+        8
+      ],
+      "caption": "Figure 3: Left: NQ performance as more documents are retrieved. Center: Retrieval recall perfor- mance in NQ. Right: MS-MARCO Bleu-1 and Rouge-L as more documents are retrieved."
+    },
+    {
+      "type": "table",
+      "identifier": "4",
+      "page": 8,
+      "region": {
+        "x": 103,
+        "y": 79,
+        "width": 207,
+        "height": 102
+      },
+      "mentionPages": [],
+      "caption": "Table 4: Human assessments for the Jeopardy Question Generation Task."
+    },
+    {
+      "type": "table",
+      "identifier": "5",
+      "page": 8,
+      "region": {
+        "x": 306,
+        "y": 79,
+        "width": 203,
+        "height": 102
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Table 5: Ratio of distinct to total tri-grams for generation tasks."
+    },
+    {
+      "type": "table",
+      "identifier": "6",
+      "page": 8,
+      "region": {
+        "x": 103,
+        "y": 180,
+        "width": 405,
+        "height": 139
+      },
+      "mentionPages": [
+        7
+      ],
+      "caption": "Table 6: Ablations on the dev set. As FEVER is a classification task, both RAG models are equivalent."
+    }
+  ]
+}

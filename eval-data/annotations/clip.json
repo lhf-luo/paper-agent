@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/clip-2103.00020.pdf",
+  "pdfSha256": "6478b6e571a7d6fcd846d8ef77bfd60c285f1986abb8f475eedc43de403074f5",
+  "annotatedPages": [
+    21,
+    46
+  ],
+  "metadata": {
+    "paperId": "arxiv:2103.00020",
+    "title": "Learning Transferable Visual Models From Natural Language Supervision",
+    "domains": [
+      "multimodal",
+      "computer-vision"
+    ],
+    "layouts": ["two-column", "side-by-side-tables", "caption-below"],
+    "sourceUrl": "https://arxiv.org/abs/2103.00020"
+  },
+  "assets": [
+    {
+      "type": "table",
+      "identifier": "3",
+      "page": 21,
+      "region": {
+        "x": 51,
+        "y": 43,
+        "width": 259,
+        "height": 128
+      },
+      "mentionPages": [
+        21
+      ],
+      "caption": "Table 3. Percent accuracy on Race, Gender, and Age classification"
+    },
+    {
+      "type": "table",
+      "identifier": "4",
+      "page": 21,
+      "region": {
+        "x": 306,
+        "y": 43,
+        "width": 240,
+        "height": 127
+      },
+      "mentionPages": [],
+      "caption": "Table 4. Percent accuracy on Race, Gender, and Age classification"
+    },
+    {
+      "type": "table",
+      "identifier": "5",
+      "page": 21,
+      "region": {
+        "x": 94,
+        "y": 226,
+        "width": 406,
+        "height": 176
+      },
+      "mentionPages": [
+        22
+      ],
+      "caption": "Table 5. Percent accuracy on gender classification of images by FairFace race category"
+    },
+    {
+      "type": "table",
+      "identifier": "13",
+      "page": 46,
+      "region": {
+        "x": 51,
+        "y": 47,
+        "width": 496,
+        "height": 242
+      },
+      "mentionPages": [
+        45
+      ],
+      "caption": "Table 13. CLIP improves zero-shot retrieval and is competitive with the best fine-tuned result on Flickr30k text retrieval. Bold indicates best overall performance while an underline indicates best in category performance (zero-shot or fine-tuned). For all other models, best results from the paper are reported regardless of model size / variant. MSCOCO performance is reported on the 5k test set. a"
+    },
+    {
+      "type": "table",
+      "identifier": "14",
+      "page": 46,
+      "region": {
+        "x": 51,
+        "y": 304,
+        "width": 259,
+        "height": 151
+      },
+      "mentionPages": [
+        45
+      ],
+      "caption": "Table 14. OCR performance on 5 datasets. All metrics are accuracy on the test set except for Hateful Memes which reports ROC AUC"
+    },
+    {
+      "type": "table",
+      "identifier": "15",
+      "page": 46,
+      "region": {
+        "x": 306,
+        "y": 304,
+        "width": 241,
+        "height": 158
+      },
+      "mentionPages": [
+        46
+      ],
+      "caption": "Table 15. Action recognition performance on 3 video datasets. Sin-"
+    }
+  ]
+}

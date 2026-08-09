@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/bert-1810.04805.pdf",
+  "pdfSha256": "5692a5514787a8c6727b4ff3b726a3385798bc68e12138d1d4af83947e2acf6e",
+  "annotatedPages": [3, 6, 16],
+  "metadata": {
+    "paperId": "arxiv:1810.04805",
+    "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "domains": ["artificial-intelligence", "nlp"],
+    "layouts": ["two-column", "full-width", "two-assets-per-page", "caption-below-table"],
+    "sourceUrl": "https://arxiv.org/abs/1810.04805"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "1", "page": 3, "region": { "x": 65, "y": 50, "width": 465, "height": 270 }, "mentionPages": [3, 4, 6] },
+    { "type": "table", "identifier": "1", "page": 6, "region": { "x": 65, "y": 55, "width": 465, "height": 150 }, "mentionPages": [6] },
+    { "type": "table", "identifier": "8", "page": 16, "region": { "x": 305, "y": 205, "width": 225, "height": 140 }, "mentionPages": [16] },
+    { "type": "figure", "identifier": "5", "page": 16, "region": { "x": 65, "y": 565, "width": 230, "height": 205 }, "mentionPages": [16] }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "annotationStatus": "human-reviewed",
+  "pdfPath": "../pdfs/safe-1811.05296.pdf",
+  "pdfSha256": "40f75b06ce2de7c8647635083854c1439093028f673ae96deab0e437924bf2d8",
+  "annotatedPages": [6, 8, 14],
+  "metadata": {
+    "paperId": "arxiv:1811.05296",
+    "title": "SAFE: Self-Attentive Function Embeddings for Binary Similarity",
+    "domains": ["reverse-engineering", "binary-analysis", "ai-for-security"],
+    "layouts": ["single-column", "multiple-assets-per-page", "multi-panel", "figure-and-table"],
+    "sourceUrl": "https://arxiv.org/abs/1811.05296"
+  },
+  "assets": [
+    { "type": "figure", "identifier": "1", "page": 6, "region": { "x": 70, "y": 300, "width": 455, "height": 215 }, "mentionPages": [5] },
+    { "type": "figure", "identifier": "2", "page": 8, "region": { "x": 75, "y": 65, "width": 465, "height": 225 }, "mentionPages": [7] },
+    { "type": "figure", "identifier": "3", "page": 8, "region": { "x": 190, "y": 295, "width": 220, "height": 145 }, "mentionPages": [7] },
+    { "type": "figure", "identifier": "6", "page": 14, "region": { "x": 70, "y": 75, "width": 455, "height": 165 }, "mentionPages": [13] },
+    { "type": "table", "identifier": "2", "page": 14, "region": { "x": 145, "y": 255, "width": 305, "height": 90 }, "mentionPages": [14] }
+  ]
+}

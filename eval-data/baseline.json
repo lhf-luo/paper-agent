@@ -1,0 +1,60 @@
+{
+	"schemaVersion": 1,
+	"dataset": "pdf-asset-release-set-v1",
+	"paperCount": 20,
+	"fullyInspectedPageCount": 59,
+	"goldAssetCount": 104,
+	"goldSubfigureCount": 12,
+	"requiredLayoutTags": [
+		"single-column",
+		"two-column",
+		"multi-panel",
+		"full-width",
+		"algorithm",
+		"continued-table",
+		"repeated-table-header"
+	],
+	"knownGaps": [
+		"rotated-pages",
+		"scanned-ocr-only-papers",
+		"non-English-papers",
+		"publisher-rendered-versions",
+		"complex-cross-column-floating-objects",
+		"continued-tables-without-repeated-headers"
+	],
+	"aggregate": {
+		"captionPrecision": 1,
+		"captionRecall": 1,
+		"cropIouMean": 0.929571890160618,
+		"cropIouMedian": 1,
+		"cropIouP10": 0.7733812949640287,
+		"cropIouAt50": 1,
+		"cropIouAt75": 0.9134615384615384,
+		"mentionPrecision": 0.9914529914529915,
+		"mentionRecall": 0.9747899159663865,
+		"continuationPrecision": 1,
+		"continuationRecall": 1,
+		"continuationCropIouMean": 0.9801462939946656,
+		"goldSubfigureCount": 12,
+		"detectedSubfigureCount": 12,
+		"subfigureTruePositiveCount": 12,
+		"subfigurePrecision": 1,
+		"subfigureRecall": 1,
+		"subfigureCropIouMean": 0.6485666640819626
+	},
+	"thresholds": {
+		"captionPrecision": 0.95,
+		"captionRecall": 0.95,
+		"cropIouMean": 0.75,
+		"cropIouP10": 0.5,
+		"cropIouAt50": 1,
+		"mentionPrecision": 0.95,
+		"mentionRecall": 0.95,
+		"continuationPrecision": 0.95,
+		"continuationRecall": 0.95,
+		"continuationCropIouMean": 0.75,
+		"subfigurePrecision": 0.95,
+		"subfigureRecall": 0.95,
+		"subfigureCropIouMean": 0.55
+	}
+}
