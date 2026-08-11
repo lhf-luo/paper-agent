@@ -32,6 +32,7 @@ describe("local Web Agent routes", () => {
 			configured: true,
 			credentialsAvailable: true,
 			credentialSource: "memory",
+			configuredModels: [],
 		};
 		let snapshot: WebAgentSessionSnapshot = {
 			id: "session-one",
@@ -50,6 +51,7 @@ describe("local Web Agent routes", () => {
 		const agentService: WebAgentServiceApi = {
 			getConfig: () => config,
 			updateConfig: () => config,
+			applyConfiguredModel: () => config,
 			clearKey: () => ({ ...config, credentialsAvailable: false, credentialSource: "none" }),
 			listSessions: () => [{ ...snapshot }],
 			createSession: () => snapshot,

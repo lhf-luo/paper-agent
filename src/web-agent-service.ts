@@ -12,7 +12,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { loadPaperAgentConfig, type ModelApiKind } from "./app-config.ts";
+import { loadPaperAgentConfig, type ModelApiKind, type PaperAgentModelConfig } from "./app-config.ts";
 import paperAgentExtension, { paperSystemPrompt } from "./index.ts";
 
 const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -32,6 +32,16 @@ export type WebAgentMode = "once" | "persistent";
 export type WebAgentSessionStatus = "idle" | "running" | "stopping" | "error";
 export type WebAgentCredentialSource = "memory" | "environment" | "none";
 
+export interface WebAgentConfiguredModelView {
+	key: string;
+	providerId: string;
+	modelId: string;
+	baseUrl: string;
+	api: ModelApiKind;
+	apiKeyEnvironmentVariable?: string;
+	credentialsAvailable: boolean;
+}
+
 export interface WebAgentConfigView {
 	providerId: string;
 	modelId: string;
@@ -41,6 +51,7 @@ export interface WebAgentConfigView {
 	configured: boolean;
 	credentialsAvailable: boolean;
 	credentialSource: WebAgentCredentialSource;
+	configuredModels: WebAgentConfiguredModelView[];
 }
 
 export interface WebAgentConfigUpdate {
@@ -128,6 +139,7 @@ export interface WebAgentEventSubscription {
 export interface WebAgentServiceApi {
 	getConfig(): WebAgentConfigView | Promise<WebAgentConfigView>;
 	updateConfig(input: WebAgentConfigUpdate): WebAgentConfigView | Promise<WebAgentConfigView>;
+	applyConfiguredModel(key: string): WebAgentConfigView | Promise<WebAgentConfigView>;
 	clearKey(): WebAgentConfigView | Promise<WebAgentConfigView>;
 	listSessions(): WebAgentSessionSummary[] | Promise<WebAgentSessionSummary[]>;
 	createSession(input: { mode: WebAgentMode; title?: string }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
@@ -233,15 +245,17 @@ export class WebAgentService implements WebAgentServiceApi {
 	private readonly extensionFactory: ExtensionFactory;
 	private readonly systemPrompt: string;
 	private readonly additionalSkillPaths: string[];
+	private readonly configuredModels: PaperAgentModelConfig[];
 	private endpoint: WebAgentEndpointConfig;
-	private readonly environmentCredentialScope?: string;
+	private environmentCredentialScope?: string;
 	private memoryApiKey?: string;
 	private readonly sessions = new Map<string, ManagedWebAgentSession>();
 	private configRevision = 0;
 	private closed = false;
 
-	private constructor(options: WebAgentServiceOptions, endpoint: WebAgentEndpointConfig) {
+	private constructor(options: WebAgentServiceOptions, endpoint: WebAgentEndpointConfig, configuredModels: PaperAgentModelConfig[]) {
 		this.projectRoot = options.projectRoot;
+		this.configuredModels = configuredModels;
 		this.uiRequestTimeoutMs = Math.max(100, options.uiRequestTimeoutMs ?? DEFAULT_UI_TIMEOUT_MS);
 		this.extensionFactory = options.extensionFactory ?? paperAgentExtension;
 		this.systemPrompt = options.systemPrompt ?? paperSystemPrompt;
@@ -256,13 +270,18 @@ export class WebAgentService implements WebAgentServiceApi {
 
 	static async create(options: WebAgentServiceOptions): Promise<WebAgentService> {
 		const config = await loadPaperAgentConfig(options.projectRoot);
-		return new WebAgentService(options, {
-			providerId: config.model?.providerId ?? "",
-			modelId: config.model?.modelId ?? "",
-			baseUrl: config.model?.baseUrl ?? "",
-			api: config.model?.api ?? "openai-completions",
-			apiKeyEnvironmentVariable: config.model?.apiKeyEnvironmentVariable,
-		});
+		const configuredModels = config.models ?? (config.model ? [config.model] : []);
+		return new WebAgentService(
+			options,
+			{
+				providerId: config.model?.providerId ?? "",
+				modelId: config.model?.modelId ?? "",
+				baseUrl: config.model?.baseUrl ?? "",
+				api: config.model?.api ?? "openai-completions",
+				apiKeyEnvironmentVariable: config.model?.apiKeyEnvironmentVariable,
+			},
+			configuredModels,
+		);
 	}
 
 	private assertOpen(): void {
@@ -342,6 +361,17 @@ export class WebAgentService implements WebAgentServiceApi {
 			configured,
 			credentialsAvailable: Boolean(credential.key),
 			credentialSource: credential.source,
+			configuredModels: this.configuredModels.map((model) => ({
+				key: `${model.providerId}/${model.modelId}`,
+				providerId: model.providerId,
+				modelId: model.modelId,
+				baseUrl: model.baseUrl,
+				api: model.api,
+				apiKeyEnvironmentVariable: model.apiKeyEnvironmentVariable,
+				credentialsAvailable: Boolean(
+					model.apiKeyEnvironmentVariable && process.env[model.apiKeyEnvironmentVariable],
+				),
+			})),
 		};
 	}
 
@@ -380,6 +410,31 @@ export class WebAgentService implements WebAgentServiceApi {
 		}
 		this.endpoint = nextEndpoint;
 		this.memoryApiKey = nextKey;
+		return this.getConfig();
+	}
+
+	async applyConfiguredModel(key: string): Promise<WebAgentConfigView> {
+		this.assertOpen();
+		const model = this.configuredModels.find((entry) => `${entry.providerId}/${entry.modelId}` === key);
+		if (!model) throw new WebAgentServiceError(404, `未找到已配置的模型: ${key}`);
+		const nextEndpoint: WebAgentEndpointConfig = {
+			providerId: model.providerId,
+			modelId: model.modelId,
+			baseUrl: model.baseUrl,
+			api: model.api,
+			apiKeyEnvironmentVariable: model.apiKeyEnvironmentVariable,
+		};
+		const oldIdentity = `${this.endpoint.providerId}\n${this.endpoint.modelId}\n${this.endpoint.baseUrl}\n${this.endpoint.api}`;
+		const nextIdentity = `${nextEndpoint.providerId}\n${nextEndpoint.modelId}\n${nextEndpoint.baseUrl}\n${nextEndpoint.api}`;
+		if (oldIdentity !== nextIdentity || this.memoryApiKey !== undefined) {
+			this.configRevision += 1;
+			await this.destroyAllSessions();
+		}
+		this.endpoint = nextEndpoint;
+		this.environmentCredentialScope = nextEndpoint.apiKeyEnvironmentVariable
+			? this.credentialScope(nextEndpoint)
+			: undefined;
+		this.memoryApiKey = undefined;
 		return this.getConfig();
 	}
 

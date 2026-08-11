@@ -211,6 +211,16 @@ export type AgentApiKind =
 export type AgentMode = "once" | "persistent";
 export type AgentSessionStatus = "idle" | "running" | "stopping" | "error";
 
+export interface AgentConfiguredModelView {
+	key: string;
+	providerId: string;
+	modelId: string;
+	baseUrl: string;
+	api: AgentApiKind;
+	apiKeyEnvironmentVariable?: string;
+	credentialsAvailable: boolean;
+}
+
 export interface AgentConfigView {
 	providerId: string;
 	modelId: string;
@@ -220,6 +230,7 @@ export interface AgentConfigView {
 	configured: boolean;
 	credentialsAvailable: boolean;
 	credentialSource: "memory" | "environment" | "none";
+	configuredModels: AgentConfiguredModelView[];
 }
 
 export interface AgentMessageView {

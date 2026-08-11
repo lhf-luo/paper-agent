@@ -255,7 +255,19 @@ export async function startLocalWebServer(
 					return;
 				}
 				if (request.method === "PUT" && url.pathname === "/api/agent/config") {
-					json(response, 200, await agentService.updateConfig((await readJson(request)) as unknown as WebAgentConfigUpdate));
+					json(
+						response,
+						200,
+						await agentService.updateConfig((await readJson(request)) as unknown as WebAgentConfigUpdate),
+					);
+					return;
+				}
+				if (request.method === "POST" && url.pathname === "/api/agent/config/apply") {
+					const body = (await readJson(request)) as { key?: unknown };
+					if (typeof body.key !== "string" || !body.key.trim()) {
+						throw new ApiError(400, "key must be a non-empty string");
+					}
+					json(response, 200, await agentService.applyConfiguredModel(body.key.trim()));
 					return;
 				}
 				if (request.method === "DELETE" && url.pathname === "/api/agent/key") {

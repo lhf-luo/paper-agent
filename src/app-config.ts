@@ -48,6 +48,7 @@ export interface PaperAgentConfig {
 		reuseCorpus: boolean;
 	};
 	model?: PaperAgentModelConfig;
+	models?: PaperAgentModelConfig[];
 	team?: PaperAgentTeamConfig;
 	updatedAt: string;
 }
@@ -203,27 +204,26 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		},
 		updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : new Date().toISOString(),
 	};
-	if (source.model !== undefined) {
-		if (!source.model || typeof source.model !== "object" || Array.isArray(source.model))
-			throw new Error("model must be an object");
-		const model = source.model as Record<string, unknown>;
+	const parseModelConfig = (raw: unknown, field: string): PaperAgentModelConfig => {
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${field} must be an object`);
+		const model = raw as Record<string, unknown>;
 		const api = String(model.api ?? "openai-completions") as ModelApiKind;
 		if (!["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"].includes(api)) {
-			throw new Error("model.api is not supported");
+			throw new Error(`${field}.api is not supported`);
 		}
 		const providerId = String(model.providerId ?? "");
 		const modelId = String(model.modelId ?? "");
 		if (!SAFE_SEGMENT.test(providerId) || !modelId.trim() || modelId.length > 200) {
-			throw new Error("model providerId/modelId is invalid");
+			throw new Error(`${field} providerId/modelId is invalid`);
 		}
-		config.model = {
+		return {
 			providerId,
 			modelId,
 			api,
-			baseUrl: validatedUrl(model.baseUrl, "model.baseUrl", true),
+			baseUrl: validatedUrl(model.baseUrl, `${field}.baseUrl`, true),
 			apiKeyEnvironmentVariable: environmentVariable(
 				model.apiKeyEnvironmentVariable,
-				"model.apiKeyEnvironmentVariable",
+				`${field}.apiKeyEnvironmentVariable`,
 			),
 			toolCallingVerifiedAt:
 				typeof model.toolCallingVerifiedAt === "string" ? model.toolCallingVerifiedAt : undefined,
@@ -232,6 +232,15 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 					? (model.toolCallingProbe as PaperAgentModelConfig["toolCallingProbe"])
 					: undefined,
 		};
+	};
+	if (source.model !== undefined) {
+		config.model = parseModelConfig(source.model, "model");
+	}
+	if (source.models !== undefined) {
+		if (!Array.isArray(source.models) || source.models.length > 32) {
+			throw new Error("models must be an array of at most 32 model configurations");
+		}
+		config.models = source.models.map((entry, index) => parseModelConfig(entry, `models[${index}]`));
 	}
 	if (source.team !== undefined) {
 		if (!source.team || typeof source.team !== "object" || Array.isArray(source.team))

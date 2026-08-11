@@ -368,4 +368,78 @@ describe("WebAgentService", () => {
 			await provider.close();
 		}
 	});
+
+	it("lists configured models from config.json and applies one by key", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-models-"));
+		temporaryPaths.push(root);
+		const environmentName = "PAPER_AGENT_TEST_MODEL_KEY";
+		const previous = process.env[environmentName];
+		process.env[environmentName] = "sk-configured-test-secret";
+		try {
+			await savePaperAgentConfig(root, {
+				...defaultPaperAgentConfig(),
+				model: {
+					providerId: "alpha",
+					modelId: "alpha-model",
+					api: "openai-completions",
+					baseUrl: "https://alpha.example.com/v1",
+					apiKeyEnvironmentVariable: environmentName,
+				},
+				models: [
+					{
+						providerId: "alpha",
+						modelId: "alpha-model",
+						api: "openai-completions",
+						baseUrl: "https://alpha.example.com/v1",
+						apiKeyEnvironmentVariable: environmentName,
+					},
+					{
+						providerId: "beta",
+						modelId: "beta-model",
+						api: "openai-completions",
+						baseUrl: "https://beta.example.com/v1",
+						apiKeyEnvironmentVariable: "PAPER_AGENT_TEST_MISSING_KEY",
+					},
+				],
+			});
+			const service = await WebAgentService.create({ projectRoot: root });
+			services.push(service);
+			const config = service.getConfig();
+			expect(config.configuredModels).toHaveLength(2);
+			expect(config.configuredModels[0]).toMatchObject({
+				key: "alpha/alpha-model",
+				providerId: "alpha",
+				modelId: "alpha-model",
+				credentialsAvailable: true,
+			});
+			expect(config.configuredModels[1]).toMatchObject({
+				key: "beta/beta-model",
+				providerId: "beta",
+				credentialsAvailable: false,
+			});
+			// 初始端点来自 config.model(默认选中项)
+			expect(config).toMatchObject({ providerId: "alpha", modelId: "alpha-model" });
+			// 应用第二个模型: 端点切换, 其 env var 未设置 → 凭据不可用
+			await service.applyConfiguredModel("beta/beta-model");
+			const applied = service.getConfig();
+			expect(applied).toMatchObject({
+				providerId: "beta",
+				modelId: "beta-model",
+				baseUrl: "https://beta.example.com/v1",
+				credentialSource: "none",
+			});
+			// 应用第一个模型: 其 env var 已设置 → 凭据来自环境变量
+			await service.applyConfiguredModel("alpha/alpha-model");
+			expect(service.getConfig()).toMatchObject({
+				providerId: "alpha",
+				modelId: "alpha-model",
+				credentialSource: "environment",
+				credentialsAvailable: true,
+			});
+			await expect(service.applyConfiguredModel("nope/nope")).rejects.toThrow("未找到已配置的模型");
+		} finally {
+			if (previous === undefined) delete process.env[environmentName];
+			else process.env[environmentName] = previous;
+		}
+	});
 });

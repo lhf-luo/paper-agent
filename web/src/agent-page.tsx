@@ -166,6 +166,7 @@ export function AgentPage() {
 		api: "openai-completions",
 	});
 	const [apiKey, setApiKey] = useState("");
+	const [configuredKey, setConfiguredKey] = useState("");
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -181,6 +182,25 @@ export function AgentPage() {
 		setConfig(next);
 		setForm({ providerId: next.providerId, modelId: next.modelId, baseUrl: next.baseUrl, api: next.api });
 	}, []);
+
+	const applyConfigured = useCallback(async () => {
+		if (!configuredKey) return;
+		setBusy(true);
+		setError("");
+		try {
+			const next = await api<AgentConfigView>("/api/agent/config/apply", {
+				method: "POST",
+				body: JSON.stringify({ key: configuredKey }),
+			});
+			applyConfig(next);
+			setApiKey("");
+			setNotice("已切换到 config.json 中配置的模型。");
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	}, [configuredKey, applyConfig]);
 
 	const refreshSessions = useCallback(async (preferredId?: string) => {
 		const result = await api<{ sessions: AgentSessionSummary[] }>("/api/agent/sessions");
@@ -506,6 +526,36 @@ export function AgentPage() {
 					<strong>密钥仅保留在本次 Paper Agent 服务进程的内存中</strong>
 					<span>不会写入项目配置、Pi auth/models 文件、浏览器存储、对话记录或错误响应。服务重启后需重新输入。</span>
 				</div>
+				{config?.configuredModels && config.configuredModels.length > 0 ? (
+					<div className="agent-configured-models">
+						<label htmlFor="agent-configured-model">
+							<span>从 config.json 选用已配置模型</span>
+						</label>
+						<div className="configured-model-row">
+							<select
+								id="agent-configured-model"
+								value={configuredKey}
+								onChange={(event) => setConfiguredKey(event.target.value)}
+							>
+								<option value="">-- 选择模型 --</option>
+								{config.configuredModels.map((model) => (
+									<option key={model.key} value={model.key}>
+										{model.providerId} / {model.modelId}
+										{model.credentialsAvailable ? " · 密钥可用" : " · 密钥缺失"}
+									</option>
+								))}
+							</select>
+							<button className="button primary" type="button" disabled={busy || !configuredKey} onClick={() => void applyConfigured()}>
+								应用已配置模型
+							</button>
+						</div>
+						<small className="configured-model-hint">
+							{config.configuredModels.find((model) => model.key === configuredKey)?.apiKeyEnvironmentVariable
+								? `密钥从环境变量 ${config.configuredModels.find((model) => model.key === configuredKey)?.apiKeyEnvironmentVariable} 读取。`
+								: "选择后从对应环境变量读取密钥，无需在页面填写。"}
+						</small>
+					</div>
+				) : null}
 				<div className="agent-config-grid">
 					<label>
 						<span>Provider ID</span>
