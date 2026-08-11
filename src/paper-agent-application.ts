@@ -275,7 +275,12 @@ export class PaperAgentApplication {
 			model: config.model
 				? {
 						...config.model,
-						credentialsAvailable: Boolean(process.env[config.model.apiKeyEnvironmentVariable]),
+						credentialsAvailable: Boolean(
+							config.model.apiKey ??
+								(config.model.apiKeyEnvironmentVariable
+									? process.env[config.model.apiKeyEnvironmentVariable]
+									: undefined),
+						),
 					}
 				: undefined,
 			team: config.team

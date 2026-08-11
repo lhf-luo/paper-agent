@@ -13,7 +13,8 @@ export interface PaperAgentModelConfig {
 	modelId: string;
 	api: ModelApiKind;
 	baseUrl: string;
-	apiKeyEnvironmentVariable: string;
+	apiKeyEnvironmentVariable?: string;
+	apiKey?: string;
 	toolCallingVerifiedAt?: string;
 	toolCallingProbe?: {
 		supported: boolean;
@@ -221,10 +222,19 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 			modelId,
 			api,
 			baseUrl: validatedUrl(model.baseUrl, `${field}.baseUrl`, true),
-			apiKeyEnvironmentVariable: environmentVariable(
-				model.apiKeyEnvironmentVariable,
-				`${field}.apiKeyEnvironmentVariable`,
-			),
+			apiKeyEnvironmentVariable:
+				typeof model.apiKeyEnvironmentVariable === "string" && model.apiKeyEnvironmentVariable.trim()
+					? environmentVariable(model.apiKeyEnvironmentVariable, `${field}.apiKeyEnvironmentVariable`)
+					: undefined,
+			...(typeof model.apiKey === "string" && model.apiKey.trim()
+				? (() => {
+						const apiKey = model.apiKey.trim();
+						if (apiKey.length > 16_384) {
+							throw new Error(`${field}.apiKey must be at most 16384 characters`);
+						}
+						return { apiKey };
+					})()
+				: {}),
 			toolCallingVerifiedAt:
 				typeof model.toolCallingVerifiedAt === "string" ? model.toolCallingVerifiedAt : undefined,
 			toolCallingProbe:
@@ -339,11 +349,11 @@ export async function probeModelToolCalling(
 ): Promise<ModelProbeResult> {
 	const checkedAt = new Date().toISOString();
 	const started = Date.now();
-	const apiKey = process.env[model.apiKeyEnvironmentVariable];
+	const apiKey = model.apiKey ?? (model.apiKeyEnvironmentVariable ? process.env[model.apiKeyEnvironmentVariable] : undefined);
 	if (!apiKey) {
 		return {
 			supported: false,
-			reason: `Environment variable ${model.apiKeyEnvironmentVariable} is not set`,
+			reason: `No API key configured for ${model.providerId}/${model.modelId}`,
 			latencyMs: Date.now() - started,
 			checkedAt,
 		};

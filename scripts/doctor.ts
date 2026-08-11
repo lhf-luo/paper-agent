@@ -90,7 +90,11 @@ try {
 } catch {
 	// A missing auth file is reported below without exposing its contents.
 }
-const modelKeyReady = Boolean(config.model && process.env[config.model.apiKeyEnvironmentVariable]);
+const modelKeyReady = Boolean(
+	config.model &&
+		(config.model.apiKey ??
+			(config.model.apiKeyEnvironmentVariable ? process.env[config.model.apiKeyEnvironmentVariable] : undefined)),
+);
 const teamTokenReady = Boolean(config.team && process.env[config.team.tokenEnvironmentVariable]);
 const automaticProbeSupported = Boolean(config.model && supportsAutomaticToolCallingProbe(config.model.api));
 let probe = config.model?.toolCallingProbe;
@@ -130,7 +134,7 @@ if (process.argv.includes("--json")) {
 	console.log(`Personal namespace: ${config.storage.defaultNamespace}`);
 	console.log(
 		config.model
-			? `Model: ${config.model.providerId}/${config.model.modelId}; key ${modelKeyReady ? "available" : `missing (${config.model.apiKeyEnvironmentVariable})`}`
+			? `Model: ${config.model.providerId}/${config.model.modelId}; key ${modelKeyReady ? "available" : "missing"}`
 			: authProviders.length || customModels.length
 				? "Model: Pi provider configuration detected; run paper-agent agent and /model to select it"
 				: "Model: not configured; run paper-agent init or paper-agent agent and /login",

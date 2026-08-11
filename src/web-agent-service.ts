@@ -30,7 +30,7 @@ const DEFAULT_UI_TIMEOUT_MS = 5 * 60_000;
 
 export type WebAgentMode = "once" | "persistent";
 export type WebAgentSessionStatus = "idle" | "running" | "stopping" | "error";
-export type WebAgentCredentialSource = "memory" | "environment" | "none";
+export type WebAgentCredentialSource = "memory" | "config" | "environment" | "none";
 
 export interface WebAgentConfiguredModelView {
 	key: string;
@@ -340,8 +340,25 @@ export class WebAgentService implements WebAgentServiceApi {
 
 	private credential(): { key?: string; source: WebAgentCredentialSource } {
 		if (this.memoryApiKey) return { key: this.memoryApiKey, source: "memory" };
+		const configuredKey = this.configuredModelKey();
+		if (configuredKey) return { key: configuredKey, source: "config" };
 		const environmentKey = this.environmentKey();
 		return environmentKey ? { key: environmentKey, source: "environment" } : { source: "none" };
+	}
+
+	private configuredModelKey(): string | undefined {
+		const endpoint = this.endpoint;
+		if (!endpoint.providerId || !endpoint.modelId || !endpoint.baseUrl) return undefined;
+		const model = this.configuredModels.find(
+			(entry) =>
+				entry.providerId === endpoint.providerId &&
+				entry.modelId === endpoint.modelId &&
+				entry.baseUrl === endpoint.baseUrl &&
+				entry.api === endpoint.api &&
+				typeof entry.apiKey === "string" &&
+				entry.apiKey.length > 0,
+		);
+		return model?.apiKey;
 	}
 
 	getConfig(): WebAgentConfigView {
@@ -369,7 +386,8 @@ export class WebAgentService implements WebAgentServiceApi {
 				api: model.api,
 				apiKeyEnvironmentVariable: model.apiKeyEnvironmentVariable,
 				credentialsAvailable: Boolean(
-					model.apiKeyEnvironmentVariable && process.env[model.apiKeyEnvironmentVariable],
+					(typeof model.apiKey === "string" && model.apiKey.length > 0) ||
+						(model.apiKeyEnvironmentVariable && process.env[model.apiKeyEnvironmentVariable]),
 				),
 			})),
 		};

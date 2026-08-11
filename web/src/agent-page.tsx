@@ -71,7 +71,14 @@ function timeLabel(value: string): string {
 
 function credentialLabel(config?: AgentConfigView): string {
 	if (!config?.credentialsAvailable) return "未提供凭据";
-	return config.credentialSource === "memory" ? "服务进程内存" : "环境变量";
+	switch (config.credentialSource) {
+		case "memory":
+			return "服务进程内存";
+		case "config":
+			return "config.json 明文";
+		default:
+			return "环境变量";
+	}
 }
 
 function AgentUIRequestCard({
@@ -550,9 +557,9 @@ export function AgentPage() {
 							</button>
 						</div>
 						<small className="configured-model-hint">
-							{config.configuredModels.find((model) => model.key === configuredKey)?.apiKeyEnvironmentVariable
-								? `密钥从环境变量 ${config.configuredModels.find((model) => model.key === configuredKey)?.apiKeyEnvironmentVariable} 读取。`
-								: "选择后从对应环境变量读取密钥，无需在页面填写。"}
+							{config.configuredModels.find((model) => model.key === configuredKey)?.credentialsAvailable
+								? "该模型的密钥已配置(config.json 明文或环境变量)，应用后即可对话。"
+								: "该模型未配置密钥；应用后需要手动输入。"}
 						</small>
 					</div>
 				) : null}

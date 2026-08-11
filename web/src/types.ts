@@ -229,7 +229,7 @@ export interface AgentConfigView {
 	apiKeyEnvironmentVariable?: string;
 	configured: boolean;
 	credentialsAvailable: boolean;
-	credentialSource: "memory" | "environment" | "none";
+	credentialSource: "memory" | "config" | "environment" | "none";
 	configuredModels: AgentConfiguredModelView[];
 }
 
