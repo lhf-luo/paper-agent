@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/A6y55/paper-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/A6y55/paper-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/lhf-luo/paper-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/lhf-luo/paper-agent/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.19-339933?logo=node.js&logoColor=white)](package.json)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](#project-status)
 
@@ -35,7 +35,7 @@ Paper Agent follows the practical research path **search → obtain PDF and arti
 ### Windows
 
 ```powershell
-git clone https://github.com/A6y55/paper-agent.git
+git clone https://github.com/lhf-luo/paper-agent.git
 Set-Location paper-agent
 .\paper-agent.ps1 install
 ```
@@ -67,7 +67,7 @@ sudo apt install poppler-utils
 ```
 
 ```bash
-git clone https://github.com/A6y55/paper-agent.git
+git clone https://github.com/lhf-luo/paper-agent.git
 cd paper-agent
 npm ci --ignore-scripts
 npm run web:build

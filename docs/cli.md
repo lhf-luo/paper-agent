@@ -7,7 +7,7 @@
 Paper Agent currently runs from a source checkout. Install a user-level command once:
 
 ```powershell
-git clone https://github.com/A6y55/paper-agent.git
+git clone https://github.com/lhf-luo/paper-agent.git
 Set-Location paper-agent
 .\paper-agent.ps1 install
 ```

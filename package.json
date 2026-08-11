@@ -92,7 +92,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/A6y55/paper-agent.git"
+		"url": "git+https://github.com/lhf-luo/paper-agent.git"
 	},
 	"dependencies": {
 		"pdfjs-dist": "^6.2.108",
