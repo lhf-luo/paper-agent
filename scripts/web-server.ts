@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPaperAgentConfig } from "../src/app-config.ts";
+import { setProxyUrl } from "../src/network-security.ts";
 import { startLocalWebServer } from "../src/local-web-server.ts";
 import { PaperAgentApplication } from "../src/paper-agent-application.ts";
 import { createWebAgentService } from "../src/web-agent-service.ts";
@@ -26,6 +27,10 @@ function openBrowser(url: string): void {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const config = await loadPaperAgentConfig(projectRoot);
+if (config.network?.proxy) {
+	setProxyUrl(config.network.proxy);
+	console.log(`HTTP proxy enabled: ${config.network.proxy}`);
+}
 const sessionToken = randomBytes(32).toString("base64url");
 const application = new PaperAgentApplication({
 	projectRoot,

@@ -48,6 +48,9 @@ export interface PaperAgentConfig {
 		queryExpansions: string[];
 		reuseCorpus: boolean;
 	};
+	network?: {
+		proxy?: string;
+	};
 	model?: PaperAgentModelConfig;
 	models?: PaperAgentModelConfig[];
 	team?: PaperAgentTeamConfig;
@@ -243,6 +246,28 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 					: undefined,
 		};
 	};
+	if (source.network !== undefined) {
+		if (!source.network || typeof source.network !== "object" || Array.isArray(source.network)) {
+			throw new Error("network must be an object");
+		}
+		const network = source.network as Record<string, unknown>;
+		if (network.proxy !== undefined && network.proxy !== "") {
+			const raw = String(network.proxy);
+			let parsed: URL;
+			try {
+				parsed = new URL(raw);
+			} catch {
+				throw new Error("network.proxy must be an absolute URL");
+			}
+			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+				throw new Error("network.proxy must use http:// or https://");
+			}
+			if (!parsed.hostname || !parsed.port) {
+				throw new Error("network.proxy must include a host and port");
+			}
+			config.network = { proxy: parsed.toString().replace(/\/$/, "") };
+		}
+	}
 	if (source.model !== undefined) {
 		config.model = parseModelConfig(source.model, "model");
 	}

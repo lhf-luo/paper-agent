@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { basename } from "node:path";
@@ -8,6 +8,78 @@ import { setTimeout as delay } from "node:timers/promises";
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type AddressResolver = (hostname: string) => Promise<Array<{ address: string }>>;
+
+/** 代理配置(从 config.json 的 network.proxy 读取)。留空则直连。 */
+let configuredProxy: URL | undefined;
+
+export function setProxyUrl(value: string | undefined): void {
+	if (!value) {
+		configuredProxy = undefined;
+		return;
+	}
+	const parsed = new URL(value);
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new Error("Proxy URL must use http:// or https://");
+	}
+	configuredProxy = parsed;
+}
+
+function proxyTarget(
+	target: URL,
+	options: { method: string; headers: Record<string, string>; signal?: AbortSignal },
+	handler: (response: IncomingMessage) => void,
+): Promise<ClientRequest> {
+	const proxy = configuredProxy as URL;
+	const proxyPort = Number(proxy.port) || (proxy.protocol === "https:" ? 443 : 80);
+	if (target.protocol === "https:") {
+		// HTTPS 目标: CONNECT 隧道 + 隧道内 TLS
+		return new Promise((resolve, reject) => {
+			const tunnel = httpRequest({
+				host: proxy.hostname,
+				port: proxyPort,
+				method: "CONNECT",
+				path: `${target.hostname}:443`,
+				signal: options.signal,
+			});
+			tunnel.once("connect", (_response, socket, head) => {
+				if (head && head.length) socket.unshift(head);
+				const secured = httpsRequest(
+					{
+						host: target.hostname,
+						servername: target.hostname,
+						socket,
+						method: options.method,
+						headers: options.headers,
+						signal: options.signal,
+					} as unknown as import("node:https").RequestOptions,
+					handler,
+				);
+				resolve(secured);
+			});
+			tunnel.once("response", (response) => {
+				response.resume();
+				tunnel.destroy();
+				reject(new Error(`Proxy CONNECT failed with HTTP ${response.statusCode ?? 500}`));
+			});
+			tunnel.once("error", reject);
+			tunnel.end();
+		});
+	}
+	// HTTP 目标: 代理的绝对形式请求
+	return Promise.resolve(
+		httpRequest(
+			{
+				host: proxy.hostname,
+				port: proxyPort,
+				path: target.href,
+				method: options.method,
+				headers: { ...options.headers, Host: target.host },
+				signal: options.signal,
+			},
+			handler,
+		),
+	);
+}
 
 export const DEFAULT_USER_AGENT = "pi-paper-agent/0.2 (academic research assistant)";
 
@@ -109,37 +181,51 @@ function fetchPinnedUrl(url: URL, init: RequestInit, verifiedAddresses: string[]
 	});
 	const request = url.protocol === "https:" ? httpsRequest : httpRequest;
 	return new Promise((resolve, reject) => {
+		const onIncoming = (incoming: IncomingMessage) => {
+			const status = incoming.statusCode ?? 500;
+			if (status < 200) {
+				incoming.destroy();
+				reject(new Error(`Unsupported informational HTTP response: ${status}`));
+				return;
+			}
+			const headers = new Headers();
+			for (const [name, value] of Object.entries(incoming.headers)) {
+				if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+				else if (value !== undefined) headers.set(name, value);
+			}
+			resolve(
+				new Response(
+					[204, 205, 304].includes(status) ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>),
+					{
+						status,
+						statusText: incoming.statusMessage,
+						headers,
+					},
+				),
+			);
+		};
+		const requestOptions = {
+			method: init.method ?? "GET",
+			headers: headerRecord,
+			signal: init.signal ?? undefined,
+		};
+		if (configuredProxy) {
+			void proxyTarget(url, requestOptions, onIncoming).then(
+				(outgoing) => {
+					outgoing.once("error", reject);
+					outgoing.end();
+				},
+				reject,
+			);
+			return;
+		}
 		const outgoing = request(
 			url,
 			{
-				method: init.method ?? "GET",
-				headers: headerRecord,
+				...requestOptions,
 				lookup: lookupPinned as never,
-				signal: init.signal ?? undefined,
 			},
-			(incoming) => {
-				const status = incoming.statusCode ?? 500;
-				if (status < 200) {
-					incoming.destroy();
-					reject(new Error(`Unsupported informational HTTP response: ${status}`));
-					return;
-				}
-				const headers = new Headers();
-				for (const [name, value] of Object.entries(incoming.headers)) {
-					if (Array.isArray(value)) for (const item of value) headers.append(name, item);
-					else if (value !== undefined) headers.set(name, value);
-				}
-				resolve(
-					new Response(
-						[204, 205, 304].includes(status) ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>),
-						{
-							status,
-							statusText: incoming.statusMessage,
-							headers,
-						},
-					),
-				);
-			},
+			onIncoming,
 		);
 		outgoing.once("error", reject);
 		outgoing.end();
