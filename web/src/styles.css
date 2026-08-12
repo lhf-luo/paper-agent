@@ -116,6 +116,19 @@ code {
 	flex: 1;
 	flex-direction: column;
 	gap: 3px;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(145, 175, 162, 0.45) transparent;
+}
+
+.sidebar nav::-webkit-scrollbar {
+	width: 6px;
+}
+
+.sidebar nav::-webkit-scrollbar-thumb {
+	background: rgba(145, 175, 162, 0.45);
+	border-radius: 3px;
 }
 
 .nav-section {
