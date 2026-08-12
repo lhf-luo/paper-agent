@@ -2526,6 +2526,17 @@ span.chip.active {
 	margin-top: 16px;
 }
 
+.agent-new-session-title {
+	width: 100%;
+	padding: 8px 10px;
+	border: 1px solid #c9d5d0;
+	border-radius: 6px;
+	outline: none;
+	color: var(--ink);
+	background: #fff;
+	font-size: 12px;
+}
+
 .agent-session-list {
 	display: grid;
 	gap: 6px;
@@ -2593,6 +2604,21 @@ span.chip.active {
 
 .agent-session-delete:hover {
 	color: var(--red);
+}
+
+.agent-session-rename {
+	align-self: start;
+	padding: 7px 9px;
+	border: 0;
+	color: #6d7a84;
+	background: transparent;
+	font-size: 13px;
+}
+
+.agent-session-rename:hover {
+	color: var(--ink);
+	background: #eef3f0;
+	border-radius: 5px;
 }
 
 .agent-template-list {

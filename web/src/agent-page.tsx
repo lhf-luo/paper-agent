@@ -155,6 +155,7 @@ export function AgentPage() {
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
+	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -338,8 +339,9 @@ export function AgentPage() {
 		try {
 			const snapshot = await api<AgentSessionSnapshot>("/api/agent/sessions", {
 				method: "POST",
-				body: JSON.stringify({ mode: newMode }),
+				body: JSON.stringify({ mode: newMode, ...(newTitle.trim() ? { title: newTitle.trim() } : {}) }),
 			});
+			setNewTitle("");
 			setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
 			setActive(snapshot);
 		} catch (reason) {
@@ -364,6 +366,31 @@ export function AgentPage() {
 		try {
 			await api<{ ok: true }>(`/api/agent/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 			await refreshSessions(active?.id === id ? undefined : active?.id);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const renameSession = async (id: string) => {
+		const current = orderedSessions.find((session) => session.id === id)?.title ?? "";
+		const next = window.prompt("输入新的会话名称", current);
+		if (next === null) return;
+		const trimmed = next.trim();
+		if (!trimmed || trimmed.length > 120) {
+			setError("会话名称必须包含 1-120 个字符");
+			return;
+		}
+		setBusy(true);
+		setError("");
+		try {
+			const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(id)}/rename`, {
+				method: "POST",
+				body: JSON.stringify({ title: trimmed }),
+			});
+			setSessions((currentList) => upsert(currentList, summaryFromSnapshot(snapshot)));
+			if (active?.id === id) setActive(snapshot);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -517,6 +544,12 @@ export function AgentPage() {
 						<small>{orderedSessions.length} 个</small>
 					</div>
 					<div className="agent-new-session">
+						<input
+							className="agent-new-session-title"
+							value={newTitle}
+							onChange={(event) => setNewTitle(event.target.value)}
+							placeholder="会话名称(可选)"
+						/>
 						<select value={newMode} onChange={(event) => setNewMode(event.target.value as AgentMode)}>
 							<option value="persistent">persistent · 保留上下文</option>
 							<option value="once">once · 每轮重置模型上下文</option>
@@ -534,6 +567,14 @@ export function AgentPage() {
 										{session.mode} · {session.status} · {timeLabel(session.updatedAt)}
 									</span>
 									{session.pendingUIRequests > 0 && <em>{session.pendingUIRequests} 个确认待处理</em>}
+								</button>
+								<button
+									className="agent-session-rename"
+									type="button"
+									aria-label={`重命名 ${session.title}`}
+									onClick={() => void renameSession(session.id)}
+								>
+									✏️
 								</button>
 								<button
 									className="agent-session-delete"

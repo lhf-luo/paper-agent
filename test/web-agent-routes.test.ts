@@ -52,6 +52,7 @@ describe("local Web Agent routes", () => {
 			getConfig: () => config,
 			updateConfig: () => config,
 			applyConfiguredModel: () => config,
+			renameSession: () => snapshot,
 			clearKey: () => ({ ...config, credentialsAvailable: false, credentialSource: "none" }),
 			listSessions: () => [{ ...snapshot }],
 			createSession: () => snapshot,

@@ -290,6 +290,16 @@ export async function startLocalWebServer(
 					);
 					return;
 				}
+				const renameRoute = /^\/api\/agent\/sessions\/([^/]+)\/rename$/.exec(url.pathname);
+				if (request.method === "POST" && renameRoute) {
+					const id = decodeURIComponent(renameRoute[1]);
+					const body = await readJson(request);
+					if (typeof body.title !== "string" || !body.title.trim()) {
+						throw new ApiError(400, "title must be a non-empty string");
+					}
+					json(response, 200, await agentService.renameSession(id, body.title.trim()));
+					return;
+				}
 				const agentEventRoute = /^\/api\/agent\/sessions\/([^/]+)\/events$/.exec(url.pathname);
 				if (request.method === "GET" && agentEventRoute) {
 					const id = decodeURIComponent(agentEventRoute[1]);

@@ -145,6 +145,7 @@ export interface WebAgentServiceApi {
 	clearKey(): WebAgentConfigView | Promise<WebAgentConfigView>;
 	listSessions(): WebAgentSessionSummary[] | Promise<WebAgentSessionSummary[]>;
 	createSession(input: { mode: WebAgentMode; title?: string }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	renameSession(id: string, title: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	getSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	deleteSession(id: string): void | Promise<void>;
 	sendMessage(id: string, input: { message: string }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
@@ -602,6 +603,19 @@ export class WebAgentService implements WebAgentServiceApi {
 		};
 		this.sessions.set(session.id, session);
 		void this.persistView(session);
+		return this.snapshot(session);
+	}
+
+	async renameSession(id: string, title: string): Promise<WebAgentSessionSnapshot> {
+		this.assertOpen();
+		const session = this.managedSession(id);
+		const trimmed = title.trim();
+		if (!trimmed || trimmed.length > 120) {
+			throw new WebAgentServiceError(400, "会话标题必须包含 1-120 个字符");
+		}
+		session.title = trimmed;
+		this.touch(session);
+		this.emitSession(session);
 		return this.snapshot(session);
 	}
 
