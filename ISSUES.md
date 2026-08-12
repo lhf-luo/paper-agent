@@ -109,3 +109,47 @@
 ### 状态
 
 ✅ 已修复（本地提交，未推送）
+
+## #3 PDF 下载仍失败：arXiv 反爬挑战 + 直连不稳定
+
+- **日期**：2026-08-12
+- **类别**：个人库 / PDF 下载 / 网络代理
+
+### 现象
+
+为 arXiv 论文（元数据含 `kind: pdf` 链接）执行下载，任务 succeeded 但
+`downloaded: []`，失败 reason 为空字符串。
+
+### 排查过程（完整）
+
+1. 失败 reason 为空：`downloadLiteraturePdfs` 的 catch 取 `error.message`，
+   而底层抛的是 **AggregateError（空 message）**。
+2. 解包 AggregateError：`errors[]` 为 `connect ETIMEDOUT 151.101.x.x:80`
+   与 `ECONNREFUSED`——**arXiv 的 Fastly CDN IP 在这台机器上直连不通**
+   （项目下载链路是"DNS 解析 → 固定 IP 直连"，SSRF 防护设计）。
+3. 配置代理（`network.proxy`，本次新增功能）后：
+   - 其他站点（Semantic Scholar 等）走代理正常 ✅
+   - arXiv 通过代理返回 **JS 挑战页**（`<!DOCTYPE html>`，反爬），
+     `%PDF-` 校验失败 → "response is not a PDF"。
+   - 同代理下 curl 能拿到真 PDF → 是 **Node TLS 指纹**被 arXiv 反爬识别，
+     与代理本身无关。
+4. 直连偶尔成功（单次 fetch 能拿 `%PDF-`），并发下载时又 ETIMEDOUT——网络不稳定。
+
+### 结论
+
+- 代理功能已实现且对其他站点生效；**arXiv 是特殊案例**：
+  直连不稳定 + 代理路径触发反爬挑战（Node 指纹）。
+- 这是外部网络/反爬问题，项目侧无代码缺陷。
+
+### 后续方向（待定）
+
+- [ ] 改进失败信息：catch 到 AggregateError 时展示 `errors[0].message`（当前空字符串误导）
+- [ ] 评估下载重试策略：直连失败后自动切换代理（或反之）
+- [ ] arXiv 反爬挑战可能需要真实浏览器指纹/headless，超出项目范围，谨慎评估
+- [ ] 用户侧尝试：校园网直连、浏览器手动下载、或更换网络环境
+
+### 关联
+
+- 新增功能：`config.json` 的 `network.proxy`（`src/network-security.ts` setProxyUrl /
+  `fetchPinnedUrl` 代理路由：http 绝对形式 / https CONNECT 隧道；
+  `scripts/web-server.ts` 启动时应用）
