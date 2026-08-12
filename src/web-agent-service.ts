@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentSession,
@@ -197,6 +199,17 @@ interface ManagedWebAgentSession {
 	abortRequested: boolean;
 }
 
+interface PersistedSessionView {
+	id: string;
+	title: string;
+	mode: WebAgentMode;
+	createdAt: string;
+	updatedAt: string;
+	error?: string;
+	messages: WebAgentMessageView[];
+	tools: WebAgentToolView[];
+}
+
 export interface WebAgentServiceOptions {
 	projectRoot: string;
 	uiRequestTimeoutMs?: number;
@@ -246,6 +259,8 @@ export class WebAgentService implements WebAgentServiceApi {
 	private readonly systemPrompt: string;
 	private readonly additionalSkillPaths: string[];
 	private readonly configuredModels: PaperAgentModelConfig[];
+	private readonly piSessionDir: string;
+	private readonly sessionViewDir: string;
 	private endpoint: WebAgentEndpointConfig;
 	private environmentCredentialScope?: string;
 	private memoryApiKey?: string;
@@ -256,6 +271,10 @@ export class WebAgentService implements WebAgentServiceApi {
 	private constructor(options: WebAgentServiceOptions, endpoint: WebAgentEndpointConfig, configuredModels: PaperAgentModelConfig[]) {
 		this.projectRoot = options.projectRoot;
 		this.configuredModels = configuredModels;
+		this.piSessionDir = join(options.projectRoot, ".paper-agent", "web-agent-memory", "pi-sessions");
+		this.sessionViewDir = join(options.projectRoot, ".paper-agent", "web-agent-memory", "session-views");
+		mkdirSync(this.piSessionDir, { recursive: true });
+		mkdirSync(this.sessionViewDir, { recursive: true });
 		this.uiRequestTimeoutMs = Math.max(100, options.uiRequestTimeoutMs ?? DEFAULT_UI_TIMEOUT_MS);
 		this.extensionFactory = options.extensionFactory ?? paperAgentExtension;
 		this.systemPrompt = options.systemPrompt ?? paperSystemPrompt;
@@ -271,7 +290,7 @@ export class WebAgentService implements WebAgentServiceApi {
 	static async create(options: WebAgentServiceOptions): Promise<WebAgentService> {
 		const config = await loadPaperAgentConfig(options.projectRoot);
 		const configuredModels = config.models ?? (config.model ? [config.model] : []);
-		return new WebAgentService(
+		const service = new WebAgentService(
 			options,
 			{
 				providerId: config.model?.providerId ?? "",
@@ -282,10 +301,76 @@ export class WebAgentService implements WebAgentServiceApi {
 			},
 			configuredModels,
 		);
+		await service.restoreSessions();
+		return service;
 	}
 
 	private assertOpen(): void {
 		if (this.closed) throw new WebAgentServiceError(503, "Web Agent 服务已关闭");
+	}
+
+	private async restoreSessions(): Promise<void> {
+		let files: string[];
+		try {
+			files = await readdir(this.sessionViewDir);
+		} catch {
+			return;
+		}
+		for (const file of files) {
+			if (!file.endsWith(".json")) continue;
+			try {
+				const view = JSON.parse(await readFile(join(this.sessionViewDir, file), "utf8")) as PersistedSessionView;
+				if (!view.id || !Array.isArray(view.messages)) continue;
+				this.sessions.set(view.id, {
+					id: view.id,
+					title: view.title || "恢复的会话",
+					mode: view.mode === "once" ? "once" : "persistent",
+					status: "idle",
+					createdAt: view.createdAt ?? timestamp(),
+					updatedAt: view.updatedAt ?? timestamp(),
+					error: typeof view.error === "string" ? view.error : undefined,
+					messages: Array.isArray(view.messages) ? view.messages : [],
+					tools: Array.isArray(view.tools) ? view.tools : [],
+					pendingUI: new Map(),
+					listeners: new Set(),
+					eventId: 0,
+					abortRequested: false,
+				});
+			} catch {
+				// 损坏的快照文件跳过, 不影响其余会话恢复。
+			}
+		}
+	}
+
+	private async persistView(session: ManagedWebAgentSession): Promise<void> {
+		const view: PersistedSessionView = {
+			id: session.id,
+			title: session.title,
+			mode: session.mode,
+			createdAt: session.createdAt,
+			updatedAt: session.updatedAt,
+			error: session.error,
+			messages: session.messages,
+			tools: session.tools,
+		};
+		const target = join(this.sessionViewDir, `${session.id}.json`);
+		const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+		try {
+			await writeFile(temporary, JSON.stringify(view), { encoding: "utf8", mode: 0o600 });
+			await rename(temporary, target);
+		} catch {
+			// 持久化是尽力而为: IO 失败不应中断正在运行的会话。
+		}
+	}
+
+	private async findPiSessionFile(sessionId: string): Promise<string | undefined> {
+		try {
+			const files = await readdir(this.piSessionDir);
+			const match = files.find((file) => file.endsWith(`_${sessionId}.jsonl`));
+			return match ? join(this.piSessionDir, match) : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	private credentialScope(endpoint: WebAgentEndpointConfig): string {
@@ -516,6 +601,7 @@ export class WebAgentService implements WebAgentServiceApi {
 			abortRequested: false,
 		};
 		this.sessions.set(session.id, session);
+		void this.persistView(session);
 		return this.snapshot(session);
 	}
 
@@ -556,6 +642,7 @@ export class WebAgentService implements WebAgentServiceApi {
 
 	private touch(session: ManagedWebAgentSession): void {
 		session.updatedAt = timestamp();
+		void this.persistView(session);
 	}
 
 	private appendMessage(session: ManagedWebAgentSession, message: WebAgentMessageView): void {
@@ -853,6 +940,10 @@ export class WebAgentService implements WebAgentServiceApi {
 				systemPrompt: this.systemPrompt,
 			});
 			await resourceLoader.reload();
+			const piSessionFile = await this.findPiSessionFile(session.id);
+			const sessionManager = piSessionFile
+				? SessionManager.open(piSessionFile, this.piSessionDir, this.projectRoot)
+				: SessionManager.create(this.projectRoot, this.piSessionDir, { id: session.id });
 			const result = await createAgentSession({
 				cwd: this.projectRoot,
 				agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
@@ -860,7 +951,7 @@ export class WebAgentService implements WebAgentServiceApi {
 				thinkingLevel: "off",
 				modelRuntime,
 				resourceLoader,
-				sessionManager: SessionManager.inMemory(this.projectRoot),
+				sessionManager,
 				settingsManager: SettingsManager.inMemory(
 					{ compaction: { enabled: true }, retry: { enabled: true, maxRetries: 2 } },
 					{ projectTrusted: true },
@@ -1037,6 +1128,9 @@ export class WebAgentService implements WebAgentServiceApi {
 		const session = this.managedSession(id);
 		this.sessions.delete(id);
 		await this.disposeManagedSession(session);
+		await rm(join(this.sessionViewDir, `${id}.json`), { force: true }).catch(() => undefined);
+		const piFile = await this.findPiSessionFile(id);
+		if (piFile) await rm(piFile, { force: true }).catch(() => undefined);
 	}
 
 	private async destroyAllSessions(): Promise<void> {
