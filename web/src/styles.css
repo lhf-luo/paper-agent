@@ -866,6 +866,40 @@ span.chip.active {
 	margin-top: 24px;
 }
 
+.agent-run-picker {
+	margin-top: 18px;
+	padding: 12px 14px;
+	border: 1px solid #c9d6cf;
+	border-left: 4px solid var(--green, #4f7c5f);
+	border-radius: 7px;
+	background: #f4faf5;
+}
+
+.agent-run-picker label > span {
+	display: block;
+	margin-bottom: 6px;
+	color: #3f5d49;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.agent-run-row {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+}
+
+.agent-run-row select {
+	flex: 1;
+	min-width: 0;
+	padding: 7px 9px;
+	border: 1px solid #c3cdc6;
+	border-radius: 6px;
+	background: #fff;
+	color: #2d3b32;
+	font-size: 12px;
+}
+
 .results-toolbar,
 .library-toolbar {
 	padding: 11px 2px;

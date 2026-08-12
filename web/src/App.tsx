@@ -14,6 +14,8 @@ import {
 	useJob,
 } from "./components";
 import type {
+	AgentSearchRun,
+	AgentSearchRunSummary,
 	BackgroundJob,
 	ConfirmationGrant,
 	PaperAgentConfigView,
@@ -64,6 +66,14 @@ const navigation: Array<{ id: Page; label: string; icon: string; section?: strin
 	{ id: "research", label: "调研工作区", icon: "◇" },
 	{ id: "settings", label: "设置与诊断", icon: "⚙", section: "系统" },
 ];
+
+function timeLabel(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return value;
+	return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(
+		date.getHours(),
+	).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 function PageHeading({
 	eyebrow,
@@ -231,6 +241,9 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [namespace, setNamespace] = useState("default");
 	const [namespaces, setNamespaces] = useState<string[]>(["default"]);
 	const [searchJobId, setSearchJobId] = useState<string>();
+	const [agentRuns, setAgentRuns] = useState<AgentSearchRunSummary[]>([]);
+	const [selectedRun, setSelectedRun] = useState<AgentSearchRun>();
+	const [selectedRunId, setSelectedRunId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [busy, setBusy] = useState(false);
@@ -246,19 +259,38 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 		}>
 	>([]);
 	const job = useJob(searchJobId);
-	const results: PaperRecord[] = job?.status === "succeeded" ? (job.result?.run?.results ?? []) : [];
+	const jobRun = job?.status === "succeeded" ? (job.result?.run as AgentSearchRun | undefined) : undefined;
+	const run = selectedRun ?? jobRun;
+	const results: PaperRecord[] = run?.results ?? [];
 	const providerHealth: Record<
 		string,
 		{ status: string; recordCount: number; failureCount: number; message?: string }
-	> = job?.result?.run?.providerHealth ?? {};
+	> = run?.providerHealth ?? {};
+	const loadAgentRun = async (id: string) => {
+		if (!id) {
+			setSelectedRun(undefined);
+			return;
+		}
+		setBusy(true);
+		setError("");
+		try {
+			setSelectedRun((await api<{ run: AgentSearchRun }>(`/api/search/runs/${encodeURIComponent(id)}`)).run);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
 	useEffect(() => {
 		void Promise.all([
 			api<{ providers: typeof providerCatalog }>("/api/providers"),
 			api<PaperAgentConfigView>("/api/config"),
 			api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
+			api<{ runs: AgentSearchRunSummary[] }>("/api/search/runs").catch(() => ({ runs: [] })),
 		])
-			.then(([catalogResponse, config, namespaceResponse]) => {
+			.then(([catalogResponse, config, namespaceResponse, runsResponse]) => {
 				setProviderCatalog(catalogResponse.providers);
+				setAgentRuns(runsResponse.runs);
 				const available = new Set(
 					catalogResponse.providers
 						.filter((provider) => provider.credentialsAvailable)
@@ -530,6 +562,35 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 					onCancel={() => setPending(undefined)}
 					onConfirm={() => void confirmSave()}
 				/>
+			)}
+			{agentRuns.length > 0 && (
+				<div className="agent-run-picker">
+					<label htmlFor="agent-run-select">
+						<span>Agent 对话产生的搜索记录</span>
+					</label>
+					<div className="agent-run-row">
+						<select
+							id="agent-run-select"
+							value={selectedRunId}
+							onChange={(event) => setSelectedRunId(event.target.value)}
+						>
+							<option value="">-- 选择一次 Agent 搜索 --</option>
+							{agentRuns.map((entry) => (
+								<option key={entry.id} value={entry.id}>
+									{(entry.queries[0] ?? "").slice(0, 40)} · {entry.resultCount} 条 · {timeLabel(entry.completedAt)}
+								</option>
+							))}
+						</select>
+						<button
+							className="button secondary"
+							type="button"
+							disabled={busy || !selectedRunId}
+							onClick={() => void loadAgentRun(selectedRunId)}
+						>
+							{selectedRunId === selectedRun?.id ? "展示中" : "展示结果"}
+						</button>
+					</div>
+				</div>
 			)}
 			{results.length > 0 && (
 				<section className="results-section">

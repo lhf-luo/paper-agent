@@ -42,6 +42,32 @@ export interface BackgroundJob {
 	updatedAt: string;
 }
 
+export interface AgentSearchRunSummary {
+	id: string;
+	queries: string[];
+	providers: string[];
+	startedAt: string;
+	completedAt: string;
+	resultCount: number;
+	deduplicatedCount: number;
+	sourceCounts: Record<string, number>;
+	failures: Array<{ provider: string; message: string }>;
+	scope: string;
+	mode: string;
+	namespace: string;
+}
+
+export interface AgentSearchRun {
+	id: string;
+	startedAt: string;
+	completedAt: string;
+	queries: string[];
+	providers: string[];
+	results: PaperRecord[];
+	deduplicatedCount: number;
+	providerHealth?: Record<string, { status: string; recordCount: number; failureCount: number; message?: string }>;
+}
+
 export interface PreparedOperation {
 	operationId: string;
 	manifestFingerprint: string;
