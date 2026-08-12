@@ -10,6 +10,7 @@
 | # | 日期 | 简述 | 状态 |
 | --- | --- | --- | --- |
 | 1 | 2026-08-12 | PDF 下载"成功"但无文件（元数据无 pdf 链接） | 已定位（设计如此） |
+| 2 | 2026-08-12 | Agent 搜索结果保存到个人库报 "ids not present in the search result" | ✅ 已修复 |
 
 ---
 
@@ -72,3 +73,39 @@
 - [ ] 用一篇 arXiv 论文做一次成功下载的对照验证
 
 ---
+
+## #2 Agent 搜索结果"保存到个人库"报错：One or more selected paper ids are not present in the search result
+
+- **日期**：2026-08-12
+- **类别**：搜索页 / 个人库导入（Agent 搜索结果联动功能）
+
+### 现象
+
+使用 Agent 对话搜索文献后，结果展示在搜索页，勾选论文点"保存到个人库"，
+报错：`One or more selected paper ids are not present in the search result`。
+
+### 根因
+
+- 保存流程（前端 `prepareSave` / 后端 `recordsFromSearchJob`）只认**任务队列中的 job**
+  （`searchJobId`），校验 `paperIds` 必须在 `job.result.run.results` 里。
+- Agent 搜索产出的运行记录不在 job 队列，而在 `search-runs.jsonl`（journal）。
+  前端展示 Agent 结果时仍把 `searchJobId`（当前 job，可能为空或不匹配）发给后端，
+  校验自然失败。
+
+### 修复
+
+- `CorpusImportInput` 增加可选 `searchRunId`（与 `searchJobId` 二选一）。
+- 新增 `recordsFromSearchRun`：从 `search-runs.jsonl` 找运行并按 paperIds 校验。
+- `prepareCorpusImport` / `enqueueAuthorizedCorpusImport` / `corpus-import` 任务
+  均支持两种来源。
+- 前端：`selectedRun` 激活时发送 `searchRunId`，否则 `searchJobId`。
+- 涉及代码：`src/paper-agent-application.ts`、`src/local-web-server.ts`、`web/src/App.tsx`
+
+### 验证
+
+`prepare → confirm → execute` 全流程通过，记录成功写入个人库
+（`corpus-import` 任务 succeeded）。
+
+### 状态
+
+✅ 已修复（本地提交，未推送）

@@ -662,12 +662,15 @@ export async function startLocalWebServer(
 			}
 			if (request.method === "POST" && url.pathname === "/api/library/import/prepare") {
 				const body = await readJson(request);
-				if (typeof body.searchJobId !== "string") throw new ApiError(400, "searchJobId is required");
+				if (typeof body.searchJobId !== "string" && typeof body.searchRunId !== "string") {
+					throw new ApiError(400, "searchJobId or searchRunId is required");
+				}
 				json(
 					response,
 					200,
 					await application.prepareCorpusImport({
-						searchJobId: body.searchJobId,
+						searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
+						searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
 						paperIds: stringArray(body.paperIds),
 						namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 					}),
@@ -1040,13 +1043,16 @@ export async function startLocalWebServer(
 			}
 			if (request.method === "POST" && url.pathname === "/api/library/import/execute") {
 				const body = await readJson(request);
-				if (typeof body.searchJobId !== "string") throw new ApiError(400, "searchJobId is required");
+				if (typeof body.searchJobId !== "string" && typeof body.searchRunId !== "string") {
+					throw new ApiError(400, "searchJobId or searchRunId is required");
+				}
 				json(
 					response,
 					202,
 					await application.enqueueAuthorizedCorpusImport(
 						{
-							searchJobId: body.searchJobId,
+							searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
+							searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
 							paperIds: stringArray(body.paperIds),
 							namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 						},

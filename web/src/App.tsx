@@ -350,14 +350,19 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
 	const prepareSave = async () => {
-		if (!job || !selected.size) return;
+		if (!job && !selectedRun) return;
+		if (!selected.size) return;
 		setBusy(true);
 		setError("");
 		try {
 			setPending(
 				await api(
 					"/api/library/import/prepare",
-					jsonBody({ searchJobId: job.id, paperIds: [...selected], namespace }),
+					jsonBody({
+						...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
+						paperIds: [...selected],
+						namespace,
+					}),
 				),
 			);
 		} catch (reason) {
@@ -367,14 +372,19 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 		}
 	};
 	const confirmSave = async () => {
-		if (!pending || !job) return;
+		if (!pending || (!job && !selectedRun)) return;
 		setBusy(true);
 		setError("");
 		try {
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const created = await api<BackgroundJob>(
 				"/api/library/import/execute",
-				jsonBody({ searchJobId: job.id, paperIds: [...selected], namespace, grant }),
+				jsonBody({
+					...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
+					paperIds: [...selected],
+					namespace,
+					grant,
+				}),
 			);
 			onTask(created);
 			setPending(undefined);

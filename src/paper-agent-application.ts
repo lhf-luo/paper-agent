@@ -110,7 +110,8 @@ interface AuthorizedArtifactJob {
 }
 
 interface CorpusImportInput {
-	searchJobId: string;
+	searchJobId?: string;
+	searchRunId?: string;
 	paperIds?: string[];
 	namespace?: string;
 }
@@ -1239,7 +1240,9 @@ export class PaperAgentApplication {
 
 	async prepareCorpusImport(input: CorpusImportInput): Promise<PreparedOperation> {
 		await this.initialize();
-		const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+		const records = input.searchRunId
+			? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+			: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 		return this.consent.prepare(corpusUpsertPlan(this.personalStore(input.namespace), records));
 	}
 
@@ -1304,7 +1307,9 @@ export class PaperAgentApplication {
 
 	async enqueueAuthorizedCorpusImport(input: CorpusImportInput, grant: ConfirmationGrant): Promise<BackgroundJob> {
 		await this.initialize();
-		const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+		const records = input.searchRunId
+			? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+			: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 		const executionPermit = await authorizeOperationExecution(
 			{ manager: this.consent, grant },
 			corpusUpsertPlan(this.personalStore(input.namespace), records),
@@ -1361,7 +1366,34 @@ export class PaperAgentApplication {
 		}
 		const run = (job.result as { run?: { results?: unknown } }).run;
 		if (!run || !Array.isArray(run.results)) throw new Error("Search job does not contain literature results");
-		const records = run.results as PaperRecord[];
+		return this.filterRecords(run.results as PaperRecord[], paperIds);
+	}
+
+	private async recordsFromSearchRun(searchRunId: string, paperIds?: string[]): Promise<PaperRecord[]> {
+		const journal = join(this.projectRoot, ".paper-agent", "search-runs.jsonl");
+		let raw: string;
+		try {
+			raw = await readFile(journal, "utf8");
+		} catch {
+			throw new Error("Agent search run journal was not found");
+		}
+		for (const line of raw.split(/\n/)) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line) as { id?: string; run?: { results?: unknown } };
+				if (entry.id !== searchRunId) continue;
+				if (!entry.run || !Array.isArray(entry.run.results)) {
+					throw new Error("Agent search run does not contain literature results");
+				}
+				return this.filterRecords(entry.run.results as PaperRecord[], paperIds);
+			} catch {
+				// 跳过损坏行, 继续找。
+			}
+		}
+		throw new Error("Agent search run was not found");
+	}
+
+	private filterRecords(records: PaperRecord[], paperIds?: string[]): PaperRecord[] {
 		const selected = paperIds?.length ? records.filter((record) => paperIds.includes(record.id)) : records;
 		if (selected.length === 0) throw new Error("No matching search results were selected");
 		if (paperIds?.some((id) => !selected.some((record) => record.id === id))) {
@@ -1444,7 +1476,9 @@ export class PaperAgentApplication {
 			return result;
 		});
 		this.jobs.register<AuthorizedCorpusImportJob, unknown>("corpus-import", async (input, context) => {
-			const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+			const records = input.searchRunId
+				? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+				: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 			context.report(0.1, "validating the persisted corpus-write confirmation permit");
 			const outcomes = await persistPaperRecords(this.personalStore(input.namespace), records, {
 				manager: this.consent,
