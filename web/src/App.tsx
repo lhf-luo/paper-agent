@@ -1127,6 +1127,21 @@ function TasksPage() {
 			setActiveJobId(undefined);
 		}
 	};
+	const removeJob = async (job: BackgroundJob) => {
+		if (!window.confirm(`删除任务 ${job.type} ${job.id.slice(0, 18)}？\n\n删除后不可恢复(仅删除任务记录, 不影响已保存的论文/PDF)。`)) {
+			return;
+		}
+		setActiveJobId(job.id);
+		setError("");
+		try {
+			await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setActiveJobId(undefined);
+		}
+	};
 	return (
 		<>
 			<PageHeading
@@ -1219,6 +1234,16 @@ function TasksPage() {
 												onClick={() => void action(job, "retry")}
 											>
 												重试
+											</button>
+										)}
+										{["succeeded", "failed", "cancelled"].includes(job.status) && (
+											<button
+												className="danger-text"
+												type="button"
+												disabled={activeJobId === job.id}
+												onClick={() => void removeJob(job)}
+											>
+												删除
 											</button>
 										)}
 									</div>

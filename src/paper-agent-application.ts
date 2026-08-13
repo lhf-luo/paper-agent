@@ -1191,6 +1191,17 @@ export class PaperAgentApplication {
 		return this.jobs.enqueue("artifact-discovery", input);
 	}
 
+	async deleteJob(id: string): Promise<{ ok: true }> {
+		await this.initialize();
+		const job = this.jobs.get(id);
+		if (!job) throw new Error("Job not found");
+		if (["queued", "running", "paused"].includes(job.status)) {
+			throw new Error(`Cannot delete a ${job.status} job; cancel it first`);
+		}
+		this.jobs.delete(id);
+		return { ok: true };
+	}
+
 	async retryJob(id: string): Promise<BackgroundJob> {
 		await this.initialize();
 		const job = this.jobs.get(id);

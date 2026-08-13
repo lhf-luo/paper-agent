@@ -465,6 +465,15 @@ export async function startLocalWebServer(
 			const jobRoute = /^\/api\/jobs\/([^/]+)(?:\/(cancel|pause|resume|retry))?$/.exec(url.pathname);
 			if (jobRoute) {
 				const id = decodeURIComponent(jobRoute[1]);
+				if (request.method === "DELETE" && !jobRoute[2]) {
+					const existing = application.jobs.get(id);
+					if (!existing) throw new ApiError(404, "Job not found");
+					if (["queued", "running", "paused"].includes(existing.status)) {
+						throw new ApiError(409, `Cannot delete a ${existing.status} job; cancel it first`);
+					}
+					json(response, 200, await application.deleteJob(id));
+					return;
+				}
 				if (request.method === "GET" && !jobRoute[2]) {
 					const job = application.jobs.get(id);
 					json(response, job ? 200 : 404, job ?? { error: "Job not found" });
