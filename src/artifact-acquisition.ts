@@ -16,7 +16,7 @@ import type {
 	ArtifactSourceFile,
 	ArtifactSourceMetadata,
 } from "./literature-types.ts";
-import { assertPublicUrl, fetchPublicUrl, readResponseBody, safeDownloadName } from "./network-security.ts";
+import { assertPublicUrl, fetchPublicUrl, readResponseBody, readableErrorMessage, safeDownloadName } from "./network-security.ts";
 import {
 	authorizeOperationExecution,
 	type OperationExecutionAuthorization,
@@ -643,7 +643,7 @@ export async function acquireArtifacts(
 				resolver: options.resolver,
 			});
 		} catch (error) {
-			metadataError = error instanceof Error ? error.message : String(error);
+			metadataError = readableErrorMessage(error);
 		}
 		let acquisitionCandidates: Array<{ candidate: ArtifactCandidate; metadataFile?: ArtifactSourceFile }> = [
 			{ candidate: effectiveCandidate },
@@ -728,7 +728,7 @@ export async function acquireArtifacts(
 					sourceUrl: candidate.url,
 					status: "failed",
 					retrievedAt: new Date().toISOString(),
-					failureReason: error instanceof Error ? error.message : String(error),
+					failureReason: readableErrorMessage(error),
 				});
 			}
 		}

@@ -12,6 +12,20 @@ export type AddressResolver = (hostname: string) => Promise<Array<{ address: str
 /** 代理配置(从 config.json 的 network.proxy 读取)。留空则直连。 */
 let configuredProxy: URL | undefined;
 
+/**
+ * 把任意错误转成可读消息。AggregateError 的 message 常为空字符串,
+ * 真实原因在其 errors[] 里(例如连接超时 connect ETIMEDOUT)。
+ */
+export function readableErrorMessage(error: unknown): string {
+	if (error instanceof AggregateError && error.errors.length > 0) {
+		const first = error.errors[0];
+		if (first instanceof Error && first.message) return first.message;
+		if (first !== undefined && first !== null) return String(first);
+	}
+	if (error instanceof Error && error.message) return error.message;
+	return String(error);
+}
+
 export function setProxyUrl(value: string | undefined): void {
 	if (!value) {
 		configuredProxy = undefined;

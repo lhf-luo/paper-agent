@@ -1,6 +1,6 @@
 import type { LiteratureStore } from "./literature-store.ts";
 import type { PaperRecord, PaperVersion } from "./literature-types.ts";
-import { type AddressResolver, type Fetcher, fetchPublicUrl, readResponseBody } from "./network-security.ts";
+import { type AddressResolver, type Fetcher, fetchPublicUrl, readResponseBody, readableErrorMessage } from "./network-security.ts";
 import {
 	authorizeOperationExecution,
 	type OperationExecutionAuthorization,
@@ -123,7 +123,7 @@ export async function downloadLiteraturePdfs(
 			await store.savePaperVersion(version);
 			downloaded.push(version);
 		} catch (error) {
-			failures.push({ paperId: record.id, reason: error instanceof Error ? error.message : String(error) });
+			failures.push({ paperId: record.id, reason: readableErrorMessage(error) });
 		}
 	};
 	const worker = async () => {

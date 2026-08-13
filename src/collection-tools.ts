@@ -30,6 +30,7 @@ async function appendSearchRunJournal(run: SearchRun, cwd: string): Promise<void
 	}
 }
 import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
+import { readableErrorMessage } from "./network-security.ts";
 import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "./literature-download.ts";
 import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "./literature-identifiers.ts";
 import {
@@ -436,7 +437,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 							outcomes.push({ provider, query, records });
 						} catch (error) {
 							if (options.signal?.aborted) throw error;
-							const message = error instanceof Error ? error.message : String(error);
+							const message = readableErrorMessage(error);
 							const statusMatch = /\b([1-5]\d\d)\b/.exec(message);
 							const statusCode =
 								error instanceof LiteratureProviderHttpError
@@ -987,7 +988,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								);
 							}
 						} catch (error) {
-							failures.push(`${seed.id}/references: ${error instanceof Error ? error.message : String(error)}`);
+							failures.push(`${seed.id}/references: ${readableErrorMessage(error)}`);
 						}
 					}
 					if ((direction === "citations" || direction === "both") && seedRemaining > 0) {
@@ -1023,7 +1024,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								);
 							}
 						} catch (error) {
-							failures.push(`${seed.id}/citations: ${error instanceof Error ? error.message : String(error)}`);
+							failures.push(`${seed.id}/citations: ${readableErrorMessage(error)}`);
 						}
 					}
 				}
