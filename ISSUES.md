@@ -189,3 +189,25 @@
 - [ ] 自动重试回退：直连失败自动切代理 / 反之
 - [ ] 下载超时/重试参数调优（当前 30s×2 次）
 - [ ] 接受现实：该网络访问 arXiv 不稳定，浏览器手动下载兜底
+
+## #5 方案A 已实施：下载快速失败 + IP 轮换
+
+- **日期**：2026-08-13
+- **状态**：✅ 已实现
+
+### 改动（src/network-security.ts）
+
+1. 连接阶段 socket 超时 10s（Node 的 request.setTimeout 只覆盖连接后，
+   改用 socket 事件设置，让 TCP 连接阶段也能快速失败）
+2. 每次重试打乱解析出的 IP 顺序（避免 3 次都卡在同一个不可达 IP）
+3. fetchPublicUrl 总超时 30s → 20s
+
+### 实测
+
+- 全 IP 不可达的最坏情况：78s → 43s（3 次 × 10s + 重试开销）
+- 失败原因可读：`connect timeout after 10000ms`
+- 调试确认 socket 超时确实触发（`socket timeout FIRED` ×3）
+
+### 待讨论
+
+- [ ] 方案 B（同一次请求并行探测多个 IP，Happy Eyeballs 式）可进一步提速
