@@ -27,9 +27,11 @@ function openBrowser(url: string): void {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const config = await loadPaperAgentConfig(projectRoot);
-if (config.network?.proxy) {
-	setProxyUrl(config.network.proxy);
-	console.log(`HTTP proxy enabled: ${config.network.proxy}`);
+if (config.network?.proxyEnabled && config.network.proxyUrl) {
+	setProxyUrl(config.network.proxyUrl);
+	console.log(`HTTP proxy enabled: ${config.network.proxyUrl}`);
+} else {
+	console.log("HTTP proxy: disabled (config.json network.proxyEnabled)");
 }
 const sessionToken = randomBytes(32).toString("base64url");
 const application = new PaperAgentApplication({

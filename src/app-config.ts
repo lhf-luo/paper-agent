@@ -49,7 +49,8 @@ export interface PaperAgentConfig {
 		reuseCorpus: boolean;
 	};
 	network?: {
-		proxy?: string;
+		proxyEnabled?: boolean;
+		proxyUrl?: string;
 	};
 	model?: PaperAgentModelConfig;
 	models?: PaperAgentModelConfig[];
@@ -251,21 +252,27 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 			throw new Error("network must be an object");
 		}
 		const network = source.network as Record<string, unknown>;
-		if (network.proxy !== undefined && network.proxy !== "") {
-			const raw = String(network.proxy);
+		// 兼容旧字段 network.proxy → network.proxyUrl
+		const proxyUrlValue = network.proxyUrl ?? network.proxy;
+		const proxyEnabled = network.proxyEnabled === undefined ? true : network.proxyEnabled;
+		if (typeof proxyEnabled !== "boolean") {
+			throw new Error("network.proxyEnabled must be a boolean");
+		}
+		if (proxyUrlValue !== undefined && proxyUrlValue !== "") {
+			const raw = String(proxyUrlValue);
 			let parsed: URL;
 			try {
 				parsed = new URL(raw);
 			} catch {
-				throw new Error("network.proxy must be an absolute URL");
+				throw new Error("network.proxyUrl must be an absolute URL");
 			}
 			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-				throw new Error("network.proxy must use http:// or https://");
+				throw new Error("network.proxyUrl must use http:// or https://");
 			}
 			if (!parsed.hostname || !parsed.port) {
-				throw new Error("network.proxy must include a host and port");
+				throw new Error("network.proxyUrl must include a host and port");
 			}
-			config.network = { proxy: parsed.toString().replace(/\/$/, "") };
+			config.network = { proxyEnabled, proxyUrl: parsed.toString().replace(/\/$/, "") };
 		}
 	}
 	if (source.model !== undefined) {
