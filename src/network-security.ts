@@ -68,6 +68,7 @@ function proxyTarget(
 					} as unknown as import("node:https").RequestOptions,
 					handler,
 				);
+				armTimeout(secured);
 				resolve(secured);
 			});
 			tunnel.once("response", (response) => {
@@ -75,27 +76,41 @@ function proxyTarget(
 				tunnel.destroy();
 				reject(new Error(`Proxy CONNECT failed with HTTP ${response.statusCode ?? 500}`));
 			});
+			armTimeout(tunnel);
 			tunnel.once("error", reject);
 			tunnel.end();
 		});
 	}
 	// HTTP 目标: 代理的绝对形式请求
-	return Promise.resolve(
-		httpRequest(
-			{
-				host: proxy.hostname,
-				port: proxyPort,
-				path: target.href,
-				method: options.method,
-				headers: { ...options.headers, Host: target.host },
-				signal: options.signal,
-			},
-			handler,
-		),
+	const proxied = httpRequest(
+		{
+			host: proxy.hostname,
+			port: proxyPort,
+			path: target.href,
+			method: options.method,
+			headers: { ...options.headers, Host: target.host },
+			signal: options.signal,
+		},
+		handler,
 	);
+	armTimeout(proxied);
+	return Promise.resolve(proxied);
 }
 
 export const DEFAULT_USER_AGENT = "pi-paper-agent/0.2 (academic research assistant)";
+
+/** 单次连接/空闲超时: 不可达 IP 快速失败, 不再干等 30 秒 */
+const CONNECT_TIMEOUT_MS = 10_000;
+
+function armTimeout(outgoing: ClientRequest): void {
+	// Node 的 request.setTimeout 只在 socket 连接后才生效, 覆盖不了 TCP 连接阶段;
+	// 改为在 socket 事件里直接设置, 让连接阶段(黑洞 IP)也能快速失败。
+	outgoing.once("socket", (socket) => {
+		socket.setTimeout(CONNECT_TIMEOUT_MS, () => {
+			socket.destroy(new Error(`connect timeout after ${CONNECT_TIMEOUT_MS}ms`));
+		});
+	});
+}
 
 export function isPrivateIpv4(address: string): boolean {
 	const octets = address.split(".").map(Number);
@@ -226,6 +241,7 @@ function fetchPinnedUrl(url: URL, init: RequestInit, verifiedAddresses: string[]
 		if (configuredProxy) {
 			void proxyTarget(url, requestOptions, onIncoming).then(
 				(outgoing) => {
+					armTimeout(outgoing);
 					outgoing.once("error", reject);
 					outgoing.end();
 				},
@@ -241,6 +257,7 @@ function fetchPinnedUrl(url: URL, init: RequestInit, verifiedAddresses: string[]
 			},
 			onIncoming,
 		);
+		armTimeout(outgoing);
 		outgoing.once("error", reject);
 		outgoing.end();
 	});
@@ -341,7 +358,7 @@ export async function fetchPublicUrl(
 		let verifiedAddresses: string[] = [];
 		const response = await fetchWithRetry(currentUrl, {
 			signal: options.signal,
-			timeoutMs: options.timeoutMs ?? 30_000,
+			timeoutMs: options.timeoutMs ?? 20_000,
 			init: { ...options.init, redirect: "manual" },
 			fetcher:
 				options.fetcher ??
@@ -355,6 +372,11 @@ export async function fetchPublicUrl(
 			baseDelayMs: options.baseDelayMs,
 			beforeAttempt: async () => {
 				verifiedAddresses = await assertPublicUrl(currentUrl, options.resolver);
+				// 打乱地址顺序: 重试时优先尝试不同 IP, 避免每次卡在同一个不可达地址
+				for (let i = verifiedAddresses.length - 1; i > 0; i--) {
+					const j = Math.floor(Math.random() * (i + 1));
+					[verifiedAddresses[i], verifiedAddresses[j]] = [verifiedAddresses[j], verifiedAddresses[i]];
+				}
 			},
 		});
 		if (response.status < 300 || response.status >= 400) return { response, finalUrl: currentUrl };
