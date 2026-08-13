@@ -153,3 +153,39 @@
 - 新增功能：`config.json` 的 `network.proxy`（`src/network-security.ts` setProxyUrl /
   `fetchPinnedUrl` 代理路由：http 绝对形式 / https CONNECT 隧道；
   `scripts/web-server.ts` 启动时应用）
+
+## #4 arXiv 下载"成功但0文件"：间歇性网络，非代码缺陷（更新）
+
+- **日期**：2026-08-12
+- **类别**：网络 / PDF 下载
+
+### 追加实测（2026-08-12 晚）
+
+用户关代理后用浏览器直测 `https://arxiv.org/pdf/1001.2665v1.pdf`：
+浏览器重定向到无后缀网页版（疑似 arXiv 反爬 interstitial 或瞬时失败）。
+
+本机对照测试（多次重复）：
+
+| 测试 | 结果 |
+| --- | --- |
+| curl 直连 .pdf ×3 | ✅ 200 application/pdf ~1.2s |
+| curl 直连另一篇 | ✅ 200 application/pdf |
+| curl 走代理 arXiv | ✅ 200 application/pdf（偶发 SSL 错误） |
+| 项目 fetchPublicUrl 直连 | 时而 1.7s ✅ / 时而 30-68s 超时 ❌ |
+| DNS 解析 | 仅 IPv4（151.101.x.x Fastly），无 IPv6 干扰 |
+
+### 最终结论
+
+- **网络到 arXiv Fastly CDN 间歇性不可达**：同一时段 curl/浏览器/项目路径
+  三者都会间歇失败，不是项目代码缺陷。
+- 失败原因恒为 `AggregateError`（空 message），内部 errors 为
+  `connect ETIMEDOUT 151.101.x.x:80`。
+- **真正的代码改进点**：下载失败信息是空字符串（AggregateError 没有取
+  `errors[0].message`），误导排查。见 #3 后续方向第 1 条。
+
+### 待讨论方案（用户确认后实施）
+
+- [ ] 失败信息改进：catch AggregateError 时取 `errors[0].message`
+- [ ] 自动重试回退：直连失败自动切代理 / 反之
+- [ ] 下载超时/重试参数调优（当前 30s×2 次）
+- [ ] 接受现实：该网络访问 arXiv 不稳定，浏览器手动下载兜底
