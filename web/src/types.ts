@@ -5,6 +5,7 @@ export interface PaperRecord {
 	authors: string[];
 	year?: number;
 	venue?: string;
+	venueRank?: "A" | "B" | "C";
 	publicationType?: string;
 	identifiers: {
 		doi?: string;

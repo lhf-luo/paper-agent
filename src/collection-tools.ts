@@ -30,6 +30,7 @@ async function appendSearchRunJournal(run: SearchRun, cwd: string): Promise<void
 	}
 }
 import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
+import { lookupCcfLevel } from "./ccf-ranking.ts";
 import { readableErrorMessage } from "./network-security.ts";
 import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "./literature-download.ts";
 import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "./literature-identifiers.ts";
@@ -485,6 +486,9 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		}
 	}
 	const results = deduplicatePaperRecords(allRecords);
+	for (const record of results) {
+		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
+	}
 	const possibleDuplicates = findPossibleDuplicates(results);
 	const checkedAt = new Date().toISOString();
 	const providerHealth = Object.fromEntries(

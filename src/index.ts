@@ -7,6 +7,7 @@ import { setProviderCredentials } from "./literature-providers.ts";
 import { setProxyUrl } from "./network-security.ts";
 import { setTeamConnection } from "./team-corpus-client.ts";
 import { registerArtifactTools } from "./artifact-tools.ts";
+import { registerBibtexTool } from "./literature-bibtex.ts";
 import { registerCollectionTools } from "./collection-tools.ts";
 import { registerLiteratureImportTool } from "./literature-import.ts";
 import { registerPdfAssetEvaluationTool } from "./pdf-asset-evaluation.ts";
@@ -133,6 +134,7 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 	registerPdfAssetTools(pi);
 	registerPdfAssetEvaluationTool(pi);
 	registerArtifactTools(pi);
+	registerBibtexTool(pi);
 	registerCollectionTools(pi);
 	registerLiteratureImportTool(pi);
 	registerResearchTools(pi);

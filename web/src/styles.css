@@ -3228,3 +3228,31 @@ span.chip.active {
 		grid-template-columns: 1fr 1fr;
 	}
 }
+
+.ccf-badge {
+	display: inline-block;
+	padding: 1px 6px;
+	margin-right: 6px;
+	border-radius: 4px;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1.5;
+}
+
+.ccf-badge.ccf-a {
+	background: #fde8e8;
+	color: #b03030;
+	border: 1px solid #e8b4b4;
+}
+
+.ccf-badge.ccf-b {
+	background: #fef3d9;
+	color: #9a6a00;
+	border: 1px solid #ecd89a;
+}
+
+.ccf-badge.ccf-c {
+	background: #eaf1fb;
+	color: #2c5fa8;
+	border: 1px solid #bcd2ee;
+}
