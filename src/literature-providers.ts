@@ -1063,6 +1063,8 @@ async function exaMCPCall(
 		headers: {
 			"content-type": "application/json",
 			accept: "application/json, text/event-stream",
+			// 可选: 设置 EXA_API_KEY 环境变量走自有配额; 未设置则匿名(配额较低)
+			...(process.env.EXA_API_KEY ? { "x-api-key": process.env.EXA_API_KEY } : {}),
 		},
 		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
 		signal,
