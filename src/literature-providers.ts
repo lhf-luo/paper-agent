@@ -265,7 +265,7 @@ export async function searchOpenAlexPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("search", options.query);
 	url.searchParams.set("per-page", String(options.limit));
 	url.searchParams.set("cursor", cursor);
-	const openAlexMailto = options.openAlexMailto ?? process.env.OPENALEX_MAILTO;
+	const openAlexMailto = options.openAlexMailto ?? providerCredentials.openAlexMailto ?? process.env.OPENALEX_MAILTO;
 	if (openAlexMailto) url.searchParams.set("mailto", openAlexMailto);
 	const filters: string[] = [];
 	if (options.filters?.yearFrom) filters.push("from_publication_date:" + options.filters.yearFrom + "-01-01");
@@ -330,7 +330,7 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("query.bibliographic", options.query);
 	url.searchParams.set("rows", String(options.limit));
 	url.searchParams.set("offset", String(offset));
-	const crossrefMailto = process.env.CROSSREF_POLITE_EMAIL;
+	const crossrefMailto = providerCredentials.crossrefPoliteEmail ?? process.env.CROSSREF_POLITE_EMAIL;
 	if (crossrefMailto) url.searchParams.set("mailto", crossrefMailto);
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
 		const from = options.filters.yearFrom ?? 1000;
@@ -472,7 +472,7 @@ export async function searchSemanticScholarPage(options: ProviderSearchOptions):
 		"paperId,title,abstract,authors,year,venue,publicationTypes,externalIds,url,openAccessPdf,citationCount",
 	);
 	const headers: Record<string, string> = { Accept: "application/json" };
-	const apiKey = options.semanticScholarApiKey ?? process.env.S2_API_KEY;
+	const apiKey = options.semanticScholarApiKey ?? providerCredentials.semanticScholarApiKey ?? process.env.S2_API_KEY;
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -528,7 +528,7 @@ export async function searchSemanticScholarCitations(
 		"paperId,title,abstract,authors,year,venue,publicationTypes,externalIds,url,openAccessPdf,citationCount",
 	);
 	const headers: Record<string, string> = { Accept: "application/json" };
-	const apiKey = options.semanticScholarApiKey ?? process.env.S2_API_KEY;
+	const apiKey = options.semanticScholarApiKey ?? providerCredentials.semanticScholarApiKey ?? process.env.S2_API_KEY;
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -671,8 +671,8 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 	searchUrl.searchParams.set("retmode", "json");
 	searchUrl.searchParams.set("retstart", String(offset));
 	searchUrl.searchParams.set("retmax", String(Math.min(options.limit, 200)));
-	const apiKey = options.pubmedApiKey ?? process.env.NCBI_API_KEY;
-	const email = options.pubmedEmail ?? process.env.NCBI_EMAIL;
+	const apiKey = options.pubmedApiKey ?? providerCredentials.pubmedApiKey ?? process.env.NCBI_API_KEY;
+	const email = options.pubmedEmail ?? providerCredentials.ncbiEmail ?? process.env.NCBI_EMAIL;
 	if (apiKey) searchUrl.searchParams.set("api_key", apiKey);
 	if (email) searchUrl.searchParams.set("email", email);
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
@@ -769,7 +769,7 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 }
 
 export async function searchCorePage(options: ProviderSearchOptions): Promise<ProviderPage> {
-	const apiKey = options.coreApiKey ?? process.env.CORE_API_KEY;
+	const apiKey = options.coreApiKey ?? providerCredentials.coreApiKey ?? process.env.CORE_API_KEY;
 	if (!apiKey) throw new Error("CORE_API_KEY is required for the CORE provider");
 	const offset = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid CORE cursor");
@@ -904,7 +904,7 @@ export async function searchOpenCitationsPage(options: ProviderSearchOptions): P
 export async function searchUnpaywallPage(options: ProviderSearchOptions): Promise<ProviderPage> {
 	if (options.cursor) throw new Error("Unpaywall DOI lookup does not support pagination");
 	const doi = doiOnlyQuery(options.query, "Unpaywall");
-	const email = options.unpaywallEmail ?? process.env.UNPAYWALL_EMAIL;
+	const email = options.unpaywallEmail ?? providerCredentials.unpaywallEmail ?? process.env.UNPAYWALL_EMAIL;
 	if (!email) throw new Error("UNPAYWALL_EMAIL is required for the Unpaywall provider");
 	const url = new URL(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}`);
 	url.searchParams.set("email", email);
@@ -1053,6 +1053,22 @@ const literatureProviderRegistry = new Map(
 
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 
+/** 来自 config.json 的 provider 凭据; 优先级: 调用参数 > 配置文件 > 环境变量 */
+let providerCredentials: {
+	semanticScholarApiKey?: string;
+	pubmedApiKey?: string;
+	coreApiKey?: string;
+	exaApiKey?: string;
+	unpaywallEmail?: string;
+	openAlexMailto?: string;
+	crossrefPoliteEmail?: string;
+	ncbiEmail?: string;
+} = {};
+
+export function setProviderCredentials(credentials: typeof providerCredentials): void {
+	providerCredentials = credentials ?? {};
+}
+
 async function exaMCPCall(
 	method: string,
 	params: unknown,
@@ -1064,7 +1080,7 @@ async function exaMCPCall(
 			"content-type": "application/json",
 			accept: "application/json, text/event-stream",
 			// 可选: 设置 EXA_API_KEY 环境变量走自有配额; 未设置则匿名(配额较低)
-			...(process.env.EXA_API_KEY ? { "x-api-key": process.env.EXA_API_KEY } : {}),
+			...(providerCredentials.exaApiKey ?? process.env.EXA_API_KEY ? { "x-api-key": providerCredentials.exaApiKey ?? process.env.EXA_API_KEY } : {}),
 		},
 		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
 		signal,

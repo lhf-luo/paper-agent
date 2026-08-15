@@ -28,6 +28,7 @@ export interface PaperAgentTeamConfig {
 	serverUrl: string;
 	namespace: string;
 	tokenEnvironmentVariable: string;
+	token?: string;
 }
 
 export interface PaperAgentConfig {
@@ -51,6 +52,16 @@ export interface PaperAgentConfig {
 	network?: {
 		proxyEnabled?: boolean;
 		proxyUrl?: string;
+	};
+	credentials?: {
+		semanticScholarApiKey?: string;
+		pubmedApiKey?: string;
+		coreApiKey?: string;
+		exaApiKey?: string;
+		unpaywallEmail?: string;
+		openAlexMailto?: string;
+		crossrefPoliteEmail?: string;
+		ncbiEmail?: string;
 	};
 	model?: PaperAgentModelConfig;
 	models?: PaperAgentModelConfig[];
@@ -275,6 +286,32 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 			config.network = { proxyEnabled, proxyUrl: parsed.toString().replace(/\/$/, "") };
 		}
 	}
+	if (source.credentials !== undefined) {
+		if (!source.credentials || typeof source.credentials !== "object" || Array.isArray(source.credentials)) {
+			throw new Error("credentials must be an object");
+		}
+		const credentials = source.credentials as Record<string, unknown>;
+		const boundedSecret = (field: string, cap = 16_384): string | undefined => {
+			const value = credentials[field];
+			if (value === undefined || value === null || value === "") return undefined;
+			if (typeof value !== "string") throw new Error(`credentials.${field} must be a string`);
+			const trimmed = value.trim();
+			if (!trimmed || trimmed.length > cap) {
+				throw new Error(`credentials.${field} must be 1-${cap} characters`);
+			}
+			return trimmed;
+		};
+		config.credentials = {
+			...(boundedSecret("semanticScholarApiKey") ? { semanticScholarApiKey: boundedSecret("semanticScholarApiKey") } : {}),
+			...(boundedSecret("pubmedApiKey") ? { pubmedApiKey: boundedSecret("pubmedApiKey") } : {}),
+			...(boundedSecret("coreApiKey") ? { coreApiKey: boundedSecret("coreApiKey") } : {}),
+			...(boundedSecret("exaApiKey") ? { exaApiKey: boundedSecret("exaApiKey") } : {}),
+			...(boundedSecret("unpaywallEmail") ? { unpaywallEmail: boundedSecret("unpaywallEmail") } : {}),
+			...(boundedSecret("openAlexMailto") ? { openAlexMailto: boundedSecret("openAlexMailto") } : {}),
+			...(boundedSecret("crossrefPoliteEmail") ? { crossrefPoliteEmail: boundedSecret("crossrefPoliteEmail") } : {}),
+			...(boundedSecret("ncbiEmail") ? { ncbiEmail: boundedSecret("ncbiEmail") } : {}),
+		};
+	}
 	if (source.model !== undefined) {
 		config.model = parseModelConfig(source.model, "model");
 	}
@@ -293,7 +330,17 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		config.team = {
 			serverUrl: validatedUrl(team.serverUrl, "team.serverUrl", true),
 			namespace: teamNamespace,
-			tokenEnvironmentVariable: environmentVariable(team.tokenEnvironmentVariable, "team.tokenEnvironmentVariable"),
+			tokenEnvironmentVariable: environmentVariable(
+				team.tokenEnvironmentVariable ?? "PAPER_AGENT_TEAM_TOKEN",
+				"team.tokenEnvironmentVariable",
+			),
+			...(typeof team.token === "string" && team.token.trim()
+				? (() => {
+						const token = team.token.trim();
+						if (token.length > 16_384) throw new Error("team.token must be at most 16384 characters");
+						return { token };
+					})()
+				: {}),
 		};
 	}
 	return config;

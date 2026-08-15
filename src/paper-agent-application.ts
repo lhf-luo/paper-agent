@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -287,10 +288,45 @@ export class PaperAgentApplication {
 			team: config.team
 				? {
 						...config.team,
-						credentialsAvailable: Boolean(process.env[config.team.tokenEnvironmentVariable]),
+						credentialsAvailable: Boolean(
+							config.team.token ?? process.env[config.team.tokenEnvironmentVariable],
+						),
 					}
 				: undefined,
 		};
+	}
+
+	private configCredentialsSync(): {
+		coreApiKey?: string;
+		semanticScholarApiKey?: string;
+		pubmedApiKey?: string;
+		exaApiKey?: string;
+		unpaywallEmail?: string;
+	} {
+		try {
+			const raw = readFileSync(join(this.projectRoot, ".paper-agent", "config.json"), "utf8");
+			const parsed = JSON.parse(raw) as { credentials?: Record<string, unknown> };
+			return (parsed.credentials ?? {}) as ReturnType<PaperAgentApplication["configCredentialsSync"]>;
+		} catch {
+			return {};
+		}
+	}
+
+	private credentialKeyFor(providerId: string): keyof ReturnType<PaperAgentApplication["configCredentialsSync"]> {
+		switch (providerId) {
+			case "core":
+				return "coreApiKey";
+			case "semanticscholar":
+				return "semanticScholarApiKey";
+			case "pubmed":
+				return "pubmedApiKey";
+			case "unpaywall":
+				return "unpaywallEmail";
+			case "exa":
+				return "exaApiKey";
+			default:
+				return "coreApiKey";
+		}
 	}
 
 	providerCatalog() {
@@ -314,7 +350,10 @@ export class PaperAgentApplication {
 			queryMode: definition.queryMode,
 			requiresEnvironmentVariable: definition.requiresEnvironmentVariable,
 			credentialsAvailable: definition.requiresEnvironmentVariable
-				? Boolean(process.env[definition.requiresEnvironmentVariable])
+				? Boolean(
+						process.env[definition.requiresEnvironmentVariable] ||
+							this.configCredentialsSync()[this.credentialKeyFor(definition.id)],
+					)
 				: true,
 			lastHealth: latestHealth.get(definition.id),
 		}));
@@ -327,9 +366,9 @@ export class PaperAgentApplication {
 	}> {
 		const config = await loadPaperAgentConfig(this.projectRoot);
 		if (!config.team) throw new Error("Team knowledge service is not configured");
-		const token = process.env[config.team.tokenEnvironmentVariable];
+		const token = config.team.token ?? process.env[config.team.tokenEnvironmentVariable];
 		if (!token)
-			throw new Error(`Team token environment variable is missing: ${config.team.tokenEnvironmentVariable}`);
+			throw new Error(`Team token is missing: set config.team.token or the ${config.team.tokenEnvironmentVariable} environment variable`);
 		return {
 			client: new TeamCorpusClient({ baseUrl: config.team.serverUrl, token }),
 			namespace: config.team.namespace,
@@ -341,7 +380,7 @@ export class PaperAgentApplication {
 		const config = await loadPaperAgentConfig(this.projectRoot);
 		if (!config.team)
 			return { configured: false, connected: false, reason: "Team knowledge service is not configured" };
-		const tokenAvailable = Boolean(process.env[config.team.tokenEnvironmentVariable]);
+		const tokenAvailable = Boolean(config.team.token ?? process.env[config.team.tokenEnvironmentVariable]);
 		if (!tokenAvailable) {
 			return {
 				configured: true,
@@ -349,7 +388,7 @@ export class PaperAgentApplication {
 				serverUrl: config.team.serverUrl,
 				namespace: config.team.namespace,
 				tokenEnvironmentVariable: config.team.tokenEnvironmentVariable,
-				reason: `Environment variable ${config.team.tokenEnvironmentVariable} is not set`,
+				reason: `Team token is missing: set config.team.token or the ${config.team.tokenEnvironmentVariable} environment variable`,
 			};
 		}
 		try {
