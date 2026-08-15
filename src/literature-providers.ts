@@ -1157,9 +1157,22 @@ export async function searchExaPage(options: ProviderSearchOptions): Promise<Pro
 	const records = parseExaResults(text)
 		.map((entry) => {
 			const year = entry.published ? Number.parseInt(entry.published.slice(0, 4), 10) : undefined;
-			const landing: PaperLink = { url: entry.url, kind: "landing" };
-			if (entry.url.endsWith(".pdf") || entry.url.includes(".pdf?")) {
-				landing.openAccess = true;
+			const links: PaperLink[] = [{ url: entry.url, kind: "landing" }];
+			// arXiv URL(abs/html/pdf) → 生成可下载的 pdf 链接(kind: pdf), 让下载流程可用
+			const arxivMatch =
+				/(?:arxiv\.org\/(?:abs|html|pdf)\/|export\.arxiv\.org\/pdf\/)(\d{4}\.\d{4,5}(?:v\d+)?)/i.exec(
+					entry.url,
+				);
+			if (arxivMatch) {
+				links[0].openAccess = true;
+				links.push({
+					url: `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`,
+					kind: "pdf",
+					openAccess: true,
+				});
+			} else if (entry.url.endsWith(".pdf") || entry.url.includes(".pdf?")) {
+				links[0].openAccess = true;
+				links.push({ url: entry.url, kind: "pdf", openAccess: true });
 			}
 			return withId({
 				title: entry.title,
@@ -1168,7 +1181,7 @@ export async function searchExaPage(options: ProviderSearchOptions): Promise<Pro
 				...(Number.isInteger(year) && year ? { year } : {}),
 				publicationType: "unknown",
 				identifiers: {},
-				links: [landing],
+				links,
 				provenance: [
 					{
 						provider: "exa",
