@@ -7,7 +7,8 @@ export type LiteratureProvider =
 	| "pubmed"
 	| "core"
 	| "opencitations"
-	| "unpaywall";
+	| "unpaywall"
+	| "exa";
 export type ProvenanceProvider = LiteratureProvider | "local-pdf" | "bibtex-import" | "json-import";
 export type CorpusScope = "personal" | "team";
 export type PersistenceMode = "once" | "persistent";

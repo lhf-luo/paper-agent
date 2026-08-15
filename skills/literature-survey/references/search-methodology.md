@@ -80,7 +80,7 @@
 | 需求 | 工具 |
 | --- | --- |
 | 查已有库防重复 | `search_literature_corpus` / `manage_team_literature_server` |
-| 多源搜索 | `collect_literature`（providers + queryExpansions） |
+| 多源搜索 | `collect_literature`（providers + queryExpansions，含 **exa**） |
 | 种子引用扩展 | `expand_citation_network`（bounded） |
 | 初筛记录 | `manage_literature_corpus`（screening） |
 | 避免重复分析 | `manage_literature_memory`（hash+版本缓存） |

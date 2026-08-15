@@ -52,5 +52,6 @@ description: 按导师方法论文献调研：一句话定题、领域/问题/�
 
 ## 边界
 
-- 不引入 Exa/Google Scholar 等外部源（当前用 arXiv/OpenAlex/Crossref/S2/DBLP 等已覆盖源）。
+- 数据源用 paper-agent 内置 provider（arXiv/OpenAlex/Crossref/S2/DBLP/PubMed/CORE/OpenCitations/Unpaywall/**Exa**）；
+  Exa 通过 MCP 提供神经语义搜索（无需 API key），适合自然语言式的广撒网发现。
 - 搜索只到"发现+初筛"；精读、gap 判断、实验评估由人负责。
