@@ -36,7 +36,6 @@ export interface PaperAgentConfig {
 	interface: {
 		port: number;
 		openBrowser: boolean;
-		host?: string;
 	};
 	storage: {
 		dataRoot?: string;
@@ -206,9 +205,6 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		interface: {
 			port,
 			openBrowser: interfaceSource.openBrowser !== false,
-			...(typeof interfaceSource.host === "string" && interfaceSource.host.trim()
-				? { host: interfaceSource.host.trim() }
-				: {}),
 		},
 		storage: {
 			dataRoot: optionalAbsolutePath(storageSource.dataRoot, "storage.dataRoot", projectRoot),
