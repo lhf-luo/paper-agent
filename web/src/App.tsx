@@ -3742,6 +3742,15 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 
 export default function App() {
 	const initialPdf = useMemo(() => launchPdfPath(), []);
+	const [sidebarOpen, setSidebarOpen] = useState(
+		() => window.localStorage.getItem("paper-agent-sidebar") !== "collapsed",
+	);
+	const toggleSidebar = useCallback(() => {
+		setSidebarOpen((current) => {
+			window.localStorage.setItem("paper-agent-sidebar", current ? "collapsed" : "open");
+			return !current;
+		});
+	}, []);
 	const [page, setPage] = useState<Page>(initialPdf ? "reader" : "dashboard");
 	const [status, setStatus] = useState<ApplicationStatus>();
 	const [reader, setReader] = useState<ReaderState | undefined>(() =>
@@ -3789,7 +3798,7 @@ export default function App() {
 	const title = useMemo(() => navigation.find((item) => item.id === page)?.label ?? "论文阅读器", [page]);
 	let lastSection = "";
 	return (
-		<div className="app-shell">
+		<div className={`app-shell${sidebarOpen ? "" : " collapsed"}`}>
 			<aside className="sidebar">
 				<div className="brand">
 					<div className="brand-mark">P</div>
@@ -3823,8 +3832,19 @@ export default function App() {
 			</aside>
 			<main className="main-area">
 				<div className="topbar">
-					<div>
-						<span className="breadcrumb">Paper Agent /</span> {title}
+					<div className="topbar-title">
+						<button
+							className="sidebar-toggle"
+							type="button"
+							onClick={toggleSidebar}
+							aria-label={sidebarOpen ? "隐藏侧边栏" : "展开侧边栏"}
+							title={sidebarOpen ? "隐藏侧边栏" : "展开侧边栏"}
+						>
+							{sidebarOpen ? "◀" : "▶"}
+						</button>
+						<div>
+							<span className="breadcrumb">Paper Agent /</span> {title}
+						</div>
 					</div>
 					<div className="topbar-actions">
 						{lastTask && (

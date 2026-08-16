@@ -57,6 +57,14 @@ code {
 	min-height: 100vh;
 }
 
+.app-shell.collapsed {
+	grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.app-shell.collapsed .sidebar {
+	display: none;
+}
+
 .sidebar {
 	position: sticky;
 	top: 0;
@@ -174,6 +182,32 @@ code {
 
 .main-area {
 	min-width: 0;
+}
+
+.topbar-title {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+.sidebar-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border: 1px solid #c9d5d0;
+	border-radius: 6px;
+	background: #fff;
+	color: #3f5d49;
+	font-size: 12px;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.sidebar-toggle:hover {
+	background: #eef5f1;
 }
 
 .topbar {
