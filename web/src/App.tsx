@@ -1261,6 +1261,9 @@ function TasksPage() {
 
 function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [path, setPath] = useState("");
+	const [availablePdfs, setAvailablePdfs] = useState<
+		Array<{ paperId: string; title: string; sha256: string; blobPath: string; sourceUrl?: string }>
+	>([]);
 	const [jobId, setJobId] = useState<string>();
 	const [mode, setMode] = useState<"analysis" | "artifacts" | "acquisition">("analysis");
 	const [selectedArtifacts, setSelectedArtifacts] = useState<Set<string>>(new Set());
@@ -1278,6 +1281,11 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 	const [personalNamespace, setPersonalNamespace] = useState("default");
 	const [personalNamespaces, setPersonalNamespaces] = useState<string[]>(["default"]);
 	const [personalPapers, setPersonalPapers] = useState<PaperRecord[]>([]);
+	useEffect(() => {
+		void api<{ pdfs: typeof availablePdfs }>("/api/library/pdfs")
+			.then((value) => setAvailablePdfs(value.pdfs))
+			.catch(() => setAvailablePdfs([]));
+	}, []);
 	const job = useJob(jobId);
 	useEffect(() => {
 		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
@@ -1465,6 +1473,24 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 				description="输入本地 PDF 路径，建立图表、正文 mention、section 和公开 artifact 的可追溯关联。"
 			/>
 			<section className="path-workbench">
+				{availablePdfs.length > 0 && (
+					<label>
+						<span>从个人库选择已下载 PDF</span>
+						<select
+							value=""
+							onChange={(event) => {
+								if (event.target.value) setPath(event.target.value);
+							}}
+						>
+							<option value="">-- 选择论文(按标题) --</option>
+							{availablePdfs.map((pdf) => (
+								<option key={pdf.paperId} value={pdf.blobPath}>
+									{pdf.title} ({pdf.paperId})
+								</option>
+							))}
+						</select>
+					</label>
+				)}
 				<label>
 					<span>本地 PDF 路径</span>
 					<input

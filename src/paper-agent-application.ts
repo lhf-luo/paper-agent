@@ -35,6 +35,7 @@ import type {
 	ArtifactManifest,
 	LiteratureProvider,
 	PaperRecord,
+	PaperVersion,
 	ScreeningStatus,
 	SearchFilters,
 } from "./literature-types.ts";
@@ -374,6 +375,63 @@ export class PaperAgentApplication {
 			namespace: config.team.namespace,
 			serverUrl: config.team.serverUrl,
 		};
+	}
+
+	async listAvailablePdfs(
+		namespace = this.defaultNamespace,
+	): Promise<
+		Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			bytes: number;
+			contentType: string;
+		}>
+	> {
+		await this.initialize();
+		const store = this.personalStore(namespace);
+		await store.initialize();
+		const versionsDir = join(store.root, "paper-versions");
+		let files: string[];
+		try {
+			files = await readdir(versionsDir);
+		} catch {
+			return [];
+		}
+		const results: Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			bytes: number;
+			contentType: string;
+		}> = [];
+		for (const file of files) {
+			if (!file.endsWith(".json")) continue;
+			const paperId = file.slice(0, -".json".length);
+			try {
+				const versions = JSON.parse(
+					await readFile(join(versionsDir, file), "utf8"),
+				) as PaperVersion[];
+				if (!versions.length || !versions[0].blobPath) continue;
+				const record = await store.getPaper(paperId);
+				results.push({
+					paperId,
+					title: record?.title ?? paperId,
+					sha256: versions[0].sha256,
+					blobPath: versions[0].blobPath,
+					sourceUrl: versions[0].sourceUrl,
+					bytes: versions[0].bytes,
+					contentType: versions[0].contentType,
+				});
+			} catch {
+				// 跳过损坏的版本文件
+			}
+		}
+		return results.sort((left, right) => left.title.localeCompare(right.title));
 	}
 
 	async teamOverview() {

@@ -580,6 +580,12 @@ export async function startLocalWebServer(
 				json(response, 202, await application.enqueueLiteratureSearch(input));
 				return;
 			}
+			if (request.method === "GET" && url.pathname === "/api/library/pdfs") {
+				json(response, 200, {
+					pdfs: await application.listAvailablePdfs(url.searchParams.get("namespace") ?? undefined),
+				});
+				return;
+			}
 			if (request.method === "GET" && url.pathname === "/api/library") {
 				json(
 					response,
