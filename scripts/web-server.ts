@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { networkInterfaces } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPaperAgentConfig } from "../src/app-config.ts";
@@ -24,6 +25,15 @@ function openBrowser(url: string): void {
 				: { file: "xdg-open", args: [url] };
 	const child = spawn(command.file, command.args, { detached: true, stdio: "ignore", windowsHide: true });
 	child.unref();
+}
+
+function lanAddress(): string | undefined {
+	for (const addresses of Object.values(networkInterfaces())) {
+		for (const entry of addresses ?? []) {
+			if (entry.family === "IPv4" && !entry.internal) return entry.address;
+		}
+	}
+	return undefined;
 }
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -54,19 +64,28 @@ const application = new PaperAgentApplication({
 	defaultNamespace: config.storage.defaultNamespace,
 });
 const agentService = await createWebAgentService({ projectRoot });
+const host = option("--host") ?? config.interface.host ?? "127.0.0.1";
+const isLoopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
 const handle = await startLocalWebServer(application, {
-	host: "127.0.0.1",
+	host,
 	port: Number(option("--port") ?? config.interface.port),
 	staticRoot: join(projectRoot, "dist", "web"),
 	sessionToken,
 	agentService,
+	allowNonLoopback: !isLoopback,
 });
 const launchParameters = new URLSearchParams({ token: sessionToken });
 const launchPdf = option("--pdf");
 if (launchPdf) launchParameters.set("pdf", resolve(launchPdf));
-const launchUrl = `${handle.url}/#${launchParameters.toString()}`;
-console.log(`Paper Agent is ready at ${handle.url}`);
-console.log("The local API is protected by an ephemeral session token and listens only on 127.0.0.1.");
+const launchHost = isLoopback || host === "0.0.0.0" || host === "::" ? lanAddress() ?? host : host;
+const launchUrl = `http://${launchHost}:${handle.port}/#${launchParameters.toString()}`;
+console.log(`Paper Agent is ready at http://${host}:${handle.port}`);
+if (!isLoopback) {
+	console.warn("⚠️  服务已绑定到非本机地址。任何拿到会话 URL 的人都能访问你的个人库、配置与写操作。仅限可信局域网使用，并保管好 URL。");
+	console.log(`LAN session URL: ${launchUrl}`);
+} else {
+	console.log("The local API is protected by an ephemeral session token and listens only on 127.0.0.1.");
+}
 const shouldOpenBrowser = !process.argv.includes("--no-open") && config.interface.openBrowser;
 if (shouldOpenBrowser) {
 	openBrowser(launchUrl);

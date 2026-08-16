@@ -39,6 +39,7 @@ export interface LocalWebServerOptions {
 	staticRoot: string;
 	sessionToken: string;
 	agentService?: WebAgentServiceApi;
+	allowNonLoopback?: boolean;
 }
 
 export interface LocalWebServerHandle {
@@ -249,8 +250,11 @@ export async function startLocalWebServer(
 ): Promise<LocalWebServerHandle> {
 	await application.initialize();
 	const host = options.host ?? "127.0.0.1";
-	if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
-		throw new Error("The local Paper Agent server may only listen on loopback addresses");
+	const loopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
+	if (!loopback && !options.allowNonLoopback) {
+		throw new Error(
+			"The local Paper Agent server may only listen on loopback addresses; set config.interface.host explicitly to allow LAN exposure",
+		);
 	}
 	const openStreams = new Set<ServerResponse>();
 	const server = createServer(async (request, response) => {
