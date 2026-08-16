@@ -157,7 +157,13 @@ function AgentToolCard({ tool }: { tool: AgentToolView }) {
 	);
 }
 
-export function AgentPage() {
+export function AgentPage({
+	initialPrompt = "",
+	onPromptConsumed,
+}: {
+	initialPrompt?: string;
+	onPromptConsumed?: () => void;
+}) {
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [configuredKey, setConfiguredKey] = useState("");
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
@@ -165,6 +171,12 @@ export function AgentPage() {
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
 	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
+	useEffect(() => {
+		if (initialPrompt) {
+			setPrompt(initialPrompt);
+			onPromptConsumed?.();
+		}
+	}, [initialPrompt, onPromptConsumed]);
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");

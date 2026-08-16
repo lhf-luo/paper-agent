@@ -1597,6 +1597,17 @@ export class PaperAgentApplication {
 				{ ...input.request, signal: context.signal },
 				{ manager: this.consent, permit: input.executionPermit },
 			);
+			// 给新下载的论文打上"待生成略读卡"标记(方案A: 提示用户可一键生成)
+			for (const version of result.downloaded) {
+				try {
+					await this.personalStore(input.namespace).annotatePaper(version.paperId, {
+						author: "paper-agent",
+						tags: ["needs-skim-card"],
+					});
+				} catch {
+					// 打标是尽力而为, 不影响下载结果
+				}
+			}
 			context.report(1, "PDF downloads completed");
 			return result;
 		});

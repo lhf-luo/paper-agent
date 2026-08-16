@@ -652,9 +652,11 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 function LibraryPage({
 	onOpenReader,
 	onTask,
+	onGenerateSkimCard,
 }: {
 	onOpenReader: (state: ReaderState) => void;
 	onTask: (job: BackgroundJob) => void;
+	onGenerateSkimCard: (paper: PaperRecord) => void;
 }) {
 	const [query, setQuery] = useState("");
 	const [papers, setPapers] = useState<PaperRecord[]>([]);
@@ -1002,20 +1004,30 @@ function LibraryPage({
 					) : papers.length ? (
 						<div className="paper-list">
 							{papers.map((paper) => (
-								<PaperCard
-									key={paper.id}
-									paper={paper}
-									selected={selected.has(paper.id)}
-									onSelect={(checked) =>
-										setSelected((current) => {
-											const next = new Set(current);
-											checked ? next.add(paper.id) : next.delete(paper.id);
-											return next;
-										})
-									}
-									onOpen={() => void open(paper)}
-								/>
-							))}
+								<div key={paper.id} className="library-record">
+									{paper.curation?.tags?.includes("needs-skim-card") && (
+										<div className="skim-pending-bar">
+											<span>待生成略读卡</span>
+											<button type="button" onClick={() => onGenerateSkimCard(paper)}>
+												生成略读卡
+											</button>
+										</div>
+									)}
+									<PaperCard
+										key={paper.id}
+										paper={paper}
+										selected={selected.has(paper.id)}
+										onSelect={(checked) =>
+											setSelected((current) => {
+													const next = new Set(current);
+													checked ? next.add(paper.id) : next.delete(paper.id);
+													return next;
+												})
+											}
+											onOpen={() => void open(paper)}
+										/>
+									</div>
+								))}
 						</div>
 					) : (
 						<EmptyState title="个人库还是空的" text="先到“搜索论文”页面收集并保存感兴趣的论文。" />
@@ -3782,6 +3794,7 @@ export default function App() {
 	);
 	const [lastTask, setLastTask] = useState<BackgroundJob>();
 	const [error, setError] = useState("");
+	const [pendingAgentPrompt, setPendingAgentPrompt] = useState("");
 	const refreshStatus = useCallback(async () => {
 		try {
 			setStatus(await api<ApplicationStatus>("/api/status"));
@@ -3893,8 +3906,24 @@ export default function App() {
 					{error && <div className="error-banner">{error}</div>}
 					{page === "dashboard" && <DashboardPage status={status} go={go} />}
 					{page === "search" && <SearchPage onTask={trackTask} />}
-					{page === "agent" && <AgentPage />}
-					{page === "library" && <LibraryPage onOpenReader={openReader} onTask={trackTask} />}
+					{page === "agent" && (
+						<AgentPage
+							initialPrompt={pendingAgentPrompt}
+							onPromptConsumed={() => setPendingAgentPrompt("")}
+						/>
+					)}
+					{page === "library" && (
+						<LibraryPage
+							onOpenReader={openReader}
+							onTask={trackTask}
+							onGenerateSkimCard={(paper) => {
+								setPendingAgentPrompt(
+									`为这篇论文生成略读卡：${paper.title}（论文 ID: ${paper.id}）。按 skim-card 技能的五问法（解决什么问题 / 现有方法为何不够 / 核心机制 / 哪个实验最直接支持 / 留下什么边界）回答，输出「问题 | research gap | 核心创新 | 关键证据 | 主要局限 | 精读/保留/排除」格式，并给出处置建议。先用 search_literature_corpus 找到该论文并读取其 PDF，gap 与创新点必须回到原文确认，标注证据位置；完成后再按规范把略读卡写入 research 记录。`,
+								);
+								go("agent");
+							}}
+						/>
+					)}
 					{page === "tasks" && <TasksPage />}
 					{page === "pdf" && <PdfWorkspacePage onTask={trackTask} />}
 					{page === "quality" && <ArtifactEvaluationPage />}
