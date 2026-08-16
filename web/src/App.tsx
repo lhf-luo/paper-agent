@@ -3012,7 +3012,7 @@ function ResearchPage() {
 								</article>
 							))
 						) : (
-							<EmptyState title="暂无调研记录" text="在右侧创建第一张略读卡、比较矩阵或证据图。" />
+							<EmptyState title="暂无调研记录" text="在上面创建第一张略读卡、比较矩阵或证据图。" />
 						)}
 					</div>
 				</section>
