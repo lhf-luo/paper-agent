@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, hasSessionToken, jsonBody, launchPdfPath } from "./api";
 import { AgentPage } from "./agent-page";
 import { ArtifactEvaluationPage } from "./artifact-evaluation-page";
@@ -1293,6 +1293,15 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			.then((value) => setAvailablePdfs(value.pdfs))
 			.catch(() => setAvailablePdfs([]));
 	}, []);
+	const [pdfPickerOpen, setPdfPickerOpen] = useState(false);
+	const pdfPickerRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const close = (event: MouseEvent) => {
+			if (pdfPickerRef.current && !pdfPickerRef.current.contains(event.target as Node)) setPdfPickerOpen(false);
+		};
+		document.addEventListener("mousedown", close);
+		return () => document.removeEventListener("mousedown", close);
+	}, []);
 	const job = useJob(jobId);
 	useEffect(() => {
 		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
@@ -1319,6 +1328,8 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 		(value: string): { pdfPath: string; pdf?: (typeof availablePdfs)[number] } => {
 			const trimmed = value.trim();
 			if (!trimmed) return { pdfPath: "" };
+			const byPath = availablePdfs.find((pdf) => pdf.hasPdf && pdf.blobPath === trimmed);
+			if (byPath) return { pdfPath: byPath.blobPath, pdf: byPath };
 			const byTitle = availablePdfs.find((pdf) => pdf.title === trimmed);
 			if (byTitle) return { pdfPath: byTitle.hasPdf ? byTitle.blobPath : "", pdf: byTitle };
 			const byId = availablePdfs.find((pdf) => pdf.paperId === trimmed);
@@ -1511,19 +1522,34 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			<section className="path-workbench">
 				<label>
 					<span>本地 PDF 路径（可直接输入，或从个人库选择论文）</span>
-					<input
-						list="library-pdf-options"
-						value={path}
-						onChange={(event) => setPath(event.target.value)}
-						placeholder="输入路径，或从下拉选择已入库论文…"
-					/>
-					<datalist id="library-pdf-options">
-						{availablePdfs.map((pdf) => (
-							<option key={pdf.paperId} value={pdf.title}>
-								{pdf.title} · {pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
-							</option>
-						))}
-					</datalist>
+					<div className="pdf-combobox" ref={pdfPickerRef}>
+						<input
+							value={path}
+							onChange={(event) => setPath(event.target.value)}
+							onFocus={() => setPdfPickerOpen(true)}
+							placeholder="输入路径，或点击选择已入库论文…"
+						/>
+						{pdfPickerOpen && availablePdfs.length > 0 && (
+							<ul className="pdf-combobox-list">
+								{availablePdfs.map((pdf) => (
+									<li
+										key={pdf.paperId}
+										title={pdf.title}
+										onClick={() => {
+											setPath(pdf.hasPdf ? pdf.blobPath : "");
+											setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
+											setPdfPickerOpen(false);
+										}}
+									>
+										<span className="pdf-combobox-title">{pdf.title}</span>
+										<span className="pdf-combobox-meta">
+											{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
 					{path && <small className="path-resolved-hint">{resolvePdfHint(path)}</small>}
 				</label>
 				<div className="button-row">
