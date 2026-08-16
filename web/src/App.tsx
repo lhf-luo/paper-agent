@@ -3742,15 +3742,33 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 
 export default function App() {
 	const initialPdf = useMemo(() => launchPdfPath(), []);
-	const [sidebarOpen, setSidebarOpen] = useState(
-		() => window.localStorage.getItem("paper-agent-sidebar") !== "collapsed",
-	);
-	const toggleSidebar = useCallback(() => {
-		setSidebarOpen((current) => {
-			window.localStorage.setItem("paper-agent-sidebar", current ? "collapsed" : "open");
-			return !current;
-		});
-	}, []);
+	const [sidebarWidth, setSidebarWidth] = useState(() => {
+		const saved = Number(window.localStorage.getItem("paper-agent-sidebar-width"));
+		return Number.isFinite(saved) && saved > 0 ? saved : 250;
+	});
+	const sidebarCollapsed = sidebarWidth < 40;
+	const resizeStart = useRef<{ x: number; width: number } | null>(null);
+	const onResizeStart = useCallback((event: React.MouseEvent) => {
+		event.preventDefault();
+		resizeStart.current = { x: event.clientX, width: sidebarWidth };
+		const onMove = (move: MouseEvent) => {
+			if (!resizeStart.current) return;
+			const delta = move.clientX - resizeStart.current.x;
+			const next = Math.max(0, Math.min(520, resizeStart.current.width + delta));
+			setSidebarWidth(next);
+		};
+		const onUp = () => {
+			resizeStart.current = null;
+			document.removeEventListener("mousemove", onMove);
+			document.removeEventListener("mouseup", onUp);
+			setSidebarWidth((current) => {
+				window.localStorage.setItem("paper-agent-sidebar-width", String(current));
+				return current;
+			});
+		};
+		document.addEventListener("mousemove", onMove);
+		document.addEventListener("mouseup", onUp);
+	}, [sidebarWidth]);
 	const [page, setPage] = useState<Page>(initialPdf ? "reader" : "dashboard");
 	const [status, setStatus] = useState<ApplicationStatus>();
 	const [reader, setReader] = useState<ReaderState | undefined>(() =>
@@ -3798,53 +3816,68 @@ export default function App() {
 	const title = useMemo(() => navigation.find((item) => item.id === page)?.label ?? "论文阅读器", [page]);
 	let lastSection = "";
 	return (
-		<div className={`app-shell${sidebarOpen ? "" : " collapsed"}`}>
-			<aside className="sidebar">
-				<div className="brand">
-					<div className="brand-mark">P</div>
-					<div>
-						<strong>Paper Agent</strong>
-						<span>Evidence workspace</span>
-					</div>
-				</div>
-				<nav>
-					{navigation.map((item) => {
-						const section = item.section && item.section !== lastSection ? item.section : undefined;
-						if (item.section) lastSection = item.section;
-						return (
-							<div key={item.id}>
-								{section && <span className="nav-section">{section}</span>}
-								<button className={page === item.id ? "active" : ""} type="button" onClick={() => go(item.id)}>
-									<span>{item.icon}</span>
-									{item.label}
-								</button>
+		<div
+			className="app-shell"
+			style={{
+				gridTemplateColumns: sidebarCollapsed
+					? "24px minmax(0, 1fr)"
+					: `${sidebarWidth}px minmax(0, 1fr)`,
+			}}
+		>
+			<aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
+				{sidebarCollapsed ? (
+					<button
+						className="sidebar-rail-button"
+						type="button"
+						onClick={() => setSidebarWidth(250)}
+						aria-label="展开侧边栏"
+						title="展开侧边栏"
+					>
+						▶
+					</button>
+				) : (
+					<>
+						<div className="brand">
+							<div className="brand-mark">P</div>
+							<div>
+								<strong>Paper Agent</strong>
+								<span>Evidence workspace</span>
 							</div>
-						);
-					})}
-				</nav>
-				<div className="sidebar-footer">
-					<span className="health-dot" />
-					<div>
-						<strong>本地服务已连接</strong>
-						<small>{status?.defaultRecordCount ?? 0} 篇个人论文</small>
-					</div>
-				</div>
+						</div>
+						<nav>
+							{navigation.map((item) => {
+								const section = item.section && item.section !== lastSection ? item.section : undefined;
+								if (item.section) lastSection = item.section;
+								return (
+									<div key={item.id}>
+										{section && <span className="nav-section">{section}</span>}
+										<button
+											className={page === item.id ? "active" : ""}
+											type="button"
+											onClick={() => go(item.id)}
+										>
+											<span>{item.icon}</span>
+											{item.label}
+										</button>
+									</div>
+								);
+							})}
+						</nav>
+						<div className="sidebar-footer">
+							<span className="health-dot" />
+							<div>
+								<strong>本地服务已连接</strong>
+								<small>{status?.defaultRecordCount ?? 0} 篇个人论文</small>
+							</div>
+						</div>
+					</>
+				)}
 			</aside>
+			<div className="sidebar-resizer" onMouseDown={onResizeStart} />
 			<main className="main-area">
 				<div className="topbar">
-					<div className="topbar-title">
-						<button
-							className="sidebar-toggle"
-							type="button"
-							onClick={toggleSidebar}
-							aria-label={sidebarOpen ? "隐藏侧边栏" : "展开侧边栏"}
-							title={sidebarOpen ? "隐藏侧边栏" : "展开侧边栏"}
-						>
-							{sidebarOpen ? "◀" : "▶"}
-						</button>
-						<div>
-							<span className="breadcrumb">Paper Agent /</span> {title}
-						</div>
+					<div>
+						<span className="breadcrumb">Paper Agent /</span> {title}
 					</div>
 					<div className="topbar-actions">
 						{lastTask && (

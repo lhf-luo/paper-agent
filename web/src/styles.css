@@ -57,12 +57,41 @@ code {
 	min-height: 100vh;
 }
 
-.app-shell.collapsed {
-	grid-template-columns: 0 minmax(0, 1fr);
+/* 侧边栏拖拽调整宽度 */
+.sidebar-resizer {
+	width: 4px;
+	cursor: col-resize;
+	background: transparent;
+	transition: background 0.15s ease;
+	position: relative;
+	z-index: 20;
 }
 
-.app-shell.collapsed .sidebar {
-	display: none;
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
+	background: rgba(79, 124, 95, 0.35);
+}
+
+.sidebar.collapsed {
+	display: flex;
+	align-items: flex-start;
+	padding: 10px 0;
+	overflow: visible;
+}
+
+.sidebar-rail-button {
+	width: 24px;
+	height: 40px;
+	border: 0;
+	background: transparent;
+	color: #f1f8f5;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.sidebar-rail-button:hover {
+	background: rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
 }
 
 .sidebar {
