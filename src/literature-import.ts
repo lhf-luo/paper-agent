@@ -551,6 +551,29 @@ export function registerLiteratureImportTool(pi: ExtensionAPI): void {
 					});
 				}
 			}
+			// 把本地导入的 PDF 文件本体也存进库(blob + paper-versions), 便于在 PDF 工作区按标题选择分析
+			for (const record of accepted) {
+				if (record.provenance[0]?.provider !== "local-pdf") continue;
+				const sourcePath = record.provenance[0].rawUrl;
+				if (!sourcePath) continue;
+				try {
+					const body = new Uint8Array(await readFile(sourcePath));
+					const blob = await store.putBlob(body);
+					const fileUrl = `file:///${sourcePath.replaceAll("\\", "/")}`;
+					await store.savePaperVersion({
+						paperId: record.id,
+						sourceUrl: fileUrl,
+						finalUrl: fileUrl,
+						retrievedAt: new Date().toISOString(),
+						sha256: blob.sha256,
+						bytes: body.length,
+						blobPath: blob.path,
+						contentType: "application/pdf",
+					});
+				} catch {
+					// 文件本体入库是尽力而为; 元数据记录仍保留
+				}
+			}
 			const rejectionLog = {
 				schemaVersion: 1,
 				id: rejectionId,
