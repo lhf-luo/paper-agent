@@ -282,6 +282,7 @@ export class WebAgentService implements WebAgentServiceApi {
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [
 			join(options.projectRoot, "skills", "literature-corpus-manager"),
 			join(options.projectRoot, "skills", "literature-survey"),
+			join(options.projectRoot, "skills", "skim-card"),
 		];
 		this.endpoint = endpoint;
 		this.environmentCredentialScope = endpoint.apiKeyEnvironmentVariable
