@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, open, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,10 +32,6 @@ const pdfCache = new Map<string, ExtractedPdf>();
 
 export async function validatePdfPath(input: string, cwd: string): Promise<string> {
 	const absolutePath = resolve(cwd, input.startsWith("@") ? input.slice(1) : input);
-	if (extname(absolutePath).toLowerCase() !== ".pdf") {
-		throw new Error(`Expected a .pdf file, received: ${input}`);
-	}
-
 	let fileStat: Stats;
 	try {
 		fileStat = await stat(absolutePath);
@@ -44,6 +40,17 @@ export async function validatePdfPath(input: string, cwd: string): Promise<strin
 	}
 	if (!fileStat.isFile()) {
 		throw new Error(`PDF path is not a file: ${absolutePath}`);
+	}
+	// 用文件内容(%PDF- 魔数)判断, 而不是扩展名——个人库的 blob 路径没有 .pdf 后缀
+	const handle = await open(absolutePath, "r");
+	try {
+		const buffer = Buffer.alloc(5);
+		const { bytesRead } = await handle.read(buffer, 0, 5, 0);
+		if (bytesRead < 5 || buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+			throw new Error(`File is not a PDF (missing %PDF- header): ${input}`);
+		}
+	} finally {
+		await handle.close();
 	}
 	return absolutePath;
 }

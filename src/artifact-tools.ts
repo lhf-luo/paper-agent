@@ -300,9 +300,6 @@ export function registerArtifactTools(pi: ExtensionAPI): void {
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const pdfPath = resolve(ctx.cwd, params.pdf_path.startsWith("@") ? params.pdf_path.slice(1) : params.pdf_path);
-			if (extname(pdfPath).toLowerCase() !== ".pdf") {
-				throw new Error(`Expected a .pdf file, received: ${params.pdf_path}`);
-			}
 			let pdfStat: Stats;
 			try {
 				pdfStat = await lstat(pdfPath);
