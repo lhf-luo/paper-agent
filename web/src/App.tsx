@@ -3820,8 +3820,8 @@ export default function App() {
 			className="app-shell"
 			style={{
 				gridTemplateColumns: sidebarCollapsed
-					? "24px minmax(0, 1fr)"
-					: `${sidebarWidth}px minmax(0, 1fr)`,
+					? "24px 4px minmax(0, 1fr)"
+					: `${sidebarWidth}px 4px minmax(0, 1fr)`,
 			}}
 		>
 			<aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
