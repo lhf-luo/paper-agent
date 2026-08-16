@@ -1520,8 +1520,7 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 					<datalist id="library-pdf-options">
 						{availablePdfs.map((pdf) => (
 							<option key={pdf.paperId} value={pdf.title}>
-								{pdf.hasPdf ? "已下载 · " : "未下载PDF · "}
-								{pdf.paperId}
+								{pdf.title} · {pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
 							</option>
 						))}
 					</datalist>
