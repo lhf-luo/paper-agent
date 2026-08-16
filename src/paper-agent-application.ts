@@ -408,7 +408,9 @@ export class PaperAgentApplication {
 			sourceUrl?: string;
 			bytes: number;
 			contentType: string;
+			hasPdf: boolean;
 		}> = [];
+		const seen = new Set<string>();
 		for (const file of files) {
 			if (!file.endsWith(".json")) continue;
 			const paperId = file.slice(0, -".json".length);
@@ -426,10 +428,38 @@ export class PaperAgentApplication {
 					sourceUrl: versions[0].sourceUrl,
 					bytes: versions[0].bytes,
 					contentType: versions[0].contentType,
+					hasPdf: true,
 				});
+				seen.add(paperId);
 			} catch {
 				// 跳过损坏的版本文件
 			}
+		}
+		// 补充未下载 PDF 的论文(仅元数据), 让用户知道可以去下载
+		try {
+			const recordFiles = await readdir(join(store.root, "records"));
+			for (const file of recordFiles) {
+				if (!file.endsWith(".json")) continue;
+				const paperId = file.slice(0, -".json".length);
+				if (seen.has(paperId)) continue;
+				try {
+					const record = await store.getPaper(paperId);
+					if (!record) continue;
+					results.push({
+						paperId,
+						title: record.title ?? paperId,
+						sha256: "",
+						blobPath: "",
+						bytes: 0,
+						contentType: "",
+						hasPdf: false,
+					});
+				} catch {
+					// 跳过损坏的记录
+				}
+			}
+		} catch {
+			// records 目录不存在时忽略
 		}
 		return results.sort((left, right) => left.title.localeCompare(right.title));
 	}

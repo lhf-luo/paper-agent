@@ -1262,7 +1262,14 @@ function TasksPage() {
 function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [path, setPath] = useState("");
 	const [availablePdfs, setAvailablePdfs] = useState<
-		Array<{ paperId: string; title: string; sha256: string; blobPath: string; sourceUrl?: string }>
+		Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			hasPdf: boolean;
+		}>
 	>([]);
 	const [jobId, setJobId] = useState<string>();
 	const [mode, setMode] = useState<"analysis" | "artifacts" | "acquisition">("analysis");
@@ -1308,6 +1315,30 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			})
 			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
 	}, [personalNamespace]);
+	const resolvePdfValue = useCallback(
+		(value: string): { pdfPath: string; pdf?: (typeof availablePdfs)[number] } => {
+			const trimmed = value.trim();
+			if (!trimmed) return { pdfPath: "" };
+			const byTitle = availablePdfs.find((pdf) => pdf.title === trimmed);
+			if (byTitle) return { pdfPath: byTitle.hasPdf ? byTitle.blobPath : "", pdf: byTitle };
+			const byId = availablePdfs.find((pdf) => pdf.paperId === trimmed);
+			if (byId) return { pdfPath: byId.hasPdf ? byId.blobPath : "", pdf: byId };
+			return { pdfPath: trimmed };
+		},
+		[availablePdfs],
+	);
+
+	const resolvePdfHint = useCallback(
+		(value: string): string => {
+			const { pdfPath, pdf } = resolvePdfValue(value);
+			if (pdf && !pdf.hasPdf) return "该论文尚未下载 PDF，请先到个人库下载后再分析。";
+			if (pdf && pdfPath) return `将使用个人库 PDF：${pdf.paperId}`;
+			if (pdfPath) return "将作为本地路径直接使用。";
+			return "";
+		},
+		[resolvePdfValue],
+	);
+
 	const run = async (kind: "analysis" | "artifacts") => {
 		setBusy(true);
 		setError("");
@@ -1320,9 +1351,14 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			setArtifactDetails(undefined);
 		}
 		try {
+			const resolved = resolvePdfValue(path);
+			if (!resolved.pdfPath) {
+				setError(resolved.pdf ? "该论文尚未下载 PDF，请先到个人库下载后再分析。" : "请输入本地 PDF 路径或选择论文");
+				return;
+			}
 			const created = await api<BackgroundJob>(
 				kind === "analysis" ? "/api/pdf/analyze" : "/api/artifacts/discover",
-				jsonBody(kind === "analysis" ? { pdfPath: path, refine: true } : { pdfPath: path }),
+				jsonBody(kind === "analysis" ? { pdfPath: resolved.pdfPath, refine: true } : { pdfPath: resolved.pdfPath }),
 			);
 			setJobId(created.id);
 			onTask(created);
@@ -1473,31 +1509,23 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 				description="输入本地 PDF 路径，建立图表、正文 mention、section 和公开 artifact 的可追溯关联。"
 			/>
 			<section className="path-workbench">
-				{availablePdfs.length > 0 && (
-					<label>
-						<span>从个人库选择已下载 PDF</span>
-						<select
-							value=""
-							onChange={(event) => {
-								if (event.target.value) setPath(event.target.value);
-							}}
-						>
-							<option value="">-- 选择论文(按标题) --</option>
-							{availablePdfs.map((pdf) => (
-								<option key={pdf.paperId} value={pdf.blobPath}>
-									{pdf.title} ({pdf.paperId})
-								</option>
-							))}
-						</select>
-					</label>
-				)}
 				<label>
-					<span>本地 PDF 路径</span>
+					<span>本地 PDF 路径（可直接输入，或从个人库选择论文）</span>
 					<input
+						list="library-pdf-options"
 						value={path}
 						onChange={(event) => setPath(event.target.value)}
-						placeholder="D:\papers\example.pdf"
+						placeholder="输入路径，或从下拉选择已入库论文…"
 					/>
+					<datalist id="library-pdf-options">
+						{availablePdfs.map((pdf) => (
+							<option key={pdf.paperId} value={pdf.title}>
+								{pdf.hasPdf ? "已下载 · " : "未下载PDF · "}
+								{pdf.paperId}
+							</option>
+						))}
+					</datalist>
+					{path && <small className="path-resolved-hint">{resolvePdfHint(path)}</small>}
 				</label>
 				<div className="button-row">
 					<button
