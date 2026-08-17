@@ -3981,7 +3981,6 @@ export default function App() {
 								{lastTask.type}
 							</button>
 						)}
-						<span className="local-badge">LOCAL FIRST</span>
 					</div>
 				</div>
 				<div className={`page-content${page === "agent" ? " page-content-full" : ""}`}>

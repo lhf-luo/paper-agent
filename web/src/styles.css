@@ -276,16 +276,6 @@ code {
 	color: var(--ink);
 }
 
-.local-badge {
-	padding: 5px 8px;
-	border: 1px solid #bdd3ca;
-	border-radius: 4px;
-	color: var(--green-700);
-	background: #eef8f4;
-	font-size: 9px;
-	font-weight: 800;
-	letter-spacing: 1.1px;
-}
 
 .page-content {
 	max-width: 1500px;
@@ -3288,10 +3278,7 @@ span.chip.active {
 	.filter-row > div:first-child {
 		grid-column: auto;
 	}
-	.topbar-actions .local-badge {
-		display: none;
-	}
-	.results-toolbar,
+		.results-toolbar,
 	.library-toolbar {
 		align-items: flex-start;
 		flex-direction: column;
