@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiEventStream } from "./api";
 import type {
+	AgentApiKind,
 	AgentConfigView,
 	AgentEvent,
 	AgentMode,
@@ -37,6 +38,20 @@ const taskTemplates = [
 	},
 ];
 
+const apiKinds: Array<{ value: AgentApiKind; label: string }> = [
+	{ value: "openai-completions", label: "OpenAI Chat Completions" },
+	{ value: "openai-responses", label: "OpenAI Responses" },
+	{ value: "anthropic-messages", label: "Anthropic Messages" },
+	{ value: "google-generative-ai", label: "Google Generative AI" },
+];
+
+interface AgentConfigForm {
+	providerId: string;
+	modelId: string;
+	baseUrl: string;
+	api: AgentApiKind;
+}
+
 function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummary {
 	const { messages: _messages, tools: _tools, uiRequests: _uiRequests, ...summary } = snapshot;
 	return summary;
@@ -56,14 +71,9 @@ function timeLabel(value: string): string {
 
 function credentialLabel(config?: AgentConfigView): string {
 	if (!config?.credentialsAvailable) return "未提供凭据";
-	switch (config.credentialSource) {
-		case "memory":
-			return "服务进程内存";
-		case "config":
-			return "config.json 明文";
-		default:
-			return "环境变量";
-	}
+	if (config.credentialSource === "memory") return "服务进程内存";
+	if (config.credentialSource === "config") return "config.json 明文";
+	return "环境变量";
 }
 
 function AgentUIRequestCard({
@@ -151,7 +161,13 @@ function AgentToolCard({ tool }: { tool: AgentToolView }) {
 
 export function AgentPage() {
 	const [config, setConfig] = useState<AgentConfigView>();
-	const [configuredKey, setConfiguredKey] = useState("");
+	const [form, setForm] = useState<AgentConfigForm>({
+		providerId: "",
+		modelId: "",
+		baseUrl: "",
+		api: "openai-completions",
+	});
+	const [apiKey, setApiKey] = useState("");
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -165,25 +181,8 @@ export function AgentPage() {
 
 	const applyConfig = useCallback((next: AgentConfigView) => {
 		setConfig(next);
+		setForm({ providerId: next.providerId, modelId: next.modelId, baseUrl: next.baseUrl, api: next.api });
 	}, []);
-
-	const applyConfigured = useCallback(async () => {
-		if (!configuredKey) return;
-		setBusy(true);
-		setError("");
-		try {
-			const next = await api<AgentConfigView>("/api/agent/config/apply", {
-				method: "POST",
-				body: JSON.stringify({ key: configuredKey }),
-			});
-			applyConfig(next);
-			setNotice("已切换到 config.json 中配置的模型。");
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setBusy(false);
-		}
-	}, [configuredKey, applyConfig]);
 
 	const refreshSessions = useCallback(async (preferredId?: string) => {
 		const result = await api<{ sessions: AgentSessionSummary[] }>("/api/agent/sessions");
@@ -332,6 +331,42 @@ export function AgentPage() {
 			transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
 		}, [active]);
 
+	const saveConfig = async () => {
+		setBusy(true);
+		setError("");
+		setNotice("");
+		try {
+			const next = await api<AgentConfigView>("/api/agent/config", {
+				method: "PUT",
+				body: JSON.stringify({ ...form, ...(apiKey ? { apiKey } : {}) }),
+			});
+			setApiKey("");
+			applyConfig(next);
+			await refreshSessions();
+			setNotice("模型配置已应用。网页输入的密钥仅保留在当前服务进程内存中。");
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const clearKey = async () => {
+		setBusy(true);
+		setError("");
+		try {
+			const next = await api<AgentConfigView>("/api/agent/key", { method: "DELETE" });
+			setApiKey("");
+			applyConfig(next);
+			await refreshSessions();
+			setNotice(next.credentialSource === "environment" ? "内存密钥已清除；当前将使用项目环境变量。" : "内存密钥和旧会话已清除。");
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	const createSession = async () => {
 		setBusy(true);
 		setError("");
@@ -462,49 +497,83 @@ export function AgentPage() {
 			<section className="panel agent-config-panel">
 				<div className="panel-heading">
 					<div>
-						<span className="eyebrow">Model access</span>
+						<span className="eyebrow">Ephemeral model access</span>
 						<h2>模型与凭据</h2>
 					</div>
 					<span className={`agent-credential-badge ${config?.credentialSource ?? "none"}`}>
 						{credentialLabel(config)}
 					</span>
 				</div>
-				{config?.configuredModels && config.configuredModels.length > 0 ? (
-					<div className="agent-configured-models">
-						<label htmlFor="agent-configured-model">
-							<span>从 config.json 选用已配置模型</span>
-						</label>
-						<div className="configured-model-row">
-							<select
-								id="agent-configured-model"
-								value={configuredKey}
-								onChange={(event) => setConfiguredKey(event.target.value)}
-							>
-								<option value="">-- 选择模型 --</option>
-								{config.configuredModels.map((model) => (
-									<option key={model.key} value={model.key}>
-										{model.providerId} / {model.modelId}
-										{model.credentialsAvailable ? " · 密钥可用" : " · 密钥缺失"}
-									</option>
-								))}
-							</select>
-							<button className="button primary" type="button" disabled={busy || !configuredKey} onClick={() => void applyConfigured()}>
-								应用已配置模型
-							</button>
-						</div>
-						<small className="configured-model-hint">
-							当前模型：{config.providerId}/{config.modelId}
-							{config.configuredModels.find((model) => model.key === configuredKey)?.credentialsAvailable
-								? " · 该模型密钥已配置"
-								: ""}
-						</small>
+				<div className="agent-secret-warning">
+					<strong>密钥仅保留在本次 Paper Agent 服务进程的内存中</strong>
+					<span>不会写入项目配置、Pi auth/models 文件、浏览器存储、对话记录或错误响应。服务重启后需重新输入。</span>
+				</div>
+				<div className="agent-config-grid">
+					<label>
+						<span>Provider ID</span>
+						<input
+							value={form.providerId}
+							onChange={(event) => setForm((current) => ({ ...current, providerId: event.target.value }))}
+							placeholder="openai-compatible"
+						/>
+					</label>
+					<label>
+						<span>Model ID</span>
+						<input
+							value={form.modelId}
+							onChange={(event) => setForm((current) => ({ ...current, modelId: event.target.value }))}
+							placeholder="model-name"
+						/>
+					</label>
+					<label className="wide">
+						<span>Base URL</span>
+						<input
+							value={form.baseUrl}
+							onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}
+							placeholder="https://api.example.com/v1"
+						/>
+					</label>
+					<label>
+						<span>API 类型</span>
+						<select
+							value={form.api}
+							onChange={(event) => setForm((current) => ({ ...current, api: event.target.value as AgentApiKind }))}
+						>
+							{apiKinds.map((entry) => (
+								<option key={entry.value} value={entry.value}>
+									{entry.label}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						<span>API key（留空表示不替换）</span>
+						<input
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="仅进入服务进程内存"
+						/>
+					</label>
+				</div>
+				<div className="agent-config-actions">
+					<div>
+						{config?.apiKeyEnvironmentVariable ? (
+							<small>项目环境变量：{config.apiKeyEnvironmentVariable}</small>
+						) : (
+							<small>未配置项目级密钥环境变量；可直接使用上方内存密钥。</small>
+						)}
 					</div>
-				) : (
-					<div className="agent-secret-warning">
-						<strong>未在 config.json 中配置模型</strong>
-						<span>请编辑 .paper-agent/config.json 的 models 字段后重启服务。</span>
+					<div className="button-row">
+						<button className="button secondary" type="button" disabled={busy} onClick={() => void clearKey()}>
+							清除内存密钥
+						</button>
+						<button className="button primary" type="button" disabled={busy} onClick={() => void saveConfig()}>
+							应用配置
+						</button>
 					</div>
-				)}
+				</div>
 			</section>
 
 			<div className="agent-workspace">
