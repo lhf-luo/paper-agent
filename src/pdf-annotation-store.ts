@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { PaperAsset, PdfBox } from "./pdf-asset-tools.ts";
+import type { PaperAsset, PdfBox } from "./tools/pdf-asset-tools.ts";
 
 export interface PdfAssetCorrection {
 	id: string;

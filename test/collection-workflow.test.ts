@@ -10,10 +10,12 @@ import {
 	collectLiterature,
 	expandLiteratureQueries,
 	planLiteratureSearch,
+	saveSearchRunSelection,
+	searchRunSelectionPlan,
 	tagCitationExpansionRecords,
-} from "../src/collection-tools.ts";
+} from "../src/tools/collection-tools.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature-store.ts";
-import type { PaperRecord } from "../src/literature-types.ts";
+import type { PaperRecord, SearchRun } from "../src/literature-types.ts";
 import { OperationConsentManager } from "../src/operation-consent.ts";
 
 const temporaryPaths: string[] = [];
@@ -128,6 +130,64 @@ describe("collection workflow", () => {
 				pdf: "https://example.org/neighbor.pdf",
 			}),
 		]);
+	});
+
+	it("saves a selected persistent search run result into a personal corpus", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-selection-"));
+		temporaryPaths.push(root);
+		const source = new LiteratureStore(resolveCorpusRoot(root, "personal", "scratch"), "personal", "scratch");
+		const target = new LiteratureStore(resolveCorpusRoot(root, "personal", "library"), "personal", "library");
+		const first: PaperRecord = {
+			id: "selected-paper",
+			title: "Selected Paper",
+			authors: ["Ada Researcher"],
+			year: 2026,
+			identifiers: { doi: "10.5555/selected" },
+			links: [{ url: "https://example.org/selected.pdf", kind: "pdf" }],
+			provenance: [{ provider: "crossref", query: "selection", retrievedAt: "2026-01-01T00:00:00.000Z" }],
+			discoveryPaths: [
+				{
+					kind: "keyword-search",
+					provider: "crossref",
+					query: "selection",
+					discoveredAt: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			mergedFrom: [],
+		};
+		const second: PaperRecord = { ...first, id: "unselected-paper", title: "Unselected Paper" };
+		const run: SearchRun = {
+			id: "search-selection",
+			startedAt: "2026-01-01T00:00:00.000Z",
+			completedAt: "2026-01-01T00:01:00.000Z",
+			queries: ["selection"],
+			filters: {},
+			providers: ["crossref"],
+			pagesPerProvider: 1,
+			maxResultsPerProvider: 10,
+			results: [first, second],
+			failures: [],
+			sourceCounts: { crossref: 2 },
+			deduplicatedCount: 0,
+			scope: "personal",
+			mode: "persistent",
+			namespace: "scratch",
+		};
+		await source.persistSearchRun(run);
+		const manager = new OperationConsentManager();
+		const prepared = await manager.prepare(searchRunSelectionPlan(source, target, run, [first], "alice"));
+		const grant = await manager.confirm(prepared.operationId, prepared.manifestFingerprint, "alice");
+
+		const result = await saveSearchRunSelection(source, target, run.id, [first.id, "missing-paper"], {
+			manager,
+			grant,
+		}, "alice");
+
+		expect(result.selected.map((record) => record.id)).toEqual([first.id]);
+		expect(result.missingPaperIds).toEqual(["missing-paper"]);
+		expect(result.outcomes).toEqual([expect.objectContaining({ status: "created" })]);
+		expect((await target.listPapers()).map((record) => record.id)).toEqual([first.id]);
+		expect((await target.getPaper(first.id))?.discoveryPaths?.[0]).toMatchObject({ kind: "keyword-search" });
 	});
 
 	it("paginates Crossref, persists provenance, and avoids repeating an identical search", async () => {

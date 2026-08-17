@@ -11,7 +11,8 @@ import {
 	titleSimilarity,
 } from "../src/literature-identifiers.ts";
 import { derivedCacheKey, LiteratureStore } from "../src/literature-store.ts";
-import type { PaperRecord, SearchRun } from "../src/literature-types.ts";
+import { buildPaperMaterialPackage } from "../src/tools/paper-package-tools.ts";
+import type { ArtifactManifest, PaperRecord, PaperVersion, SearchRun } from "../src/literature-types.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -151,12 +152,16 @@ describe("literature identifiers and corpus", () => {
 			namespace: "alice",
 		};
 		expect(await personal.persistSearchRun(run)).toEqual({ created: 1, updated: 0, unchanged: 0 });
+		expect(await personal.getSearchRun(run.id)).toMatchObject({ id: run.id, results: [expect.objectContaining({ id: record.id })] });
+		expect((await personal.listSearchRuns()).map((item) => item.id)).toEqual([run.id]);
 		expect((await personal.audit()).manifest.recordCount).toBe(1);
 		await personal.annotatePaper(record.id, {
 			author: "alice",
 			tags: ["fuzzing", "stateful"],
 			note: "Read the evaluation assumptions before inclusion.",
 			screeningStatus: "maybe",
+			readingStatus: "queued",
+			readingNote: "Need full methods pass.",
 		});
 		const corpusHits = await personal.searchPapers({ query: "evaluation assumptions", tags: ["fuzzing"] });
 		expect(corpusHits).toHaveLength(1);
@@ -211,6 +216,93 @@ describe("literature identifiers and corpus", () => {
 			}),
 		).toBe("created");
 		expect(await personal.listDerived({ paperId: record.id, operation: "skim" })).toHaveLength(1);
+	});
+
+	it("builds a paper material package from metadata, PDF versions, and artifact manifest", async () => {
+		const record = paper({
+			links: [
+				{ url: "https://example.org/paper.pdf", kind: "pdf", openAccess: true },
+				{ url: "https://github.com/example/artifact", kind: "artifact" },
+			],
+			discoveryPaths: [
+				{
+					kind: "keyword-search",
+					provider: "crossref",
+					query: "stateful fuzzing",
+					discoveredAt: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			curation: {
+				tags: [],
+				userNotes: [],
+				screening: {
+					status: "include",
+					reason: "matches scope",
+					updatedBy: "alice",
+					updatedAt: "2026-01-02T00:00:00.000Z",
+				},
+				reading: {
+					status: "skimmed",
+					note: "abstract and method",
+					updatedBy: "alice",
+					updatedAt: "2026-01-03T00:00:00.000Z",
+				},
+			},
+		});
+		const version: PaperVersion = {
+			paperId: record.id,
+			sourceUrl: "https://example.org/paper.pdf",
+			finalUrl: "https://cdn.example.org/paper.pdf",
+			retrievedAt: "2026-01-04T00:00:00.000Z",
+			sha256: "a".repeat(64),
+			bytes: 1234,
+			blobPath: "/corpus/blobs/aa/" + "a".repeat(64),
+			contentType: "application/pdf",
+			versionKind: "published",
+			versionLabel: "official",
+			isPreferred: true,
+		};
+		const manifest: ArtifactManifest = {
+			schemaVersion: 1,
+			pdfPath: "paper.pdf",
+			pdfSha256: "b".repeat(64),
+			discoveredAt: "2026-01-05T00:00:00.000Z",
+			candidates: [
+				{
+					id: "artifact-code",
+					url: "https://github.com/example/artifact",
+					kind: "repository",
+					host: "github.com",
+					confidence: "high",
+					sources: [{ method: "pdftotext", page: 2, context: "Code is available" }],
+				},
+			],
+			acquisitions: [
+				{
+					candidateId: "artifact-code",
+					sourceUrl: "https://github.com/example/artifact",
+					status: "cloned",
+					localPath: "/workspace/artifacts/artifact-code",
+					retrievedAt: "2026-01-06T00:00:00.000Z",
+					commit: "c".repeat(40),
+					remote: "https://github.com/example/artifact.git",
+				},
+			],
+		};
+
+		const materialPackage = buildPaperMaterialPackage(record, [version], [manifest]);
+
+		expect(materialPackage.missing).toEqual([]);
+		expect(materialPackage.tableRow).toMatchObject({
+			paperId: record.id,
+			version: expect.stringContaining("published"),
+			pdf: expect.stringContaining("/corpus/blobs/aa/"),
+			artifact: expect.stringContaining("commit=" + "c".repeat(40)),
+			discoverySource: expect.stringContaining("keyword-search"),
+			screeningStatus: "include: matches scope",
+			readingStatus: "skimmed: abstract and method",
+			updatedAt: "2026-01-06T00:00:00.000Z",
+		});
 	});
 
 	it("serializes concurrent corpus updates without losing records", async () => {

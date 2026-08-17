@@ -9,7 +9,7 @@ import {
 	registerTeamCorpusClientTool,
 	sanitizePaperRecordForTeamProposal,
 	searchRemoteTeamCorpus,
-} from "../src/team-corpus-client.ts";
+} from "../src/tools/team-corpus-client.ts";
 import { createTeamCorpusServer, hashTeamToken } from "../src/team-corpus-server.ts";
 
 const temporaryPaths: string[] = [];

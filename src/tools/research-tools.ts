@@ -5,11 +5,11 @@ import { extname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { collectLiterature } from "./collection-tools.ts";
-import type { PaperRecord } from "./literature-types.ts";
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import type { OperationPlan } from "./operation-consent.ts";
-import { runAuthorizedMutation } from "./literature-write.ts";
-import { fetchPublicUrl, htmlToText, readResponseBody } from "./network-security.ts";
+import type { PaperRecord } from "../literature-types.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import type { OperationPlan } from "../operation-consent.ts";
+import { runAuthorizedMutation } from "../literature-write.ts";
+import { fetchPublicUrl, htmlToText, readResponseBody } from "../network-security.ts";
 
 interface SearchDetails {
 	query: string;

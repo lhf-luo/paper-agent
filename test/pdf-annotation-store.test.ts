@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PdfAnnotationStore } from "../src/pdf-annotation-store.ts";
-import type { PaperAsset } from "../src/pdf-asset-tools.ts";
+import type { PaperAsset } from "../src/tools/pdf-asset-tools.ts";
 
 const temporaryPaths: string[] = [];
 

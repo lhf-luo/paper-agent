@@ -7,6 +7,8 @@ description: Build, update, audit, and share evidence-traceable literature corpo
 
 Use paper-agent tools as the single implementation of collection, storage, acquisition, and security rules. Do not reimplement downloads or edit corpus manifests by hand.
 
+Tool entrypoints live under `src/tools/`. Core storage, identifiers, providers, consent, network safety, and lower-level acquisition logic remain under `src/` and are reused by the tools.
+
 ## Route the request
 
 1. Identify the research question and desired deliverable.
@@ -19,19 +21,87 @@ Use paper-agent tools as the single implementation of collection, storage, acqui
 4. Read [workflow contract](references/workflow-contract.md) for collection and handoff rules.
 5. Read [corpus policy](references/corpus-policy.md) before persistent, team, promotion, download, or artifact work.
 
-## Execute
+## End-to-end workflow
+
+This skill implements five connected tasks:
+
+1. Literature-search planning and candidate-table output.
+2. Seed-paper citation/reference expansion.
+3. Saving selected candidates into a personal corpus.
+4. PDF and artifact acquisition for saved papers.
+5. Building a traceable paper material package.
+
+### 1. Plan and collect literature
+
+Use this when the user asks for a literature review, related work, reading list, topic survey, or candidate paper table.
+
+1. Restate the research object, problem, scenario, and time range in one sentence before searching.
+2. Call `plan_literature_search` with domain terms, problem terms, method terms, primary query, explicit query variants, and year filters when available.
+3. Use the returned query variants as the starting point for `collect_literature`; add only explicit variants that can be explained in the handoff.
+4. Search existing reusable records first. When `PAPER_AGENT_TEAM_SERVER_URL` is configured, use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus.
+5. Use `collect_literature` with corpus reuse enabled, documented filters, bounded pagination, and the structured search plan.
+6. Keep provider failures, possible duplicates, corpus hits, discovery paths, PDF links, artifact links, and candidate-table rows visible.
+7. Use once mode for exploration. Use persistent mode only when the user wants reusable search results and accepts the confirmation prompt.
+8. State unsupported sources. Do not claim Google Scholar was searched because this project has no Google Scholar provider.
+
+### 2. Expand from seed papers
+
+1. Use `expand_citation_network` only after the seed papers are relevant and already in a personal corpus.
+2. Keep direction and depth explicit. Default to bounded depth; do not use citation snowballing as a substitute for a documented query strategy.
+3. Preserve the citation expansion table, including seed id, relationship, depth, source provider, and discovery path.
+
+### 3. Save selected results
+
+Use this when the user chooses papers from a candidate table and wants them kept in the personal library.
+
+1. Require a persisted `search_run_id`. If the search was once mode, rerun it persistently or import records first; do not rely on chat memory as the source of truth.
+2. Call `save_literature_selection` with `search_run_id`, selected `paper_ids`, source namespace, target namespace, and contributor.
+3. Complete the exact confirmation prompt before writing.
+4. Report created, updated, unchanged, failed, and missing ids.
+
+### 4. Acquire PDF and artifact materials
+
+Use this after candidate papers have been screened or explicitly selected.
+
+1. Use `download_literature_pdfs` for selected saved papers when PDF bytes are needed. Do not download every unreviewed candidate by default.
+2. For a local paper PDF, run `discover_paper_artifacts` before `acquire_paper_artifacts`.
+3. Complete the exact candidate manifest confirmation before downloading or cloning.
+4. Never execute, install dependencies from, or auto-extract acquired content.
+5. Preserve source URL, final URL, hash, local blob path, commit, license hints, and failure reason when available.
+
+### 5. Build a paper material package
+
+Use this after selected papers have been saved and the user wants traceable materials for one paper.
+
+1. Confirm the target `paper_id` is in the personal corpus.
+2. Call `build_paper_package` with `paper_id`, namespace, and any `artifact_manifest_paths` produced by acquisition.
+3. Report the material package row: `paper_id | 元数据 | 版本 | PDF | artifact | 发现来源 | 筛选状态 | 阅读状态 | 更新时间`.
+4. If PDF or artifact material is missing, say it is missing instead of inferring availability from metadata.
+
+## Tool map
+
+| Task | Tool | Implementation file |
+| --- | --- | --- |
+| Plan search | `plan_literature_search` | `src/tools/collection-tools.ts` |
+| Collect candidates | `collect_literature` | `src/tools/collection-tools.ts` |
+| Search local corpus | `search_literature_corpus` | `src/tools/collection-tools.ts` |
+| Expand seeds | `expand_citation_network` | `src/tools/collection-tools.ts` |
+| Save selected results | `save_literature_selection` | `src/tools/collection-tools.ts` |
+| Download PDFs | `download_literature_pdfs` | `src/tools/collection-tools.ts` |
+| Discover artifacts | `discover_paper_artifacts` | `src/tools/artifact-tools.ts` |
+| Acquire artifacts | `acquire_paper_artifacts` | `src/tools/artifact-tools.ts` |
+| Inspect artifacts | `inspect_paper_artifacts` | `src/tools/artifact-tools.ts` |
+| Build material package | `build_paper_package` | `src/tools/paper-package-tools.ts` |
+| Import/export/annotate/promote | `import_literature_corpus`, `manage_literature_corpus` | `src/tools/literature-import.ts`, `src/tools/collection-tools.ts` |
+| Derived memory | `manage_literature_memory` | `src/tools/collection-tools.ts` |
+
+## Supporting operations
 
 1. Search the selected corpus first. When `PAPER_AGENT_TEAM_SERVER_URL` is configured, use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus. Use `collect_literature` with corpus reuse enabled only after existing records are checked.
    If existing material is only in a local PDF directory, BibTeX file, or paper-agent JSON export, use `import_literature_corpus` into personal scope and inspect its rejection log first.
 2. Before repeating a skim card, comparison matrix, or evidence map, use `manage_literature_memory` lookup with material hashes and tool/model/prompt/config versions. Reuse an exact hit unless refresh is explicit.
-3. Write a focused primary query and explicit variants for acronyms, synonyms, author/title forms, and adjacent terminology.
-4. Use `collect_literature` with documented filters and bounded pagination. Preserve partial provider failures and possible-duplicate review candidates.
-5. Review deduplication and provenance before persisting or promoting records. Persist new collection in personal scope only.
-6. Use `expand_citation_network` only from relevant personal seeds and keep depth bounded.
-7. Use `download_literature_pdfs` for selected papers, not an unreviewed result dump. Always complete the tool's exact manifest confirmation before bytes are stored, even when the user already named the papers; once mode never implies download or persistence.
-8. For a paper PDF, run `discover_paper_artifacts` before `acquire_paper_artifacts`. Always complete the tool's exact candidate-manifest confirmation before acquisition. Never execute or auto-extract acquired content.
-9. Use `manage_literature_corpus` for local annotate/audit/export/promotion. For the central service, use `manage_team_literature_server` to propose explicitly selected, provenance-reviewed personal records into `team-proposed`, then have a reviewer explicitly approve or reject them. Exclude personal notes and screening decisions from every proposal; the server scrubs them again.
-10. After producing reusable generated work, record it with `manage_literature_memory`; keep it separate from user notes and source metadata.
+3. Use `manage_literature_corpus` for local annotate/audit/export/promotion. For the central service, use `manage_team_literature_server` to propose explicitly selected, provenance-reviewed personal records into `team-proposed`, then have a reviewer explicitly approve or reject them. Exclude personal notes and screening decisions from every proposal; the server scrubs them again.
+4. After producing reusable generated work, record it with `manage_literature_memory`; keep it separate from user notes and source metadata.
 
 ## Handoff
 
@@ -39,7 +109,9 @@ Report:
 
 - question, query variants, filters, providers, pages, and date;
 - included records, duplicates merged, rejected or unresolved candidates;
-- source failures, missing PDFs/artifacts, hashes and commits when acquired;
+- search run id, selected paper ids, created/updated/unchanged/failed counts, and missing ids when saving selections;
+- source failures, missing PDFs/artifacts, hashes, blob paths, manifest paths, and commits when acquired;
+- material package rows, including version, PDF, artifact, discovery source, screening status, reading status, and update time;
 - mode, scope, namespace, cache status, and corpus/export paths;
 - reused corpus hits, exact analysis-cache hits, possible duplicates, screening decisions, and pending team reviews;
 - what requires human reading, experimental verification, or novelty judgment.

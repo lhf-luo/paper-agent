@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectPaperAssets, parsePdfTsv } from "../src/pdf-asset-tools.ts";
+import { detectPaperAssets, parsePdfTsv } from "../src/tools/pdf-asset-tools.ts";
 
 const header = "level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext";
 

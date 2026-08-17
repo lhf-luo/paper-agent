@@ -2,18 +2,18 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "./literature-download.ts";
-import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "./literature-identifiers.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "../literature-download.ts";
+import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "../literature-identifiers.ts";
 import {
 	fetchOpenAlexWorks,
 	LiteratureProviderHttpError,
 	searchOpenAlexCitations,
 	searchProviderPage,
 	searchSemanticScholarCitations,
-} from "./literature-providers.ts";
-import { LiteratureSearchCheckpoint } from "./literature-search-checkpoint.ts";
-import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
+} from "../literature-providers.ts";
+import { LiteratureSearchCheckpoint } from "../literature-search-checkpoint.ts";
+import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "../literature-store.ts";
 import type {
 	CandidatePaperTableRow,
 	CitationExpansionTableRow,
@@ -26,23 +26,24 @@ import type {
 	PersistenceMode,
 	ProvenanceProvider,
 	ProviderFailure,
+	ReadingStatus,
 	ScreeningStatus,
 	SearchFilters,
 	SearchRun,
-} from "./literature-types.ts";
+} from "../literature-types.ts";
 import {
 	corpusUpsertPlan,
 	derivedRecordWritePlan,
 	persistDerivedRecord,
 	persistPaperRecords,
 	runAuthorizedMutation,
-} from "./literature-write.ts";
+} from "../literature-write.ts";
 import {
 	type OperationAuthorization,
 	OperationConsentManager,
 	type OperationPlan,
 	requestOperationAuthorization,
-} from "./operation-consent.ts";
+} from "../operation-consent.ts";
 
 const providerSchema = Type.Union([
 	Type.Literal("arxiv"),
@@ -145,6 +146,63 @@ interface CorpusAnnotationInput {
 	note?: string;
 	screeningStatus?: ScreeningStatus;
 	screeningReason?: string;
+	readingStatus?: ReadingStatus;
+	readingNote?: string;
+}
+
+export function searchRunSelectionPlan(
+	source: LiteratureStore,
+	target: LiteratureStore,
+	run: SearchRun,
+	records: PaperRecord[],
+	contributor: string,
+): OperationPlan {
+	const normalized = [...records].sort((left, right) => left.id.localeCompare(right.id));
+	return {
+		kind: "personal-corpus-write",
+		summary: `Save ${normalized.length} selected search result(s) into personal corpus ${target.namespace}`,
+		actor: contributor,
+		targets: [
+			{ label: "source-search-run", value: run.id, risk: "low" },
+			{ label: "target-corpus", value: target.root, risk: "medium" },
+			...normalized.map((record) => ({ label: record.title.slice(0, 120), value: record.id, risk: "medium" as const })),
+		],
+		details: {
+			sourcePath: source.root,
+			targetPath: target.root,
+			sourceScope: source.scope,
+			sourceNamespace: source.namespace,
+			targetNamespace: target.namespace,
+			searchRunId: run.id,
+			recordIds: normalized.map((record) => record.id),
+			recordsFingerprint: sha256Text(JSON.stringify(normalized)),
+		},
+	};
+}
+
+export async function saveSearchRunSelection(
+	source: LiteratureStore,
+	target: LiteratureStore,
+	searchRunId: string,
+	paperIds: string[] | undefined,
+	authorization: OperationAuthorization,
+	contributor: string,
+): Promise<{
+	searchRun: SearchRun;
+	selected: PaperRecord[];
+	missingPaperIds: string[];
+	outcomes: Array<{ record: PaperRecord; status?: "created" | "updated" | "unchanged"; error?: string }>;
+}> {
+	const run = await source.getSearchRun(searchRunId);
+	if (!run) throw new Error(`Search run not found in source corpus: ${searchRunId}`);
+	const wanted = paperIds?.length ? new Set(paperIds) : undefined;
+	const selected = wanted ? run.results.filter((record) => wanted.has(record.id)) : run.results;
+	const present = new Set(selected.map((record) => record.id));
+	const missingPaperIds = paperIds?.filter((id) => !present.has(id)) ?? [];
+	const plan = searchRunSelectionPlan(source, target, run, selected, contributor);
+	await authorization.manager.consume(authorization.grant, plan);
+	const outcomes = await target.upsertPapers(selected);
+	return { searchRun: run, selected, missingPaperIds, outcomes };
 }
 
 export function corpusAnnotationPlan(
@@ -1175,6 +1233,98 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "save_literature_selection",
+		label: "Save literature selection",
+		description:
+			"Save selected records from a persisted search run into a personal corpus. This turns a discovered candidate list into a reusable library selection with confirmation, fingerprinting, and created/updated/unchanged reporting.",
+		promptSnippet: "Save selected literature search results into a personal corpus",
+		promptGuidelines: [
+			"Use after a persistent collect_literature run when the user chooses which candidates to keep.",
+			"If the search was run in once mode, rerun it persistently or import records first; once-mode results are intentionally not stored.",
+			"Saving records preserves metadata and discovery paths, but does not prove technical claims.",
+		],
+		parameters: Type.Object({
+			search_run_id: Type.String(),
+			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
+			source_namespace: Type.Optional(Type.String({ description: "Source corpus namespace; default: default" })),
+			target_namespace: Type.Optional(Type.String({ description: "Target personal corpus namespace; default: source" })),
+			source_corpus_root: Type.Optional(Type.String()),
+			target_corpus_root: Type.Optional(Type.String()),
+			contributor: Type.String({ description: "Human or agent identity for the save confirmation audit" }),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!params.contributor.trim()) throw new Error("contributor is required");
+			const sourceNamespace = params.source_namespace ?? "default";
+			const targetNamespace = params.target_namespace ?? sourceNamespace;
+			const source = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", sourceNamespace, params.source_corpus_root),
+				"personal",
+				sourceNamespace,
+			);
+			const target = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", targetNamespace, params.target_corpus_root ?? params.source_corpus_root),
+				"personal",
+				targetNamespace,
+			);
+			const run = await source.getSearchRun(params.search_run_id);
+			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
+			const wanted = params.paper_ids?.length ? new Set(params.paper_ids) : undefined;
+			const selected = wanted ? run.results.filter((record) => wanted.has(record.id)) : run.results;
+			const present = new Set(selected.map((record) => record.id));
+			const missingPaperIds = params.paper_ids?.filter((id) => !present.has(id)) ?? [];
+			const plan = searchRunSelectionPlan(source, target, run, selected, params.contributor.trim());
+			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
+				title: "Save selected literature results?",
+				unavailableMessage:
+					"Saving selected search results requires interactive confirmation before records are written.",
+				details: () => [
+					`Search run: ${run.id}`,
+					`Selected records: ${selected.length}`,
+					`Target corpus: ${target.root}`,
+					`Missing ids: ${missingPaperIds.join(", ") || "none"}`,
+				],
+			});
+			const result = await saveSearchRunSelection(
+				source,
+				target,
+				run.id,
+				params.paper_ids,
+				authorization,
+				params.contributor.trim(),
+			);
+			const counts = {
+				created: result.outcomes.filter((outcome) => outcome.status === "created").length,
+				updated: result.outcomes.filter((outcome) => outcome.status === "updated").length,
+				unchanged: result.outcomes.filter((outcome) => outcome.status === "unchanged").length,
+				failed: result.outcomes.filter((outcome) => outcome.error).length,
+			};
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							`Saved selection from search run ${run.id}`,
+							`Target corpus: ${target.root}`,
+							`Selected: ${result.selected.length}; missing: ${result.missingPaperIds.length}`,
+							`Created/updated/unchanged/failed: ${counts.created}/${counts.updated}/${counts.unchanged}/${counts.failed}`,
+							result.missingPaperIds.length ? `Missing ids: ${result.missingPaperIds.join(", ")}` : "Missing ids: none",
+						].join("\n"),
+					},
+				],
+				details: {
+					searchRunId: run.id,
+					sourcePath: source.root,
+					targetPath: target.root,
+					selectedCount: result.selected.length,
+					missingPaperIds: result.missingPaperIds,
+					counts,
+					outcomes: result.outcomes,
+				},
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "search_literature_corpus",
 		label: "Search literature corpus",
 		description:
@@ -1685,6 +1835,16 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				]),
 			),
 			screening_reason: Type.Optional(Type.String()),
+			reading_status: Type.Optional(
+				Type.Union([
+					Type.Literal("unread"),
+					Type.Literal("queued"),
+					Type.Literal("reading"),
+					Type.Literal("read"),
+					Type.Literal("skimmed"),
+				]),
+			),
+			reading_note: Type.Optional(Type.String()),
 			review_decision: Type.Optional(Type.Union([Type.Literal("team-approved"), Type.Literal("team-rejected")])),
 			reviewer: Type.Optional(Type.String()),
 			review_reason: Type.Optional(Type.String()),
@@ -1729,8 +1889,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				}
 				if (!params.paper_ids?.length) throw new Error("paper_ids is required when action=annotate");
 				if (!params.contributor?.trim()) throw new Error("contributor is required when action=annotate");
-				if (!params.tags?.length && !params.note?.trim() && !params.screening_status) {
-					throw new Error("annotate requires tags, note, or screening_status");
+				if (!params.tags?.length && !params.note?.trim() && !params.screening_status && !params.reading_status) {
+					throw new Error("annotate requires tags, note, screening_status, or reading_status");
 				}
 				const requested = await Promise.all(
 					params.paper_ids.map(async (id) => ({ id, record: await store.getPaper(id) })),
@@ -1747,6 +1907,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					note: params.note,
 					screeningStatus: params.screening_status,
 					screeningReason: params.screening_reason,
+					readingStatus: params.reading_status,
+					readingNote: params.reading_note,
 				};
 				const plan = corpusAnnotationPlan(store, records, annotation);
 				const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
