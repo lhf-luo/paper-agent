@@ -508,26 +508,10 @@ export function AgentPage({
 
 			<div className="agent-workspace">
 				<aside className="panel agent-session-panel">
-					<div className="panel-heading">
-						<div>
-							<span className="eyebrow">In-memory sessions</span>
-							<h2>会话</h2>
-						</div>
-						<small>{orderedSessions.length} 个</small>
-					</div>
-					<div className="agent-new-session">
-						<input
-							className="agent-new-session-title"
-							value={newTitle}
-							onChange={(event) => setNewTitle(event.target.value)}
-							placeholder="会话名称(可选)"
-						/>
-						<select value={newMode} onChange={(event) => setNewMode(event.target.value as AgentMode)}>
-							<option value="persistent">persistent · 保留上下文</option>
-							<option value="once">once · 每轮重置模型上下文</option>
-						</select>
-						<button className="button primary" type="button" disabled={busy} onClick={() => void createSession()}>
-							新建会话
+					<div className="agent-sidebar-head">
+						<strong>会话</strong>
+						<button type="button" onClick={() => void createSession()} disabled={busy}>
+							+ 新建
 						</button>
 					</div>
 					<div className="agent-session-list">
@@ -558,40 +542,21 @@ export function AgentPage({
 								</button>
 							</article>
 						))}
-						{!orderedSessions.length && <p className="muted">新建 once 或 persistent 内存会话后开始对话。</p>}
-					</div>
-					<div className="agent-template-list">
-						<span className="eyebrow">常用任务模板</span>
-						{taskTemplates.map((template) => (
-							<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
-								<strong>{template.title}</strong>
-								<span>填入输入框后可继续修改</span>
-							</button>
-						))}
+							{!orderedSessions.length && <p className="muted">新建一个会话后开始对话。</p>}
 					</div>
 				</aside>
 
 				<section className="panel agent-chat-panel">
-					<div className="agent-chat-heading">
-						<div>
-							<span className="eyebrow">Streaming research conversation</span>
-							<h2>{active?.title ?? "选择或新建会话"}</h2>
-						</div>
-						<div className="agent-chat-state">
-							{config?.configured && (
-								<small className="agent-model-indicator">
-									{config.providerId}/{config.modelId} · {credentialLabel(config)}
-								</small>
-							)}
-							<span className={streamState} />
-							<small>{streamState === "connected" ? "实时连接" : streamState === "reconnecting" ? "正在重连" : "未连接"}</small>
+					{active && (
+						<div className="agent-chat-heading">
+							<h2>{active.title}</h2>
 							{running && (
-								<button className="button danger" type="button" disabled={busy} onClick={() => void stop()}>
+								<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
 									停止生成
 								</button>
 							)}
 						</div>
-					</div>
+					)}
 
 					{active?.error && <div className="error-banner">{active.error}</div>}
 					{active?.uiRequests.map((request) => (
