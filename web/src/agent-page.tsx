@@ -544,6 +544,14 @@ export function AgentPage({
 						))}
 							{!orderedSessions.length && <p className="muted">新建一个会话后开始对话。</p>}
 					</div>
+					<div className="agent-template-list">
+						<span className="agent-template-head">任务模板</span>
+						{taskTemplates.map((template) => (
+							<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
+								<strong>{template.title}</strong>
+							</button>
+						))}
+					</div>
 				</aside>
 
 				<section className="panel agent-chat-panel">
