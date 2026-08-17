@@ -3969,9 +3969,11 @@ export default function App() {
 			<div className="sidebar-resizer" onMouseDown={onResizeStart} />
 			<main className="main-area">
 				<div className="topbar">
-					<div>
-						<span className="breadcrumb">Paper Agent /</span> {title}
-					</div>
+					{page !== "agent" && (
+						<div className="topbar-breadcrumb">
+							<span className="breadcrumb">Paper Agent /</span> {title}
+						</div>
+					)}
 					<div className="topbar-actions">
 						{lastTask && (
 							<button type="button" onClick={() => go("tasks")}>
