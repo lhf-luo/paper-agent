@@ -202,6 +202,12 @@ export interface CandidatePaperTableRow {
 	code: string;
 }
 
+export interface CitationExpansionTableRow extends CandidatePaperTableRow {
+	seedPaperId: string;
+	relationship: "reference" | "citation";
+	depth: string;
+}
+
 export interface SearchRun {
 	id: string;
 	startedAt: string;

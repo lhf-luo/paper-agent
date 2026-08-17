@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildCandidatePaperTable,
+	buildCitationExpansionTable,
 	type CollectLiteratureOptions,
 	collectionPersistencePlan,
 	collectLiterature,
 	expandLiteratureQueries,
 	planLiteratureSearch,
+	tagCitationExpansionRecords,
 } from "../src/collection-tools.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature-store.ts";
 import type { PaperRecord } from "../src/literature-types.ts";
@@ -71,6 +73,61 @@ describe("collection workflow", () => {
 		expect(plan.queryVariants).toContain("GNN-based malware detection");
 		expect(plan.queryVariants).toContain("GNN based malware detection");
 		expect(plan.unsupportedProviders?.[0]).toMatchObject({ provider: "google-scholar" });
+	});
+
+	it("records seed relationships for citation-network expansion tables", () => {
+		const seed: PaperRecord = {
+			id: "seed-paper",
+			title: "Seed Paper",
+			authors: ["Ada Researcher"],
+			year: 2024,
+			identifiers: { openAlexId: "W1" },
+			links: [],
+			provenance: [{ provider: "openalex", query: "seed", retrievedAt: "2026-01-01T00:00:00.000Z" }],
+			mergedFrom: [],
+		};
+		const neighbor: PaperRecord = {
+			id: "neighbor-paper",
+			title: "Neighbor Paper",
+			authors: ["Grace Researcher"],
+			year: 2023,
+			venue: "TestConf",
+			identifiers: { doi: "10.5555/neighbor" },
+			links: [{ url: "https://example.org/neighbor.pdf", kind: "pdf" }],
+			provenance: [
+				{ provider: "openalex", query: "references:seed-paper", retrievedAt: "2026-01-02T00:00:00.000Z" },
+			],
+			mergedFrom: [],
+		};
+
+		const [tagged] = tagCitationExpansionRecords(
+			[neighbor],
+			seed,
+			"reference",
+			"openalex",
+			1,
+			"2026-01-03T00:00:00.000Z",
+		);
+
+		expect(tagged.discoveryPaths).toContainEqual(
+			expect.objectContaining({
+				kind: "reference-expansion",
+				provider: "openalex",
+				query: "references:seed-paper",
+				seedPaperId: "seed-paper",
+				note: "depth=1",
+			}),
+		);
+		expect(buildCitationExpansionTable([tagged])).toEqual([
+			expect.objectContaining({
+				title: "Neighbor Paper",
+				relationship: "reference",
+				seedPaperId: "seed-paper",
+				depth: "1",
+				discoveryPath: expect.stringContaining("reference-expansion"),
+				pdf: "https://example.org/neighbor.pdf",
+			}),
+		]);
 	});
 
 	it("paginates Crossref, persists provenance, and avoids repeating an identical search", async () => {
