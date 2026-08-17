@@ -44,11 +44,15 @@ import {
 import { LiteratureSearchCheckpoint } from "./literature-search-checkpoint.ts";
 import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
 import type {
+	CandidatePaperTableRow,
 	CorpusScope,
 	DerivedRecord,
 	LiteratureProvider,
+	LiteratureSearchPlan,
+	PaperDiscoveryPath,
 	PaperRecord,
 	PersistenceMode,
+	ProvenanceProvider,
 	ProviderFailure,
 	ScreeningStatus,
 	SearchFilters,
@@ -100,9 +104,10 @@ export interface CollectLiteratureOptions {
 	authorization?: OperationAuthorization;
 	checkpointPath?: string;
 	providerPageSearch?: typeof searchProviderPage;
+	searchPlan?: LiteratureSearchPlan;
 }
 
-interface CollectionResult {
+export interface CollectionResult {
 	run: SearchRun;
 	cached: boolean;
 	corpusPath?: string;
@@ -285,6 +290,157 @@ export function expandLiteratureQueries(primary: string, explicit: string[] = []
 	return uniqueQueries(generated).slice(0, 12);
 }
 
+function uniqueTerms(values: Array<string | undefined>): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of values) {
+		const normalized = value?.trim().replace(/\s+/g, " ");
+		if (!normalized) continue;
+		const key = normalized.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(normalized);
+	}
+	return result;
+}
+
+function inferTimeRange(filters: SearchFilters): string | undefined {
+	if (filters.yearFrom && filters.yearTo) return `${filters.yearFrom}-${filters.yearTo}`;
+	if (filters.yearFrom) return `${filters.yearFrom}-present`;
+	if (filters.yearTo) return `up to ${filters.yearTo}`;
+	return undefined;
+}
+
+export function planLiteratureSearch(input: {
+	researchObject?: string;
+	researchProblem?: string;
+	scenario?: string;
+	timeRange?: string;
+	domainTerms?: string[];
+	problemTerms?: string[];
+	methodTerms?: string[];
+	primaryQuery?: string;
+	explicitQueryVariants?: string[];
+	filters?: SearchFilters;
+}): LiteratureSearchPlan {
+	const researchObject = input.researchObject?.trim();
+	const researchProblem = input.researchProblem?.trim();
+	const scenario = input.scenario?.trim();
+	const timeRange = input.timeRange?.trim() || inferTimeRange(input.filters ?? {});
+	const primaryQuery = input.primaryQuery?.trim();
+	const domain = uniqueTerms([researchObject, ...(input.domainTerms ?? [])]);
+	const problem = uniqueTerms([researchProblem, ...(input.problemTerms ?? [])]);
+	const method = uniqueTerms(input.methodTerms ?? []);
+	const researchQuestion =
+		[researchObject, researchProblem, scenario, timeRange].filter(Boolean).join(" | ") ||
+		primaryQuery ||
+		"unspecified literature search";
+	const generatedPrimary =
+		primaryQuery || uniqueTerms([...domain, ...problem, ...method]).join(" ") || researchQuestion;
+	const queryVariants = generatedPrimary
+		? expandLiteratureQueries(generatedPrimary, input.explicitQueryVariants ?? [])
+		: uniqueQueries(input.explicitQueryVariants ?? []);
+	return {
+		researchQuestion,
+		researchObject,
+		researchProblem,
+		scenario,
+		timeRange,
+		keywordGroups: { domain, problem, method },
+		queryVariants,
+		unsupportedProviders: [
+			{
+				provider: "google-scholar",
+				reason:
+					"Google Scholar is not exposed by a stable first-party API in this project; do not claim it was searched.",
+				suggestedAlternatives: ["openalex", "semanticscholar", "crossref", "dblp"],
+			},
+		],
+		notes: [
+			"Search metadata is discovery evidence only; open primary papers or official artifacts for claims.",
+			"Venue prestige can prioritize reading but must not replace topical relevance.",
+		],
+	};
+}
+
+function discoveryPathKey(path: PaperDiscoveryPath): string {
+	return [
+		path.kind,
+		path.query ?? "",
+		path.provider ?? "",
+		path.seedPaperId ?? "",
+		path.sourceUrl ?? "",
+		path.note ?? "",
+	]
+		.join("|")
+		.toLowerCase();
+}
+
+function addDiscoveryPath(record: PaperRecord, path: PaperDiscoveryPath): PaperRecord {
+	const existing = record.discoveryPaths ?? [];
+	if (existing.some((item) => discoveryPathKey(item) === discoveryPathKey(path))) return record;
+	return { ...record, discoveryPaths: [...existing, path] };
+}
+
+function withCorpusDiscoveryPath(record: PaperRecord, query: string, discoveredAt: string): PaperRecord {
+	return addDiscoveryPath(record, { kind: "corpus-reuse", query, provider: "local-pdf", discoveredAt });
+}
+
+function withProviderDiscoveryPath(
+	record: PaperRecord,
+	provider: LiteratureProvider,
+	query: string,
+	discoveredAt: string,
+): PaperRecord {
+	return addDiscoveryPath(record, { kind: "keyword-search", provider, query, discoveredAt });
+}
+
+function primaryIdentifier(record: PaperRecord): string {
+	if (record.identifiers.doi) return "doi:" + record.identifiers.doi;
+	if (record.identifiers.arxivId) return "arXiv:" + record.identifiers.arxivId;
+	if (record.identifiers.openAlexId) return "OpenAlex:" + record.identifiers.openAlexId;
+	if (record.identifiers.semanticScholarId) return "S2:" + record.identifiers.semanticScholarId;
+	return "unavailable";
+}
+
+function discoveryPathLabel(path: PaperDiscoveryPath): string {
+	return [
+		path.kind,
+		path.provider ? `provider=${path.provider}` : undefined,
+		path.query ? `query=${path.query}` : undefined,
+		path.seedPaperId ? `seed=${path.seedPaperId}` : undefined,
+	]
+		.filter(Boolean)
+		.join(":");
+}
+
+function linkLabel(record: PaperRecord, kind: "pdf" | "artifact"): string {
+	const link = record.links.find((item) => item.kind === kind);
+	return link?.url ?? "not checked";
+}
+
+export function buildCandidatePaperTable(records: PaperRecord[]): CandidatePaperTableRow[] {
+	return records.map((record) => {
+		const providers = new Set<ProvenanceProvider>(record.provenance.map((item) => item.provider));
+		const screening = record.curation?.screening;
+		return {
+			paperId: record.id,
+			title: record.title,
+			authors: record.authors.slice(0, 6).join(", ") || "unavailable",
+			year: record.year === undefined ? "unknown" : String(record.year),
+			venue: record.venue ?? "unknown",
+			doiOrArxiv: primaryIdentifier(record),
+			sources: [...providers].join(", ") || "unknown",
+			discoveryPath: (record.discoveryPaths ?? []).map(discoveryPathLabel).join(" | ") || "unknown",
+			screeningResult: screening
+				? `${screening.status}${screening.reason ? ": " + screening.reason : ""}`
+				: "unreviewed",
+			pdf: linkLabel(record, "pdf"),
+			code: linkLabel(record, "artifact"),
+		};
+	});
+}
+
 function isSearchRun(value: unknown): value is SearchRun {
 	return (
 		typeof value === "object" &&
@@ -293,6 +449,10 @@ function isSearchRun(value: unknown): value is SearchRun {
 		Array.isArray((value as SearchRun).queries) &&
 		typeof (value as SearchRun).id === "string"
 	);
+}
+
+function normalizeSearchRun(run: SearchRun): SearchRun {
+	return { ...run, candidateTable: run.candidateTable ?? buildCandidatePaperTable(run.results) };
 }
 
 function failureIsRetryable(message: string): boolean {
@@ -352,13 +512,14 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		if (!options.refreshCache) {
 			const cached = await store.getDerived(cacheKey);
 			if (cached && isSearchRun(cached.result)) {
-				return { run: cached.result, cached: true, corpusPath: store.root };
+				return { run: normalizeSearchRun(cached.result), cached: true, corpusPath: store.root };
 			}
 		}
 	}
 	const corpusHits = new Map<string, PaperRecord>();
 	if (options.reuseCorpus !== false) {
 		for (const query of queries) {
+			const discoveredAt = new Date().toISOString();
 			for (const hit of await corpusStore.searchPapers({
 				query,
 				yearFrom: options.filters.yearFrom,
@@ -370,7 +531,9 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 				limit: options.maxResultsPerProvider,
 				readOnly: options.mode === "once",
 			})) {
-				corpusHits.set(hit.record.id, hit.record);
+				const record = withCorpusDiscoveryPath(hit.record, query, discoveredAt);
+				const existing = corpusHits.get(record.id);
+				corpusHits.set(record.id, existing ? deduplicatePaperRecords([existing, record])[0] : record);
 			}
 		}
 	}
@@ -414,7 +577,12 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 									filters: options.filters,
 									signal: options.signal,
 								});
-								records.push(...response.records.slice(0, remaining));
+								const discoveredAt = new Date().toISOString();
+								records.push(
+									...response.records
+										.slice(0, remaining)
+										.map((record) => withProviderDiscoveryPath(record, provider, query, discoveredAt)),
+								);
 								cursor = response.nextCursor;
 								pagesCompleted = page + 1;
 								await checkpoint?.update({
@@ -532,6 +700,8 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		possibleDuplicates,
 		providerHealth,
 		resumedFromCheckpoint: checkpoint?.resumed || undefined,
+		searchPlan: options.searchPlan,
+		candidateTable: buildCandidatePaperTable(results),
 		scope: options.scope,
 		mode: options.mode,
 		namespace: options.namespace,
@@ -598,8 +768,42 @@ function formatPaper(record: PaperRecord, index: number): string {
 	].join("\n");
 }
 
+function tableCell(value: string): string {
+	return value.replaceAll("|", "\\|").replace(/\s+/g, " ").trim();
+}
+
+function formatCandidateTable(rows: CandidatePaperTableRow[], displayLimit: number): string[] {
+	if (!rows.length) return ["Candidate paper table: no records"];
+	const header = "标题 | 作者 | 年份 | venue | DOI/arXiv | 来源 | 发现路径 | 初筛结果 | PDF | 代码";
+	const separator = "--- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+	return [
+		"Candidate paper table:",
+		header,
+		separator,
+		...rows
+			.slice(0, displayLimit)
+			.map((row) =>
+				[
+					row.title,
+					row.authors,
+					row.year,
+					row.venue,
+					row.doiOrArxiv,
+					row.sources,
+					row.discoveryPath,
+					row.screeningResult,
+					row.pdf,
+					row.code,
+				]
+					.map(tableCell)
+					.join(" | "),
+			),
+	];
+}
+
 function formatCollection(result: CollectionResult, displayLimit = 60): string {
 	const run = result.run;
+	const candidateTable = run.candidateTable ?? buildCandidatePaperTable(run.results);
 	const lines = [
 		"Search run: " + run.id,
 		"Queries: " + run.queries.join(" | "),
@@ -614,6 +818,8 @@ function formatCollection(result: CollectionResult, displayLimit = 60): string {
 		result.corpusPath ? "Corpus: " + result.corpusPath : "Corpus: not written (once mode)",
 		"",
 		"Discovery results are leads, not evidence for substantive claims. Open the primary paper or official artifact.",
+		"",
+		...formatCandidateTable(candidateTable, displayLimit),
 		"",
 		...run.results.slice(0, displayLimit).map(formatPaper),
 	];
@@ -699,6 +905,13 @@ function collectionParameters() {
 		corpus_only: Type.Optional(
 			Type.Boolean({ description: "Search only the existing corpus and make no provider requests; default: false" }),
 		),
+		research_object: Type.Optional(Type.String({ description: "Research object, e.g. malware detection" })),
+		research_problem: Type.Optional(Type.String({ description: "Research problem, e.g. robustness under evasion" })),
+		scenario: Type.Optional(Type.String({ description: "Application scenario or domain" })),
+		time_range: Type.Optional(Type.String({ description: "Natural-language time range for the literature search" })),
+		domain_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+		problem_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+		method_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 	});
 }
 
@@ -723,6 +936,13 @@ function optionsFromParams(
 		refresh_cache?: boolean;
 		reuse_corpus?: boolean;
 		corpus_only?: boolean;
+		research_object?: string;
+		research_problem?: string;
+		scenario?: string;
+		time_range?: string;
+		domain_terms?: string[];
+		problem_terms?: string[];
+		method_terms?: string[];
 	},
 	cwd: string,
 	signal?: AbortSignal,
@@ -755,10 +975,94 @@ function optionsFromParams(
 		reuseCorpus: params.reuse_corpus ?? true,
 		corpusOnly: params.corpus_only ?? false,
 		signal,
+		searchPlan: planLiteratureSearch({
+			researchObject: params.research_object,
+			researchProblem: params.research_problem,
+			scenario: params.scenario,
+			timeRange: params.time_range,
+			domainTerms: params.domain_terms,
+			problemTerms: params.problem_terms,
+			methodTerms: params.method_terms,
+			primaryQuery: params.query,
+			explicitQueryVariants: params.query_expansions,
+			filters: {
+				yearFrom: params.year_from,
+				yearTo: params.year_to,
+			},
+		}),
 	};
 }
 
 export function registerCollectionTools(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "plan_literature_search",
+		label: "Plan literature search",
+		description:
+			"Create a structured literature-search plan before provider queries. Splits the topic into research object, problem, scenario, time range, and domain/problem/method terms; expands deterministic query variants; and records unsupported providers such as Google Scholar.",
+		promptSnippet: "Plan a structured literature search before collecting papers",
+		promptGuidelines: [
+			"Use this before collect_literature when the research object, problem, scenario, or time range is under-specified.",
+			"Treat the plan as search scaffolding, not evidence for technical claims.",
+			"Do not claim Google Scholar was searched; this project has no Google Scholar provider.",
+		],
+		parameters: Type.Object({
+			research_object: Type.Optional(Type.String()),
+			research_problem: Type.Optional(Type.String()),
+			scenario: Type.Optional(Type.String()),
+			time_range: Type.Optional(Type.String()),
+			domain_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			problem_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			method_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			primary_query: Type.Optional(Type.String()),
+			query_expansions: Type.Optional(Type.Array(Type.String(), { maxItems: 11 })),
+			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+		}),
+		async execute(_toolCallId, params) {
+			if (params.year_from && params.year_to && params.year_from > params.year_to) {
+				throw new Error("year_from cannot be later than year_to");
+			}
+			const plan = planLiteratureSearch({
+				researchObject: params.research_object,
+				researchProblem: params.research_problem,
+				scenario: params.scenario,
+				timeRange: params.time_range,
+				domainTerms: params.domain_terms,
+				problemTerms: params.problem_terms,
+				methodTerms: params.method_terms,
+				primaryQuery: params.primary_query,
+				explicitQueryVariants: params.query_expansions,
+				filters: { yearFrom: params.year_from, yearTo: params.year_to },
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							"Research question: " + plan.researchQuestion,
+							"Domain terms: " + (plan.keywordGroups.domain.join(", ") || "none"),
+							"Problem terms: " + (plan.keywordGroups.problem.join(", ") || "none"),
+							"Method terms: " + (plan.keywordGroups.method.join(", ") || "none"),
+							"Query variants:",
+							...plan.queryVariants.map((query) => "- " + query),
+							"Unsupported providers:",
+							...(plan.unsupportedProviders ?? []).map(
+								(item) =>
+									"- " +
+									item.provider +
+									": " +
+									item.reason +
+									"; alternatives=" +
+									item.suggestedAlternatives.join(", "),
+							),
+						].join("\n"),
+					},
+				],
+				details: plan,
+			};
+		},
+	});
+
 	pi.registerTool({
 		name: "collect_literature",
 		label: "Collect literature",
@@ -816,6 +1120,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					mode: result.run.mode,
 					corpusHitCount: result.run.corpusHitCount ?? 0,
 					possibleDuplicates: result.run.possibleDuplicates ?? [],
+					searchPlan: result.run.searchPlan,
+					candidateTable: result.run.candidateTable ?? buildCandidatePaperTable(result.run.results),
 				},
 			};
 		},

@@ -49,6 +49,26 @@ export interface PaperProvenance {
 	rawUrl?: string;
 }
 
+export type PaperDiscoveryPathKind =
+	| "keyword-search"
+	| "corpus-reuse"
+	| "reference-expansion"
+	| "citation-expansion"
+	| "author-homepage"
+	| "similar-paper"
+	| "manual-seed"
+	| "unknown";
+
+export interface PaperDiscoveryPath {
+	kind: PaperDiscoveryPathKind;
+	query?: string;
+	provider?: ProvenanceProvider;
+	seedPaperId?: string;
+	sourceUrl?: string;
+	note?: string;
+	discoveredAt: string;
+}
+
 export interface PaperUserNote {
 	id: string;
 	text: string;
@@ -91,6 +111,7 @@ export interface PaperRecord {
 	referencedWorks?: string[];
 	citedByApiUrl?: string;
 	provenance: PaperProvenance[];
+	discoveryPaths?: PaperDiscoveryPath[];
 	mergedFrom: string[];
 	curation?: PaperCuration;
 }
@@ -147,6 +168,40 @@ export interface ProviderHealthSnapshot {
 	retryAfter?: string;
 }
 
+export interface LiteratureSearchPlan {
+	researchQuestion: string;
+	researchObject?: string;
+	researchProblem?: string;
+	scenario?: string;
+	timeRange?: string;
+	keywordGroups: {
+		domain: string[];
+		problem: string[];
+		method: string[];
+	};
+	queryVariants: string[];
+	unsupportedProviders?: Array<{
+		provider: string;
+		reason: string;
+		suggestedAlternatives: LiteratureProvider[];
+	}>;
+	notes?: string[];
+}
+
+export interface CandidatePaperTableRow {
+	paperId: string;
+	title: string;
+	authors: string;
+	year: string;
+	venue: string;
+	doiOrArxiv: string;
+	sources: string;
+	discoveryPath: string;
+	screeningResult: string;
+	pdf: string;
+	code: string;
+}
+
 export interface SearchRun {
 	id: string;
 	startedAt: string;
@@ -164,6 +219,8 @@ export interface SearchRun {
 	possibleDuplicates?: PossibleDuplicate[];
 	providerHealth?: Partial<Record<LiteratureProvider, ProviderHealthSnapshot>>;
 	resumedFromCheckpoint?: boolean;
+	searchPlan?: LiteratureSearchPlan;
+	candidateTable?: CandidatePaperTableRow[];
 	scope: CorpusScope;
 	mode: PersistenceMode;
 	namespace: string;
