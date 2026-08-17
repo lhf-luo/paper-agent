@@ -3622,3 +3622,55 @@ span.chip.active {
 	color: #3f5d49;
 	font-weight: 500;
 }
+
+/* 1.png 风格精修: 消息气泡 */
+.agent-message {
+	width: min(80%, 780px);
+	padding: 11px 15px;
+	margin-bottom: 10px;
+	border: 0;
+	border-radius: 14px;
+	background: #fff;
+	box-shadow: none;
+	border: 1px solid #e7ece9;
+}
+
+.agent-message.user {
+	margin-left: auto;
+	background: #dcefe7;
+	border: 0;
+	border-radius: 14px;
+}
+
+.agent-message header {
+	display: none; /* 1.png 风格: 不显示每条消息的作者标签 */
+}
+
+.agent-message-text {
+	font-size: 14px;
+	line-height: 1.75;
+}
+
+/* 1.png 风格: 圆角输入框 */
+.agent-composer {
+	padding: 12px 20px 16px;
+}
+
+.agent-composer textarea {
+	min-height: 52px;
+	max-height: 160px;
+	border-radius: 12px;
+	border: 1px solid #dfe6e2;
+	background: #f7faf8;
+	padding: 12px 14px;
+	font-size: 14px;
+	box-shadow: 0 2px 10px rgba(30, 59, 50, 0.04);
+}
+
+.agent-composer > div small {
+	display: none; /* 简化: 去掉提示行 */
+}
+
+.agent-composer > div {
+	justify-content: flex-end;
+}
