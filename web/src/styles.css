@@ -248,7 +248,6 @@ code {
 	justify-content: space-between;
 	height: 64px;
 	padding: 0 38px;
-	border-bottom: 1px solid rgba(187, 201, 195, 0.75);
 	background: rgba(248, 250, 249, 0.88);
 	backdrop-filter: blur(14px);
 	color: #48564f;
