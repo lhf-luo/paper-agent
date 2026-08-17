@@ -488,21 +488,6 @@ export function AgentPage({
 
 	return (
 		<>
-			<header className="page-heading">
-				<div>
-					<span className="eyebrow">Paper Agent runtime</span>
-					<h1>Agent 对话</h1>
-					<p>直接提出论文检索、PDF 分析、Artifact、个人库、团队库与调研整理需求；所有高风险写入仍需你在网页明确确认。</p>
-				</div>
-				<div className="agent-runtime-status">
-					<span className={configurationReady ? "ready" : "missing"} />
-					<div>
-						<strong>{configurationReady ? "可开始对话" : "需要模型配置或密钥"}</strong>
-						<small>{credentialLabel(config)}</small>
-					</div>
-				</div>
-			</header>
-
 			{error && <div className="error-banner">{error}</div>}
 			{notice && <div className="success-banner">{notice}</div>}
 
