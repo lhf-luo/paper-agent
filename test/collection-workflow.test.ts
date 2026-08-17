@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	buildCandidatePaperTable,
 	type CollectLiteratureOptions,
 	collectionPersistencePlan,
 	collectLiterature,
 	expandLiteratureQueries,
+	planLiteratureSearch,
 } from "../src/collection-tools.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature-store.ts";
 import type { PaperRecord } from "../src/literature-types.ts";
@@ -47,6 +49,30 @@ describe("collection workflow", () => {
 			"large language model-based program analysis",
 		]);
 	});
+
+	it("plans a structured topic survey before provider search", () => {
+		const plan = planLiteratureSearch({
+			researchObject: "malware detection",
+			researchProblem: "evasion robustness",
+			scenario: "Android apps",
+			timeRange: "2020-2026",
+			domainTerms: ["binary analysis"],
+			problemTerms: ["generalization"],
+			methodTerms: ["graph neural network", "GNN"],
+			primaryQuery: "GNN-based malware detection",
+		});
+
+		expect(plan.researchQuestion).toBe("malware detection | evasion robustness | Android apps | 2020-2026");
+		expect(plan.keywordGroups).toMatchObject({
+			domain: ["malware detection", "binary analysis"],
+			problem: ["evasion robustness", "generalization"],
+			method: ["graph neural network", "GNN"],
+		});
+		expect(plan.queryVariants).toContain("GNN-based malware detection");
+		expect(plan.queryVariants).toContain("GNN based malware detection");
+		expect(plan.unsupportedProviders?.[0]).toMatchObject({ provider: "google-scholar" });
+	});
+
 	it("paginates Crossref, persists provenance, and avoids repeating an identical search", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-collect-"));
 		temporaryPaths.push(root);
@@ -72,12 +98,23 @@ describe("collection workflow", () => {
 		const first = await collectLiterature(await authorizedCollection(options));
 		expect(first.cached).toBe(false);
 		expect(first.run.results).toHaveLength(3);
+		expect(first.run.results[0].discoveryPaths).toContainEqual(
+			expect.objectContaining({ kind: "keyword-search", provider: "crossref", query: "stateful fuzzing" }),
+		);
+		expect(first.run.candidateTable).toHaveLength(3);
+		expect(first.run.candidateTable?.[0]).toMatchObject({
+			title: "Paper 0",
+			sources: "crossref",
+			discoveryPath: expect.stringContaining("keyword-search"),
+			screeningResult: "unreviewed",
+		});
 		expect(first.run.sourceCounts.crossref).toBe(3);
 		expect(fetcher).toHaveBeenCalledTimes(2);
 
 		const second = await collectLiterature(await authorizedCollection(options));
 		expect(second.cached).toBe(true);
 		expect(second.run.results).toHaveLength(3);
+		expect(second.run.candidateTable).toHaveLength(3);
 		expect(fetcher).toHaveBeenCalledTimes(2);
 		expect(second.corpusPath).toContain(join("personal", "test"));
 
@@ -178,6 +215,14 @@ describe("collection workflow", () => {
 
 		expect(result.run.results).toHaveLength(1);
 		expect(result.run.results[0]).toMatchObject({ publicationType: "Conference" });
+		expect(result.run.results[0].discoveryPaths).toContainEqual(
+			expect.objectContaining({ kind: "corpus-reuse", query: "program analysis" }),
+		);
+		expect(buildCandidatePaperTable(result.run.results)[0]).toMatchObject({
+			title: "Program analysis conference-paper",
+			discoveryPath: expect.stringContaining("corpus-reuse"),
+			pdf: "https://example.org/conference-paper.pdf",
+		});
 		expect(result.run.results[0].links).toContainEqual(expect.objectContaining({ kind: "pdf", openAccess: true }));
 	});
 });
