@@ -16,6 +16,7 @@ import { LiteratureSearchCheckpoint } from "./literature-search-checkpoint.ts";
 import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
 import type {
 	CandidatePaperTableRow,
+	CitationExpansionTableRow,
 	CorpusScope,
 	DerivedRecord,
 	LiteratureProvider,
@@ -366,6 +367,27 @@ function withProviderDiscoveryPath(
 	return addDiscoveryPath(record, { kind: "keyword-search", provider, query, discoveredAt });
 }
 
+export function tagCitationExpansionRecords(
+	records: PaperRecord[],
+	seed: PaperRecord,
+	relationship: "reference" | "citation",
+	provider: LiteratureProvider,
+	depth: number,
+	discoveredAt: string,
+): PaperRecord[] {
+	const kind = relationship === "reference" ? "reference-expansion" : "citation-expansion";
+	return records.map((record) =>
+		addDiscoveryPath(record, {
+			kind,
+			provider,
+			query: `${relationship}s:${seed.id}`,
+			seedPaperId: seed.id,
+			note: `depth=${depth}`,
+			discoveredAt,
+		}),
+	);
+}
+
 function primaryIdentifier(record: PaperRecord): string {
 	if (record.identifiers.doi) return "doi:" + record.identifiers.doi;
 	if (record.identifiers.arxivId) return "arXiv:" + record.identifiers.arxivId;
@@ -410,6 +432,34 @@ export function buildCandidatePaperTable(records: PaperRecord[]): CandidatePaper
 			code: linkLabel(record, "artifact"),
 		};
 	});
+}
+
+function expansionPathRelationship(path: PaperDiscoveryPath): "reference" | "citation" | undefined {
+	if (path.kind === "reference-expansion") return "reference";
+	if (path.kind === "citation-expansion") return "citation";
+	return undefined;
+}
+
+function expansionPathDepth(path: PaperDiscoveryPath): string {
+	return /^depth=\d+$/.test(path.note ?? "") ? (path.note ?? "").slice("depth=".length) : "unknown";
+}
+
+export function buildCitationExpansionTable(records: PaperRecord[]): CitationExpansionTableRow[] {
+	const rows: CitationExpansionTableRow[] = [];
+	for (const record of records) {
+		const base = buildCandidatePaperTable([record])[0];
+		for (const path of record.discoveryPaths ?? []) {
+			const relationship = expansionPathRelationship(path);
+			if (!relationship || !path.seedPaperId) continue;
+			rows.push({
+				...base,
+				seedPaperId: path.seedPaperId,
+				relationship,
+				depth: expansionPathDepth(path),
+			});
+		}
+	}
+	return rows;
 }
 
 function isSearchRun(value: unknown): value is SearchRun {
@@ -759,6 +809,36 @@ function formatCandidateTable(rows: CandidatePaperTableRow[], displayLimit: numb
 					row.doiOrArxiv,
 					row.sources,
 					row.discoveryPath,
+					row.screeningResult,
+					row.pdf,
+					row.code,
+				]
+					.map(tableCell)
+					.join(" | "),
+			),
+	];
+}
+
+function formatCitationExpansionTable(rows: CitationExpansionTableRow[], displayLimit: number): string[] {
+	if (!rows.length) return ["Citation expansion table: no records"];
+	const header = "标题 | 作者 | 年份 | venue | DOI/arXiv | 来源 | 发现路径 | 与种子关系 | 初筛结果 | PDF | 代码";
+	const separator = "--- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+	return [
+		"Citation expansion table:",
+		header,
+		separator,
+		...rows
+			.slice(0, displayLimit)
+			.map((row) =>
+				[
+					row.title,
+					row.authors,
+					row.year,
+					row.venue,
+					row.doiOrArxiv,
+					row.sources,
+					row.discoveryPath,
+					`${row.relationship}:${row.seedPaperId}:depth=${row.depth}`,
 					row.screeningResult,
 					row.pdf,
 					row.code,
@@ -1231,13 +1311,26 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				for (const seed of frontier) {
 					if (discovered.length >= maxTotalNeighbors) break;
 					let seedRemaining = Math.min(limit, maxTotalNeighbors - discovered.length);
-					const accept = (records: PaperRecord[]) => {
+					const accept = (
+						records: PaperRecord[],
+						relationship: "reference" | "citation",
+						provider: LiteratureProvider,
+					) => {
+						const discoveredAt = new Date().toISOString();
 						for (const record of deduplicatePaperRecords(records)) {
 							if (seedRemaining <= 0 || discovered.length >= maxTotalNeighbors) break;
 							if (visited.has(record.id)) continue;
+							const [tagged] = tagCitationExpansionRecords(
+								[record],
+								seed,
+								relationship,
+								provider,
+								level,
+								discoveredAt,
+							);
 							visited.add(record.id);
-							next.push(record);
-							discovered.push(record);
+							next.push(tagged);
+							discovered.push(tagged);
 							seedRemaining--;
 						}
 					};
@@ -1249,6 +1342,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										signal,
 										queryLabel: "references:" + seed.id,
 									}),
+									"reference",
+									"openalex",
 								);
 							} else if (seed.identifiers.semanticScholarId) {
 								accept(
@@ -1262,6 +1357,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"reference",
+									"semanticscholar",
 								);
 							}
 						} catch (error) {
@@ -1284,6 +1381,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"citation",
+									"openalex",
 								);
 							} else if (seed.identifiers.semanticScholarId) {
 								accept(
@@ -1298,6 +1397,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"citation",
+									"semanticscholar",
 								);
 							}
 						} catch (error) {
@@ -1309,6 +1410,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				if (frontier.length === 0 || discovered.length >= maxTotalNeighbors) break;
 			}
 			const unique = discovered;
+			const expansionTable = buildCitationExpansionTable(unique);
 			const outcomes = unique.length
 				? await persistPaperRecords(
 						store,
@@ -1339,6 +1441,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								: "Missing seed ids: none",
 							"Corpus: " + store.root,
 							failures.length ? "Failures:\n- " + failures.join("\n- ") : "Failures: none",
+							"",
+							...formatCitationExpansionTable(expansionTable, 60),
 						].join("\n"),
 					},
 				],
@@ -1349,6 +1453,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					pagesPerSeed,
 					maxTotalNeighbors,
 					failures,
+					expansionTable,
 					corpusPath: store.root,
 				},
 			};
