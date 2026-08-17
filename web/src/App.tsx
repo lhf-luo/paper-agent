@@ -3982,7 +3982,7 @@ export default function App() {
 						<span className="local-badge">LOCAL FIRST</span>
 					</div>
 				</div>
-				<div className="page-content">
+				<div className={`page-content${page === "agent" ? " page-content-full" : ""}`}>
 					{error && <div className="error-banner">{error}</div>}
 					{page === "dashboard" && <DashboardPage status={status} go={go} />}
 					{page === "search" && <SearchPage onTask={trackTask} />}

@@ -3674,3 +3674,35 @@ span.chip.active {
 .agent-composer > div {
 	justify-content: flex-end;
 }
+
+/* Agent 页占满整个视口(顶栏以下), 无外层留白 */
+.page-content-full {
+	max-width: none;
+	padding: 0;
+	height: calc(100vh - 64px);
+	display: flex;
+	flex-direction: column;
+}
+
+.page-content-full > * {
+	min-height: 0;
+}
+
+.page-content-full .agent-workspace {
+	flex: 1;
+	height: auto;
+	margin: 0;
+	grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+	overflow: hidden;
+}
+
+.page-content-full .agent-session-panel {
+	height: 100%;
+	border-radius: 0;
+}
+
+.page-content-full .agent-chat-panel {
+	height: 100%;
+	max-height: none;
+	border-radius: 0;
+}
