@@ -506,54 +506,6 @@ export function AgentPage({
 			{error && <div className="error-banner">{error}</div>}
 			{notice && <div className="success-banner">{notice}</div>}
 
-			<section className="panel agent-config-panel">
-				<div className="panel-heading">
-					<div>
-						<span className="eyebrow">Model access</span>
-						<h2>模型与凭据</h2>
-					</div>
-					<span className={`agent-credential-badge ${config?.credentialSource ?? "none"}`}>
-						{credentialLabel(config)}
-					</span>
-				</div>
-				{config?.configuredModels && config.configuredModels.length > 0 ? (
-					<div className="agent-configured-models">
-						<label htmlFor="agent-configured-model">
-							<span>从 config.json 选用已配置模型</span>
-						</label>
-						<div className="configured-model-row">
-							<select
-								id="agent-configured-model"
-								value={configuredKey}
-								onChange={(event) => setConfiguredKey(event.target.value)}
-							>
-								<option value="">-- 选择模型 --</option>
-								{config.configuredModels.map((model) => (
-									<option key={model.key} value={model.key}>
-										{model.providerId} / {model.modelId}
-										{model.credentialsAvailable ? " · 密钥可用" : " · 密钥缺失"}
-									</option>
-								))}
-							</select>
-							<button className="button primary" type="button" disabled={busy || !configuredKey} onClick={() => void applyConfigured()}>
-								应用已配置模型
-							</button>
-						</div>
-						<small className="configured-model-hint">
-							当前模型：{config.providerId}/{config.modelId}
-							{config.configuredModels.find((model) => model.key === configuredKey)?.credentialsAvailable
-								? " · 该模型密钥已配置"
-								: ""}
-						</small>
-					</div>
-				) : (
-					<div className="agent-secret-warning">
-						<strong>未在 config.json 中配置模型</strong>
-						<span>请编辑 .paper-agent/config.json 的 models 字段后重启服务。</span>
-					</div>
-				)}
-			</section>
-
 			<div className="agent-workspace">
 				<aside className="panel agent-session-panel">
 					<div className="panel-heading">
@@ -626,6 +578,11 @@ export function AgentPage({
 							<h2>{active?.title ?? "选择或新建会话"}</h2>
 						</div>
 						<div className="agent-chat-state">
+							{config?.configured && (
+								<small className="agent-model-indicator">
+									{config.providerId}/{config.modelId} · {credentialLabel(config)}
+								</small>
+							)}
 							<span className={streamState} />
 							<small>{streamState === "connected" ? "实时连接" : streamState === "reconnecting" ? "正在重连" : "未连接"}</small>
 							{running && (
@@ -666,7 +623,15 @@ export function AgentPage({
 							<div className="agent-chat-empty">
 								<span>✦</span>
 								<h3>在网页中使用完整的 Paper Agent 工具</h3>
-								<p>配置模型，创建会话，然后从模板开始，或直接描述你的论文调研目标。</p>
+								<p>新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。</p>
+								<div className="agent-suggestion-grid">
+									{taskTemplates.map((template) => (
+										<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
+											<strong>{template.title}</strong>
+											<span>{template.prompt.slice(0, 56)}…</span>
+										</button>
+									))}
+								</div>
 							</div>
 						)}
 						<div ref={transcriptEnd} />

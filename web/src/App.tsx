@@ -14,6 +14,7 @@ import {
 	useJob,
 } from "./components";
 import type {
+	AgentConfigView,
 	AgentSearchRun,
 	AgentSearchRunSummary,
 	BackgroundJob,
@@ -66,6 +67,18 @@ const navigation: Array<{ id: Page; label: string; icon: string; section?: strin
 	{ id: "research", label: "调研工作区", icon: "◇" },
 	{ id: "settings", label: "设置与诊断", icon: "⚙", section: "系统" },
 ];
+
+function credentialLabel(config?: AgentConfigView): string {
+	if (!config?.credentialsAvailable) return "未提供凭据";
+	switch (config.credentialSource) {
+		case "memory":
+			return "服务进程内存";
+		case "config":
+			return "config.json 明文";
+		default:
+			return "环境变量";
+	}
+}
 
 function timeLabel(value: string): string {
 	const date = new Date(value);
@@ -3260,6 +3273,8 @@ function ResearchPage() {
 
 function SettingsPage({ status }: { status?: ApplicationStatus }) {
 	const [config, setConfig] = useState<PaperAgentConfigView>();
+	const [agentConfig, setAgentConfig] = useState<AgentConfigView>();
+	const [settingsModelKey, setSettingsModelKey] = useState("");
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [pendingConfig, setPendingConfig] = useState<unknown>();
 	const [pendingAction, setPendingAction] = useState<"save" | "probe">("save");
@@ -3282,6 +3297,32 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 			recipe(next);
 			return next;
 		});
+	};
+	useEffect(() => {
+		void api<AgentConfigView>("/api/agent/config")
+			.then((value) => {
+				setAgentConfig(value);
+				if (value.configuredModels.some((model) => model.key === `${value.providerId}/${value.modelId}`)) {
+					setSettingsModelKey(`${value.providerId}/${value.modelId}`);
+				}
+			})
+			.catch(() => setAgentConfig(undefined));
+	}, []);
+	const applySettingsModel = async () => {
+		if (!settingsModelKey) return;
+		setBusy(true);
+		setError("");
+		try {
+			setAgentConfig(await api<AgentConfigView>("/api/agent/config/apply", {
+				method: "POST",
+				body: JSON.stringify({ key: settingsModelKey }),
+			}));
+			setMessage(`已切换到模型: ${settingsModelKey}`);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
 	};
 	const updateModel = (recipe: (model: NonNullable<PaperAgentConfigView["model"]>) => void) =>
 		update((next) => {
@@ -3393,6 +3434,45 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 				/>
 			)}
 			<div className="settings-form">
+				<section className="panel form-panel">
+					<span className="eyebrow">Model access</span>
+					<h2>模型选择</h2>
+					<div className="agent-configured-models">
+						<label htmlFor="settings-model-select">
+							<span>从 config.json 选用已配置模型</span>
+						</label>
+						<div className="configured-model-row">
+							<select
+								id="settings-model-select"
+								value={agentConfig?.configuredModels?.some((m) => m.key === settingsModelKey) ? settingsModelKey : ""}
+								onChange={(event) => setSettingsModelKey(event.target.value)}
+							>
+								<option value="">-- 选择模型 --</option>
+								{(agentConfig?.configuredModels ?? []).map((model) => (
+									<option key={model.key} value={model.key}>
+										{model.providerId} / {model.modelId}
+										{model.credentialsAvailable ? " · 密钥可用" : " · 密钥缺失"}
+									</option>
+								))}
+							</select>
+							<button
+								className="button primary"
+								type="button"
+								disabled={busy || !settingsModelKey}
+								onClick={() => void applySettingsModel()}
+							>
+								应用模型
+							</button>
+						</div>
+						<small className="configured-model-hint">
+							当前模型：{agentConfig?.configured ? `${agentConfig.providerId}/${agentConfig.modelId}` : "未配置"}
+							{agentConfig && <span> · {credentialLabel(agentConfig)}</span>}
+						</small>
+					</div>
+					<small className="muted" style={{ display: "block", marginTop: 8 }}>
+						下方“模型端点”为高级配置；日常切换模型请用上面的选择器。
+					</small>
+				</section>
 				<section className="panel form-panel">
 					<span className="eyebrow">Local workspace</span>
 					<h2>界面与存储</h2>
