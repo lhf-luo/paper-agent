@@ -3665,7 +3665,7 @@ span.chip.active {
 .page-content-full {
 	max-width: none;
 	padding: 0;
-	height: calc(100vh - 64px);
+	height: 100vh;
 	display: flex;
 	flex-direction: column;
 }

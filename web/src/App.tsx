@@ -3968,21 +3968,21 @@ export default function App() {
 			</aside>
 			<div className="sidebar-resizer" onMouseDown={onResizeStart} />
 			<main className="main-area">
-				<div className="topbar">
-					{page !== "agent" && (
+				{page !== "agent" && (
+					<div className="topbar">
 						<div className="topbar-breadcrumb">
 							<span className="breadcrumb">Paper Agent /</span> {title}
 						</div>
-					)}
-					<div className="topbar-actions">
-						{lastTask && (
-							<button type="button" onClick={() => go("tasks")}>
-								<StatusPill status={lastTask.status} />
-								{lastTask.type}
-							</button>
-						)}
+						<div className="topbar-actions">
+							{lastTask && (
+								<button type="button" onClick={() => go("tasks")}>
+									<StatusPill status={lastTask.status} />
+									{lastTask.type}
+								</button>
+							)}
+						</div>
 					</div>
-				</div>
+				)}
 				<div className={`page-content${page === "agent" ? " page-content-full" : ""}`}>
 					{error && <div className="error-banner">{error}</div>}
 					{page === "dashboard" && <DashboardPage status={status} go={go} />}
