@@ -3504,27 +3504,26 @@ span.chip.active {
 }
 
 /* 极简 Agent 界面 */
-.agent-sidebar-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 14px 16px 8px;
-	font-size: 14px;
-	color: var(--ink);
-}
-
-.agent-sidebar-head button {
-	padding: 4px 10px;
-	border: 1px solid #d5ded9;
-	border-radius: 6px;
+.agent-new-chat-button {
+	display: block;
+	width: calc(100% - 16px);
+	margin: 14px 8px 8px;
+	padding: 10px 12px;
+	border: 1px solid #e2e8e5;
+	border-radius: 9px;
 	background: #fff;
-	color: #3f5d49;
-	font-size: 12px;
+	color: #2b3b42;
+	font-size: 13px;
+	font-weight: 600;
+	text-align: left;
 	cursor: pointer;
+	box-shadow: 0 1px 3px rgba(30, 59, 50, 0.06);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.agent-sidebar-head button:hover {
-	background: #eef5f1;
+.agent-new-chat-button:hover {
+	border-color: #9fc3b5;
+	box-shadow: 0 2px 8px rgba(30, 59, 50, 0.1);
 }
 
 .agent-chat-heading {
