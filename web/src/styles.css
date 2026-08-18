@@ -3763,7 +3763,8 @@ span.chip.active {
 }
 
 /* "/" 技能选择器 */
-.agent-skill-palette {
+.agent-composer > .agent-skill-palette {
+	display: block;
 	position: absolute;
 	bottom: calc(100% + 6px);
 	left: 20px;
