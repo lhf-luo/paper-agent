@@ -3729,10 +3729,6 @@ span.chip.active {
 }
 
 .agent-session-menu {
-	position: absolute;
-	top: 100%;
-	right: 0;
-	z-index: 40;
 	min-width: 96px;
 	padding: 4px;
 	background: #fff;

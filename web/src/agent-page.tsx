@@ -166,7 +166,7 @@ export function AgentPage({
 }) {
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [configuredKey, setConfiguredKey] = useState("");
-	const [menuSessionId, setMenuSessionId] = useState("");
+	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -527,16 +527,26 @@ export function AgentPage({
 										className="agent-session-more"
 										type="button"
 										aria-label={`更多操作 ${session.title}`}
-										onClick={() => setMenuSessionId(menuSessionId === session.id ? "" : session.id)}
+										onClick={(event) => {
+											const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+											setMenuOpen(
+												menuOpen?.id === session.id
+													? null
+													: { id: session.id, left: rect.right - 104, top: rect.bottom + 4 },
+												);
+										}}
 									>
 										⋯
 									</button>
-									{menuSessionId === session.id && (
-										<div className="agent-session-menu">
+									{menuOpen?.id === session.id && (
+										<div
+											className="agent-session-menu"
+											style={{ position: "fixed", left: menuOpen.left, top: menuOpen.top, zIndex: 999 }}
+										>
 											<button
 												type="button"
 												onClick={() => {
-													setMenuSessionId("");
+													setMenuOpen(null);
 													void renameSession(session.id);
 												}}
 											>
@@ -545,7 +555,7 @@ export function AgentPage({
 											<button
 												type="button"
 												onClick={() => {
-													setMenuSessionId("");
+													setMenuOpen(null);
 													void deleteSession(session.id);
 												}}
 											>
