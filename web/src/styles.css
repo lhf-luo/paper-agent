@@ -3781,32 +3781,18 @@ span.chip.active {
 .agent-skill-palette button {
 	display: block;
 	width: 100%;
-	padding: 8px 10px;
+	padding: 9px 12px;
 	border: 0;
-	border-radius: 7px;
+	border-radius: 6px;
 	background: transparent;
+	color: #2d3b32;
+	font-size: 13px;
 	text-align: left;
 	cursor: pointer;
 }
 
 .agent-skill-palette button:hover {
 	background: #eef5f1;
-}
-
-.agent-skill-palette strong,
-.agent-skill-palette span {
-	display: block;
-}
-
-.agent-skill-palette strong {
-	font-size: 13px;
-	color: #2d3b32;
-}
-
-.agent-skill-palette span {
-	margin-top: 2px;
-	font-size: 11px;
-	color: #6d7a84;
 }
 
 .agent-composer {

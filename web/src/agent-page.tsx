@@ -671,8 +671,7 @@ export function AgentPage({
 												setSkillPaletteOpen(false);
 											}}
 										>
-											<strong>{skill.name}</strong>
-											<span>{skill.description}</span>
+											{skill.name}
 										</button>
 									))}
 							</div>
