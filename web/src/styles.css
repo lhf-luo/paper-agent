@@ -3753,3 +3753,62 @@ span.chip.active {
 .agent-session-menu button:hover {
 	background: #eef5f1;
 }
+
+/* "/" 技能选择器 */
+.agent-skill-palette {
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 20px;
+	right: 20px;
+	max-height: 260px;
+	overflow-y: auto;
+	padding: 6px;
+	background: #fff;
+	border: 1px solid #dfe6e2;
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(30, 59, 50, 0.16);
+	z-index: 50;
+}
+
+.agent-skill-palette-head {
+	padding: 6px 10px 4px;
+	font-size: 11px;
+	font-weight: 700;
+	color: #77968a;
+	letter-spacing: 0.5px;
+}
+
+.agent-skill-palette button {
+	display: block;
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+}
+
+.agent-skill-palette button:hover {
+	background: #eef5f1;
+}
+
+.agent-skill-palette strong,
+.agent-skill-palette span {
+	display: block;
+}
+
+.agent-skill-palette strong {
+	font-size: 13px;
+	color: #2d3b32;
+}
+
+.agent-skill-palette span {
+	margin-top: 2px;
+	font-size: 11px;
+	color: #6d7a84;
+}
+
+.agent-composer {
+	position: relative;
+}

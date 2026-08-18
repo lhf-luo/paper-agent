@@ -45,6 +45,24 @@ const taskTemplates = [
 	},
 ];
 
+const agentSkills = [
+	{
+		name: "literature-corpus-manager",
+		label: "文献语料管理",
+		description: "搜集/去重/获取/个人-团队 与 once-persistent 规则",
+	},
+	{
+		name: "literature-survey",
+		label: "文献调研",
+		description: "一句话定题/拆词/多轮迭代多源搜索/候选论文表",
+	},
+	{
+		name: "skim-card",
+		label: "略读卡",
+		description: "五问法生成略读卡(问题/gap/创新/证据/局限/处置)",
+	},
+];
+
 function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummary {
 	const { messages: _messages, tools: _tools, uiRequests: _uiRequests, ...summary } = snapshot;
 	return summary;
@@ -167,6 +185,8 @@ export function AgentPage({
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [configuredKey, setConfiguredKey] = useState("");
 	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
+	const [skillPaletteOpen, setSkillPaletteOpen] = useState(false);
+	const [skillFilter, setSkillFilter] = useState("");
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -647,16 +667,45 @@ export function AgentPage({
 					</div>
 
 					<div className="agent-composer">
+						{skillPaletteOpen && (
+							<div className="agent-skill-palette">
+								<div className="agent-skill-palette-head">技能</div>
+								{agentSkills
+									.filter((skill) => skill.name.includes(skillFilter) || skill.label.includes(skillFilter))
+									.map((skill) => (
+										<button
+											key={skill.name}
+											type="button"
+											onClick={() => {
+												setPrompt(`请加载并使用 ${skill.name} 技能。${skill.description}`);
+												setSkillPaletteOpen(false);
+											}}
+										>
+											<strong>{skill.label}</strong>
+											<span>{skill.description}</span>
+										</button>
+									))}
+							</div>
+						)}
 						<textarea
 							value={prompt}
-							onChange={(event) => setPrompt(event.target.value)}
+							onChange={(event) => {
+								const value = event.target.value;
+								setPrompt(value);
+								if (value.startsWith("/")) {
+									setSkillFilter(value.slice(1).toLowerCase());
+									setSkillPaletteOpen(true);
+								} else {
+									setSkillPaletteOpen(false);
+								}
+							}}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 									event.preventDefault();
 									void send();
 								}
 							}}
-							placeholder="描述你的论文调研任务。Ctrl / Cmd + Enter 发送。"
+							placeholder="描述任务，或输入 / 选择技能… Ctrl / Cmd + Enter 发送"
 							rows={4}
 							disabled={!active || running}
 						/>
