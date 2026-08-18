@@ -3584,10 +3584,10 @@ span.chip.active {
 }
 
 .agent-session-list article {
-	height: 48px;
+	height: 44px;
 	display: flex;
 	align-items: stretch;
-	margin: 0 8px 3px;
+	margin: 0 8px 1px;
 	border-radius: 8px;
 	border-color: transparent;
 	background: transparent;
