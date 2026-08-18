@@ -3530,21 +3530,45 @@ span.chip.active {
 .agent-chat-heading {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	padding: 12px 22px 10px;
-	border-bottom: 1px solid #e5ebe8;
+	gap: 10px;
+	padding: 8px 16px;
+	border-bottom: 1px solid #e8ecea;
 	background: #fff;
 }
 
-.agent-chat-heading h2 {
-	margin: 0;
+.agent-sidebar-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	flex-shrink: 0;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: #52645c;
 	font-size: 15px;
+	cursor: pointer;
+}
+
+.agent-sidebar-toggle:hover {
+	background: #eef3f0;
+}
+
+.agent-chat-title {
+	margin: 0;
+	flex: 1;
+	min-width: 0;
+	font-size: 14px;
 	font-weight: 600;
 	color: var(--ink);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.agent-chat-heading .agent-stop-button {
+	flex-shrink: 0;
 }
 
 .agent-stop-button {
@@ -3567,12 +3591,36 @@ span.chip.active {
 }
 
 .agent-session-list article {
+	height: 48px;
+	display: flex;
+	align-items: stretch;
+	margin: 0 8px 3px;
+	border-radius: 8px;
 	border-color: transparent;
 	background: transparent;
+	overflow: hidden;
 }
 
 .agent-session-list article.active {
 	background: #e6efe9;
+}
+
+.agent-session-list article > button:first-child {
+	flex: 1;
+	min-width: 0;
+}
+
+.agent-session-list article > button:first-child strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.agent-session-list article > button:first-child span,
+.agent-session-list article > button:first-child em {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .agent-template-list {
@@ -3678,7 +3726,6 @@ span.chip.active {
 	flex: 1;
 	height: auto;
 	margin: 0;
-	grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
 	overflow: hidden;
 }
 

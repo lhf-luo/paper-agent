@@ -182,6 +182,9 @@ export function AgentPage({
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const [streamState, setStreamState] = useState<"idle" | "connected" | "reconnecting">("idle");
+	const [sidebarOpen, setSidebarOpen] = useState(
+		() => window.localStorage.getItem("paper-agent-sidebar-open") !== "closed",
+	);
 	const transcriptEnd = useRef<HTMLDivElement>(null);
 
 	const applyConfig = useCallback((next: AgentConfigView) => {
@@ -491,14 +494,23 @@ export function AgentPage({
 			{error && <div className="error-banner">{error}</div>}
 			{notice && <div className="success-banner">{notice}</div>}
 
-			<div className="agent-workspace">
+			<div
+				className="agent-workspace"
+				style={{
+					gridTemplateColumns: sidebarOpen ? "minmax(200px, 260px) minmax(0, 1fr)" : "0px minmax(0, 1fr)",
+				}}
+			>
 				<aside className="panel agent-session-panel">
-					<div className="agent-sidebar-head">
-						<strong>会话</strong>
-						<button type="button" onClick={() => void createSession()} disabled={busy}>
-							+ 新建
-						</button>
-					</div>
+					<button
+						className="agent-new-chat-button"
+						type="button"
+						onClick={() => {
+							setNewTitle("");
+							void createSession();
+						}}
+					>
+						+ 开始新对话
+					</button>
 					<div className="agent-session-list">
 						{orderedSessions.map((session) => (
 							<article className={active?.id === session.id ? "active" : ""} key={session.id}>
@@ -540,16 +552,28 @@ export function AgentPage({
 				</aside>
 
 				<section className="panel agent-chat-panel">
-					{active && (
-						<div className="agent-chat-heading">
-							<h2>{active.title}</h2>
-							{running && (
-								<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
-									停止生成
-								</button>
-							)}
-						</div>
-					)}
+					<div className="agent-chat-heading">
+						<button
+							className="agent-sidebar-toggle"
+							type="button"
+							onClick={() => {
+								setSidebarOpen((current) => {
+									window.localStorage.setItem("paper-agent-sidebar-open", current ? "closed" : "open");
+									return !current;
+								});
+							}}
+							aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+							title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+						>
+							{sidebarOpen ? "☰" : "☰"}
+						</button>
+						<h2 className="agent-chat-title">{active?.title ?? ""}</h2>
+						{running && (
+							<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
+								停止生成
+							</button>
+						)}
+					</div>
 
 					{active?.error && <div className="error-banner">{active.error}</div>}
 					{active?.uiRequests.map((request) => (
