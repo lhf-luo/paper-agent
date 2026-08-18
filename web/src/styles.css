@@ -2859,9 +2859,7 @@ span.chip.active {
 	flex: 1;
 	min-height: 0;
 	padding: 22px 0;
-	background:
-		linear-gradient(rgba(247, 249, 248, 0.94), rgba(247, 249, 248, 0.94)),
-		radial-gradient(circle at 20% 0%, rgba(45, 107, 92, 0.1), transparent 24rem);
+	background: #fff;
 }
 
 .agent-transcript > * {
@@ -2926,11 +2924,7 @@ span.chip.active {
 }
 
 .agent-tool-timeline {
-	display: grid;
-	gap: 8px;
-	padding-top: 10px;
-	margin-top: 8px;
-	border-top: 1px solid #dce4e0;
+	display: none; /* 不展示工具调用细节 */
 }
 
 .agent-tool-card {
