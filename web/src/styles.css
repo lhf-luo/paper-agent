@@ -3653,8 +3653,8 @@ span.chip.active {
 /* 1.png 风格精修: 消息气泡 */
 .agent-message {
 	width: min(80%, 780px);
-	padding: 11px 15px;
-	margin-bottom: 10px;
+	padding: 10px 14px;
+	margin-bottom: 6px;
 	border: 0;
 	border-radius: 14px;
 	background: #fff;
