@@ -3419,13 +3419,18 @@ span.chip.active {
 }
 
 .agent-suggestion-grid {
-	display: flex;
-	flex-direction: column;
+	display: flex !important;
+	flex-direction: column !important;
+	align-items: stretch !important;
 	gap: 6px;
 	margin-top: 18px;
 	max-width: 780px;
 	margin-left: auto;
 	margin-right: auto;
+}
+
+.agent-suggestion-grid button {
+	width: 100% !important;
 }
 
 .agent-suggestion-grid button {
