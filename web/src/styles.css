@@ -3419,9 +3419,9 @@ span.chip.active {
 }
 
 .agent-suggestion-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-	gap: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 	margin-top: 18px;
 	max-width: 780px;
 	margin-left: auto;
@@ -3429,9 +3429,12 @@ span.chip.active {
 }
 
 .agent-suggestion-grid button {
-	padding: 14px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	padding: 10px 14px;
 	border: 1px solid #dce4e0;
-	border-radius: 10px;
+	border-radius: 8px;
 	background: #fff;
 	text-align: left;
 	cursor: pointer;
