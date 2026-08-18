@@ -2677,19 +2677,8 @@ span.chip.active {
 	font-size: 12px;
 }
 
-.agent-session-list {
-	display: grid;
-	gap: 6px;
-	margin-top: 15px;
-}
-
 .agent-session-list > article {
 	position: relative;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	border: 1px solid #e0e7e3;
-	border-radius: 7px;
-	background: #fafcfb;
 }
 
 .agent-session-list > article.active {
@@ -2733,33 +2722,7 @@ span.chip.active {
 	font-weight: 700;
 }
 
-.agent-session-delete {
-	align-self: start;
-	padding: 7px 9px;
-	border: 0;
-	color: #9c7773;
-	background: transparent;
-	font-size: 18px;
-}
 
-.agent-session-delete:hover {
-	color: var(--red);
-}
-
-.agent-session-rename {
-	align-self: start;
-	padding: 7px 9px;
-	border: 0;
-	color: #6d7a84;
-	background: transparent;
-	font-size: 13px;
-}
-
-.agent-session-rename:hover {
-	color: var(--ink);
-	background: #eef3f0;
-	border-radius: 5px;
-}
 
 .agent-template-list {
 	display: grid;
@@ -3733,3 +3696,64 @@ span.chip.active {
 	border-radius: 0;
 }
 
+
+
+/* 会话 ⋯ 菜单 */
+.agent-session-more-wrap {
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding-right: 6px;
+}
+
+.agent-session-more {
+	width: 26px;
+	height: 26px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #6d7a84;
+	font-size: 14px;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+}
+
+.agent-session-list article:hover .agent-session-more,
+.agent-session-more-wrap:focus-within .agent-session-more {
+	opacity: 1;
+}
+
+.agent-session-more:hover {
+	background: #e4ece8;
+}
+
+.agent-session-menu {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	z-index: 40;
+	min-width: 96px;
+	padding: 4px;
+	background: #fff;
+	border: 1px solid #dfe6e2;
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(30, 59, 50, 0.14);
+}
+
+.agent-session-menu button {
+	display: block;
+	width: 100%;
+	padding: 7px 10px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: #2d3b32;
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.agent-session-menu button:hover {
+	background: #eef5f1;
+}

@@ -166,6 +166,7 @@ export function AgentPage({
 }) {
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [configuredKey, setConfiguredKey] = useState("");
+	const [menuSessionId, setMenuSessionId] = useState("");
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -521,22 +522,38 @@ export function AgentPage({
 									</span>
 									{session.pendingUIRequests > 0 && <em>{session.pendingUIRequests} 个确认待处理</em>}
 								</button>
-								<button
-									className="agent-session-rename"
-									type="button"
-									aria-label={`重命名 ${session.title}`}
-									onClick={() => void renameSession(session.id)}
-								>
-									✏️
-								</button>
-								<button
-									className="agent-session-delete"
-									type="button"
-									aria-label={`删除 ${session.title}`}
-									onClick={() => void deleteSession(session.id)}
-								>
-									×
-								</button>
+								<div className="agent-session-more-wrap">
+									<button
+										className="agent-session-more"
+										type="button"
+										aria-label={`更多操作 ${session.title}`}
+										onClick={() => setMenuSessionId(menuSessionId === session.id ? "" : session.id)}
+									>
+										⋯
+									</button>
+									{menuSessionId === session.id && (
+										<div className="agent-session-menu">
+											<button
+												type="button"
+												onClick={() => {
+													setMenuSessionId("");
+													void renameSession(session.id);
+												}}
+											>
+												编辑
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setMenuSessionId("");
+													void deleteSession(session.id);
+												}}
+											>
+												删除
+											</button>
+										</div>
+									)}
+								</div>
 							</article>
 						))}
 							{!orderedSessions.length && <p className="muted">新建一个会话后开始对话。</p>}
