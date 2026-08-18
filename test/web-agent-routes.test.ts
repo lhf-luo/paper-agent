@@ -51,6 +51,7 @@ describe("local Web Agent routes", () => {
 		const agentService: WebAgentServiceApi = {
 			getConfig: () => config,
 			listSkills: () => [],
+			uploadAttachment: async () => ({ path: "/tmp/mock.bin", name: "mock.bin", size: 0 }),
 			updateConfig: () => config,
 			applyConfiguredModel: () => config,
 			renameSession: () => snapshot,

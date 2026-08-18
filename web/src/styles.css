@@ -3807,3 +3807,83 @@ span.chip.active {
 .agent-composer {
 	position: relative;
 }
+
+/* 附件上传 */
+.agent-attachment-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.agent-attachment-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px 4px 10px;
+	border: 1px solid #cfe0d8;
+	border-radius: 999px;
+	background: #f2f8f5;
+	color: #2d5c4d;
+	font-size: 12px;
+	max-width: 240px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.agent-attachment-chip button {
+	border: 0;
+	background: transparent;
+	color: #8aa89c;
+	font-size: 14px;
+	line-height: 1;
+	padding: 0 2px;
+	cursor: pointer;
+}
+
+.agent-attachment-chip button:hover {
+	color: #c0392b;
+}
+
+.agent-composer-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-top: 9px;
+}
+
+.agent-composer-actions-left {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.agent-composer-hint {
+	color: var(--muted);
+}
+
+.agent-attach-button {
+	width: 30px;
+	height: 30px;
+	flex-shrink: 0;
+	border: 1px solid #c9d5d0;
+	border-radius: 8px;
+	background: #fff;
+	color: #2d5c4d;
+	font-size: 17px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.agent-attach-button:hover:not(:disabled) {
+	border-color: #8db5a6;
+	background: #f2f8f5;
+}
+
+.agent-attach-button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}

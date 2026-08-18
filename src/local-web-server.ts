@@ -371,12 +371,44 @@ export async function startLocalWebServer(
 						json(response, 200, await agentService.abortSession(id));
 					} else {
 						const body = await readJson(request);
+						const attachments = Array.isArray(body.attachments)
+							? body.attachments
+									.filter(
+											(entry: unknown): entry is { path: string; name: string } =>
+												typeof entry === "object" &&
+												entry !== null &&
+												typeof (entry as { path?: unknown }).path === "string" &&
+												typeof (entry as { name?: unknown }).name === "string",
+										)
+									.slice(0, 10)
+							: undefined;
 						json(
 							response,
 							202,
-							await agentService.sendMessage(id, { message: typeof body.message === "string" ? body.message : "" }),
+							await agentService.sendMessage(id, {
+								message: typeof body.message === "string" ? body.message : "",
+								attachments,
+							}),
 						);
 					}
+					return;
+				}
+				const attachmentRoute = /^\/api\/agent\/sessions\/([^/]+)\/attachments$/.exec(url.pathname);
+				if (request.method === "POST" && attachmentRoute) {
+					const id = decodeURIComponent(attachmentRoute[1]);
+					const name =
+						typeof request.headers["x-filename"] === "string"
+							? (() => {
+									try {
+										return decodeURIComponent(request.headers["x-filename"] as string);
+									} catch {
+										return request.headers["x-filename"] as string;
+									}
+							})()
+							: "attachment";
+					const chunks: Buffer[] = [];
+					for await (const chunk of request) chunks.push(chunk as Buffer);
+					json(response, 201, await agentService.uploadAttachment(id, { name, data: new Uint8Array(Buffer.concat(chunks)) }));
 					return;
 				}
 				const agentSessionRoute = /^\/api\/agent\/sessions\/([^/]+)$/.exec(url.pathname);

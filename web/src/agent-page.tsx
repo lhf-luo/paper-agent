@@ -172,6 +172,46 @@ export function AgentPage({
 	const [loadedSkills, setLoadedSkills] = useState<
 		Array<{ name: string; description: string; disableModelInvocation: boolean }>
 	>([]);
+	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const [uploading, setUploading] = useState(false);
+
+	const handleFiles = async (files: FileList | null) => {
+		if (!files?.length || !active) return;
+		setUploading(true);
+		setError("");
+		try {
+			for (const file of Array.from(files)) {
+				const data = await file.arrayBuffer();
+				const response = await fetch(`/api/agent/sessions/${encodeURIComponent(active.id)}/attachments`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${sessionStorage.getItem("paper-agent-session-token") ?? ""}`,
+						"content-type": "application/octet-stream",
+						"x-filename": encodeURIComponent(file.name),
+					},
+					body: data,
+				});
+				if (!response.ok) {
+					let message = `${response.status} ${response.statusText}`;
+					try {
+						const body = (await response.json()) as { error?: string };
+						if (body.error) message = body.error;
+					} catch {
+						// ignore
+					}
+					throw new Error(message);
+				}
+				const attachment = (await response.json()) as { path: string; name: string; size: number };
+				setAttachments((current) => [...current, attachment]);
+			}
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setUploading(false);
+			if (fileInputRef.current) fileInputRef.current.value = "";
+		}
+	};
 	useEffect(() => {
 		void api<{ skills: typeof loadedSkills }>("/api/agent/skills")
 			.then((value) => setLoadedSkills(value.skills))
@@ -439,9 +479,16 @@ export function AgentPage({
 		try {
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(active.id)}/messages`,
-				{ method: "POST", body: JSON.stringify({ message: prompt }) },
+				{
+					method: "POST",
+					body: JSON.stringify({
+						message: prompt,
+						attachments: attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
+					}),
+				},
 			);
 			setPrompt("");
+			setAttachments([]);
 			setActive(snapshot);
 			setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
 		} catch (reason) {
@@ -698,8 +745,42 @@ export function AgentPage({
 							rows={4}
 							disabled={!active || running}
 						/>
-						<div>
-							<small>写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
+						{attachments.length > 0 && (
+							<div className="agent-attachment-chips">
+								{attachments.map((attachment) => (
+									<span className="agent-attachment-chip" key={attachment.path}>
+										{attachment.name}
+										<button
+											type="button"
+											aria-label={`移除 ${attachment.name}`}
+											onClick={() => setAttachments((current) => current.filter((entry) => entry.path !== attachment.path))}
+										>
+											×
+										</button>
+									</span>
+								))}
+							</div>
+						)}
+						<div className="agent-composer-actions">
+							<div className="agent-composer-actions-left">
+								<button
+									className="agent-attach-button"
+									type="button"
+									title="上传附件（PDF / 文本 / 图片，最多 10 个）"
+									disabled={!active || running || uploading}
+									onClick={() => fileInputRef.current?.click()}
+								>
+									{uploading ? "上传中…" : "＋"}
+								</button>
+								<input
+									ref={fileInputRef}
+									type="file"
+									multiple
+									style={{ display: "none" }}
+									onChange={(event) => void handleFiles(event.target.files)}
+								/>
+								<small className="agent-composer-hint">写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
+							</div>
 							<button
 								className="button primary"
 								type="button"
