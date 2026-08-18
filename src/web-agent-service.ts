@@ -7,6 +7,7 @@ import {
 	type AgentSessionEvent,
 	createAgentSession,
 	DefaultResourceLoader,
+	loadSkills,
 	type ExtensionFactory,
 	type ExtensionUIDialogOptions,
 	type ExtensionUIContext,
@@ -140,6 +141,7 @@ export interface WebAgentEventSubscription {
 
 export interface WebAgentServiceApi {
 	getConfig(): WebAgentConfigView | Promise<WebAgentConfigView>;
+	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }>;
 	updateConfig(input: WebAgentConfigUpdate): WebAgentConfigView | Promise<WebAgentConfigView>;
 	applyConfiguredModel(key: string): WebAgentConfigView | Promise<WebAgentConfigView>;
 	clearKey(): WebAgentConfigView | Promise<WebAgentConfigView>;
@@ -447,6 +449,20 @@ export class WebAgentService implements WebAgentServiceApi {
 				entry.apiKey.length > 0,
 		);
 		return model?.apiKey;
+	}
+
+	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }> {
+		const result = loadSkills({
+			cwd: this.projectRoot,
+			agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
+			skillPaths: this.additionalSkillPaths,
+			includeDefaults: true,
+		});
+		return result.skills.map((skill) => ({
+			name: skill.name,
+			description: skill.description,
+			disableModelInvocation: skill.disableModelInvocation,
+		}));
 	}
 
 	getConfig(): WebAgentConfigView {

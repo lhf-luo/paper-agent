@@ -45,24 +45,6 @@ const taskTemplates = [
 	},
 ];
 
-const agentSkills = [
-	{
-		name: "literature-corpus-manager",
-		label: "文献语料管理",
-		description: "搜集/去重/获取/个人-团队 与 once-persistent 规则",
-	},
-	{
-		name: "literature-survey",
-		label: "文献调研",
-		description: "一句话定题/拆词/多轮迭代多源搜索/候选论文表",
-	},
-	{
-		name: "skim-card",
-		label: "略读卡",
-		description: "五问法生成略读卡(问题/gap/创新/证据/局限/处置)",
-	},
-];
-
 function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummary {
 	const { messages: _messages, tools: _tools, uiRequests: _uiRequests, ...summary } = snapshot;
 	return summary;
@@ -187,6 +169,14 @@ export function AgentPage({
 	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
 	const [skillPaletteOpen, setSkillPaletteOpen] = useState(false);
 	const [skillFilter, setSkillFilter] = useState("");
+	const [loadedSkills, setLoadedSkills] = useState<
+		Array<{ name: string; description: string; disableModelInvocation: boolean }>
+	>([]);
+	useEffect(() => {
+		void api<{ skills: typeof loadedSkills }>("/api/agent/skills")
+			.then((value) => setLoadedSkills(value.skills))
+			.catch(() => setLoadedSkills([]));
+	}, []);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
@@ -669,19 +659,19 @@ export function AgentPage({
 					<div className="agent-composer">
 						{skillPaletteOpen && (
 							<div className="agent-skill-palette">
-								<div className="agent-skill-palette-head">技能</div>
-								{agentSkills
-									.filter((skill) => skill.name.includes(skillFilter) || skill.label.includes(skillFilter))
+								<div className="agent-skill-palette-head">技能（/skill: 名称）</div>
+								{loadedSkills
+									.filter((skill) => skill.name.includes(skillFilter) || skill.description.includes(skillFilter))
 									.map((skill) => (
 										<button
 											key={skill.name}
 											type="button"
 											onClick={() => {
-												setPrompt(`请加载并使用 ${skill.name} 技能。${skill.description}`);
+												setPrompt(`/skill:${skill.name} `);
 												setSkillPaletteOpen(false);
 											}}
 										>
-											<strong>{skill.label}</strong>
+											<strong>{skill.name}</strong>
 											<span>{skill.description}</span>
 										</button>
 									))}

@@ -50,6 +50,7 @@ describe("local Web Agent routes", () => {
 		const listeners = new Set<(event: WebAgentEvent) => void>();
 		const agentService: WebAgentServiceApi = {
 			getConfig: () => config,
+			listSkills: () => [],
 			updateConfig: () => config,
 			applyConfiguredModel: () => config,
 			renameSession: () => snapshot,

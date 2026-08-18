@@ -297,6 +297,10 @@ export async function startLocalWebServer(
 					json(response, 200, { sessions: await agentService.listSessions() });
 					return;
 				}
+				if (request.method === "GET" && url.pathname === "/api/agent/skills") {
+					json(response, 200, { skills: await agentService.listSkills() });
+					return;
+				}
 				if (request.method === "POST" && url.pathname === "/api/agent/sessions") {
 					const body = await readJson(request);
 					json(
