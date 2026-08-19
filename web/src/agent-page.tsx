@@ -728,7 +728,9 @@ export function AgentPage({
 							onChange={(event) => {
 								const value = event.target.value;
 								setPrompt(value);
-								if (value.startsWith("/")) {
+								if (value.startsWith("/skill:")) {
+									setSkillPaletteOpen(false);
+								} else if (value.startsWith("/")) {
 									setSkillFilter(value.slice(1).toLowerCase());
 									setSkillPaletteOpen(true);
 								} else {
