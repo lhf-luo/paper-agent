@@ -550,7 +550,7 @@ export async function saveSearchRunSelection(
 const PROVIDER_THROTTLE_MS: Partial<Record<LiteratureProvider, number>> = {
 	arxiv: 3200,
 	dblp: 1600,
-	semanticscholar: 1300,
+	semanticscholar: 3000,
 	crossref: 1300,
 	openalex: 1200,
 };
