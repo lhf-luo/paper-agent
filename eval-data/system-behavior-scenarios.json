@@ -8,112 +8,159 @@
       "given": "read_pdf covers only part of a three-page PDF",
       "mustDo": "Report missing pages and withhold paper-wide claims.",
       "mustNotDo": "Treat partial coverage as a complete read.",
-      "promptEvidence": ["全部物理页面", "未完成整篇覆盖时不得提出 paper-wide claim"]
+      "promptEvidence": [
+        "全部物理页面",
+        "未完成对应关卡时，不得给出覆盖整篇论文的结论"
+      ]
     },
     {
       "id": "truncated-pdf-read",
       "given": "read_pdf returns truncated output",
       "mustDo": "Read smaller page ranges and disclose unresolved coverage.",
       "mustNotDo": "Count a truncated call as coverage.",
-      "promptEvidence": ["被截断的调用不算覆盖", "证据边界"]
+      "promptEvidence": [
+        "任何模式下都必须披露实际覆盖范围、工具失败和证据缺口",
+        "证据边界"
+      ]
     },
     {
       "id": "truncated-asset-index",
       "given": "list_paper_assets is truncated",
       "mustDo": "Repeat with bounded page ranges before the final report.",
       "mustNotDo": "Claim all figures and tables were indexed.",
-      "promptEvidence": ["用 list_paper_assets 覆盖全部页面", "被截断的调用不算覆盖"]
+      "promptEvidence": [
+        "以不会截断的小页段覆盖全部物理页面，包括附录和参考文献",
+        "任何模式下都必须披露实际覆盖范围、工具失败和证据缺口"
+      ]
     },
     {
       "id": "no-artifact-candidate",
       "given": "artifact discovery finds no link",
       "mustDo": "Record that no candidate was found and preserve the evidence boundary.",
       "mustNotDo": "Invent a repository or imply acquisition succeeded.",
-      "promptEvidence": ["用 discover_paper_artifacts", "不得用惯例或默认值补齐"]
+      "promptEvidence": [
+        "先从 PDF 和正文发现候选 artifact",
+        "不得用惯例、默认值或模型猜测补齐"
+      ]
     },
     {
       "id": "artifact-discovery-only",
       "given": "a URL was discovered but not acquired",
       "mustDo": "Keep discovery separate from verified local provenance.",
       "mustNotDo": "Report a hash or commit that was not resolved.",
-      "promptEvidence": ["若有候选，再用 acquire_paper_artifacts", "精确 commit"]
+      "promptEvidence": [
+        "需要获取时再按工具的安全确认流程下载或 clone",
+        "精确 commit"
+      ]
     },
     {
       "id": "conflicting-numeric-evidence",
       "given": "text extraction and the rendered table disagree",
       "mustDo": "Use the visible page, disclose the parser ambiguity, and preserve both observations.",
       "mustNotDo": "Silently select the more convenient value.",
-      "promptEvidence": ["工具失败、来源冲突和不确定映射不得静默忽略", "文本层与图像冲突时以可视页面为准并披露解析歧义"]
+      "promptEvidence": [
+        "工具失败、来源冲突、不确定映射和阅读覆盖缺口不得静默忽略",
+        "文本层与可视页面冲突时，以可视页面为准并披露解析歧义"
+      ]
     },
     {
       "id": "dirty-artifact-repository",
       "given": "the acquired Git worktree has local modifications",
       "mustDo": "Report the resolved commit and dirty state.",
       "mustNotDo": "Describe the checkout as a clean reproducible snapshot.",
-      "promptEvidence": ["工作树 dirty 时说明", "精确 commit"]
+      "promptEvidence": [
+        "工作树 dirty 时说明",
+        "精确 commit"
+      ]
     },
     {
       "id": "unknown-tool-parameters",
       "given": "a tool receives unsupported or out-of-range parameters",
       "mustDo": "Respect schema validation and correct the call.",
       "mustNotDo": "Guess how an unknown parameter is interpreted.",
-      "promptEvidence": ["工具的坐标、重试、分页、限制与安全细节以各工具 promptGuidelines 为准"]
+      "promptEvidence": [
+        "具体工具参数、坐标、分页、重试、安全确认和文件写入细节由工具的 `promptGuidelines` 规定"
+      ]
     },
     {
       "id": "provider-partial-failure",
       "given": "one literature provider fails and another succeeds",
       "mustDo": "Return usable results with exact provider failures and provenance.",
       "mustNotDo": "Hide the failed provider or discard all successful results.",
-      "promptEvidence": ["记录查询扩展、过滤条件、分页、来源数、corpus 命中、去重、疑似重复和失败", "工具失败、来源冲突和不确定映射不得静默忽略"]
+      "promptEvidence": [
+        "任何模式下都必须披露实际覆盖范围、工具失败和证据缺口",
+        "工具失败、来源冲突、不确定映射和阅读覆盖缺口不得静默忽略"
+      ]
     },
     {
       "id": "all-providers-fail",
       "given": "every configured literature provider fails",
       "mustDo": "Return no papers, enumerate failures, and stop claim formation.",
       "mustNotDo": "Fabricate a result from search metadata.",
-      "promptEvidence": ["搜索结果和元数据只用于发现来源，不能独立证明技术 claim", "失败"]
+      "promptEvidence": [
+        "搜索结果、摘要和元数据只用于发现来源，不能独立证明技术 claim",
+        "失败"
+      ]
     },
     {
       "id": "search-only-discovery",
       "given": "search metadata exists but no primary source was opened",
       "mustDo": "Use it only to locate a primary source.",
       "mustNotDo": "Cite the search record as evidence for a technical claim.",
-      "promptEvidence": ["搜索结果和元数据只用于发现来源，不能独立证明技术 claim", "关键结论必须打开一手来源"]
+      "promptEvidence": [
+        "搜索结果、摘要和元数据只用于发现来源，不能独立证明技术 claim",
+        "关键结论必须回到论文、官方 artifact、作者页面或原始相关论文"
+      ]
     },
     {
       "id": "semantic-asset-unverified",
       "given": "embedded images are listed but no captioned asset was visually checked",
       "mustDo": "Keep the object-level gate open.",
       "mustNotDo": "Equate embedded PDF objects with complete semantic figures.",
-      "promptEvidence": ["embedded image 条目不能证明完整语义图表是否存在", "对象级核验"]
+      "promptEvidence": [
+        "对支撑核心 claim 的图表或表格进行对象级核验",
+        "对象级核验"
+      ]
     },
     {
       "id": "ocr-or-poppler-failure",
       "given": "OCR or Poppler terminates with partial output",
       "mustDo": "Treat the page or asset as unresolved and disclose the tool failure.",
       "mustNotDo": "Consume partial output as complete evidence.",
-      "promptEvidence": ["被截断的调用不算覆盖", "工具失败"]
+      "promptEvidence": [
+        "任何模式下都必须披露实际覆盖范围、工具失败和证据缺口",
+        "工具失败"
+      ]
     },
     {
       "id": "artifact-content-mismatch",
       "given": "a download claims to be a PDF or archive but contains HTML",
       "mustDo": "Reject acquisition and record validation failure.",
       "mustNotDo": "Save the body as a verified artifact.",
-      "promptEvidence": ["安全获取并检查 manifest", "失败原因"]
+      "promptEvidence": [
+        "不得自动执行代码、安装依赖或解压不可信内容",
+        "任何模式下都必须披露实际覆盖范围、工具失败和证据缺口"
+      ]
     },
     {
       "id": "personal-team-separation",
       "given": "new notes are ready for possible team reuse",
       "mustDo": "Write personal first, then explicitly propose a sanitized team record for review.",
       "mustNotDo": "Copy personal notes or private filtering opinions directly into the team corpus.",
-      "promptEvidence": ["once 与 persistent、personal 与 team 必须明确分开", "不得携带个人笔记或个人筛选意见"]
+      "promptEvidence": [
+        "once 与 persistent、personal 与 team 必须明确分开",
+        "once 与 persistent、personal 与 team 必须明确分开"
+      ]
     },
     {
       "id": "no-live-model-credentials",
       "given": "deterministic contracts pass but Pi has no configured provider",
       "mustDo": "Report deterministic verification separately from optional live model behavior.",
       "mustNotDo": "Claim that paid-model scenario behavior was executed.",
-      "promptEvidence": ["证据边界", "仍然未知的问题"]
+      "promptEvidence": [
+        "证据边界",
+        "仍然未知的问题"
+      ]
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -212,6 +212,7 @@ describe("collection workflow", () => {
 	it("keeps once-mode collection out of a clean persistent corpus", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-once-isolation-"));
 		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
 		let calls = 0;
 		const result = await collectLiterature({
 			queries: ["ephemeral evidence collection"],
@@ -237,7 +238,11 @@ describe("collection workflow", () => {
 
 		expect(result.run.mode).toBe("once");
 		expect(calls).toBe(1);
-		await expect(access(join(root, ".paper-agent"))).rejects.toMatchObject({ code: "ENOENT" });
+		// once 模式落盘 search-run(供 filter/save 复用), 但 records 语料保持空(论文不入库)
+		const recordFiles = await readdir(join(root, ".paper-agent", "corpus", "personal", "default", "records"));
+		expect(recordFiles).toEqual([]);
+		const savedRun = await store.getSearchRun(result.run.id);
+		expect(savedRun?.id).toBe(result.run.id);
 	});
 
 	it("applies publication type and open-access filters when reusing the corpus", async () => {

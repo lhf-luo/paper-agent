@@ -344,6 +344,13 @@ export class LiteratureStore {
 		});
 	}
 
+	async saveSearchRun(run: SearchRun): Promise<void> {
+		await this.initialize();
+		return this.withWriteLock(async () => {
+			await writeJsonAtomic(this.searchRunPath(run.id), run);
+		});
+	}
+
 	async persistSearchRun(run: SearchRun): Promise<{ created: number; updated: number; unchanged: number }> {
 		await this.initialize();
 		return this.withWriteLock(async () => {

@@ -54,7 +54,7 @@ Use this when the user asks for a literature review, related work, reading list,
 
 Use this when the user chooses papers from a candidate table and wants them kept in the personal library.
 
-1. Require a persisted `search_run_id`. If the search was once mode, rerun it persistently or import records first; do not rely on chat memory as the source of truth.
+1. Require a persisted `search_run_id`. Search runs are saved to `search-runs/` even in once mode (once only skips merging records into the corpus), so a once-mode run can still feed `save_literature_selection`; never rely on chat memory as the source of truth.
 2. Call `save_literature_selection` with `search_run_id`, selected `paper_ids`, source namespace, target namespace, and contributor.
 3. Complete the exact confirmation prompt before writing.
 4. Report created, updated, unchanged, failed, and missing ids.

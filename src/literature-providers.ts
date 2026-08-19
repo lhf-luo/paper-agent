@@ -262,16 +262,15 @@ function openAlexRecord(
 export async function searchOpenAlexPage(options: ProviderSearchOptions): Promise<ProviderPage> {
 	const cursor = options.cursor ?? "*";
 	const url = new URL("https://api.openalex.org/works");
-	url.searchParams.set("search", options.query);
 	url.searchParams.set("per-page", String(options.limit));
 	url.searchParams.set("cursor", cursor);
 	const openAlexMailto = options.openAlexMailto ?? providerCredentials.openAlexMailto ?? process.env.OPENALEX_MAILTO;
 	if (openAlexMailto) url.searchParams.set("mailto", openAlexMailto);
-	const filters: string[] = [];
+	const filters: string[] = [`title_and_abstract.search:${options.query}`];
 	if (options.filters?.yearFrom) filters.push(`from_publication_date:${options.filters.yearFrom}-01-01`);
 	if (options.filters?.yearTo) filters.push(`to_publication_date:${options.filters.yearTo}-12-31`);
 	if (options.filters?.openAccess) filters.push("is_oa:true");
-	if (filters.length) url.searchParams.set("filter", filters.join(","));
+	url.searchParams.set("filter", filters.join(","));
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
 		timeoutMs: 20_000,

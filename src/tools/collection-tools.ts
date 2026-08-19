@@ -176,6 +176,32 @@ interface CorpusAnnotationInput {
 	screeningReason?: string;
 }
 
+export function filterSearchRunResults(
+	run: SearchRun,
+	options: {
+		includeTerms?: string[];
+		excludeTerms?: string[];
+		yearFrom?: number;
+		yearTo?: number;
+		venueRank?: "A" | "B" | "C";
+		limit?: number;
+	},
+): { matched: PaperRecord[]; total: number } {
+	const include = (options.includeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
+	const exclude = (options.excludeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
+	const matched = run.results.filter((record) => {
+		const haystack = `${record.title}\n${record.abstract ?? ""}`.toLowerCase();
+		if (include.length > 0 && !include.some((term) => haystack.includes(term))) return false;
+		if (exclude.some((term) => haystack.includes(term))) return false;
+		if (options.yearFrom && (record.year ?? 0) < options.yearFrom) return false;
+		if (options.yearTo && (record.year ?? 9999) > options.yearTo) return false;
+		if (options.venueRank && record.venueRank !== options.venueRank) return false;
+		return true;
+	});
+	const ordered = [...matched].sort((left, right) => (right.citationCount ?? 0) - (left.citationCount ?? 0));
+	return { matched: ordered, total: matched.length };
+}
+
 export function corpusAnnotationPlan(
 	store: LiteratureStore,
 	records: PaperRecord[],
@@ -585,7 +611,9 @@ function normalizeSearchRun(run: SearchRun): SearchRun {
 }
 
 function failureIsRetryable(message: string): boolean {
-	return /\b(?:408|425|429|5\d\d)\b|timed?\s*out|temporar|network/i.test(message);
+	return /\b(?:408|425|429|5\d\d)\b|timed?\s*out|temporar|network|fetch failed|socket hang up|ECONN|ENOTFOUND|ETIMEDOUT/i.test(
+		message,
+	);
 }
 
 function hasClientSideFilters(provider: LiteratureProvider, filters: SearchFilters): boolean {
@@ -635,14 +663,12 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 	const root = resolveCorpusRoot(options.cwd, options.scope, options.namespace, options.corpusRoot);
 	const corpusStore = new LiteratureStore(root, options.scope, options.namespace);
 	let store: LiteratureStore | undefined;
-	if (options.mode === "persistent") {
-		store = corpusStore;
-		await store.initialize();
-		if (!options.refreshCache) {
-			const cached = await store.getDerived(cacheKey);
-			if (cached && isSearchRun(cached.result)) {
-				return { run: normalizeSearchRun(cached.result), cached: true, corpusPath: store.root };
-			}
+	store = corpusStore;
+	await store.initialize();
+	if (options.mode === "persistent" && !options.refreshCache) {
+		const cached = await store.getDerived(cacheKey);
+		if (cached && isSearchRun(cached.result)) {
+			return { run: normalizeSearchRun(cached.result), cached: true, corpusPath: store.root };
 		}
 	}
 	const corpusHits = new Map<string, PaperRecord>();
@@ -839,8 +865,13 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 
 	let persistenceCounts: CollectionResult["persistenceCounts"];
 	if (store) {
-		persistenceCounts = await store.persistSearchRun(run);
-		await store.putDerived(
+		if (options.mode === "persistent") {
+			persistenceCounts = await store.persistSearchRun(run);
+		} else {
+			await store.saveSearchRun(run);
+		}
+		if (options.mode === "persistent") {
+			await store.putDerived(
 			{
 				key: cacheKey,
 				paperId: "collection",
@@ -858,7 +889,8 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 				result: run,
 			},
 			{ replace: options.refreshCache },
-		);
+			);
+		}
 	}
 	if (!failures.some((failure) => failure.retryable)) await checkpoint?.complete();
 	return {
@@ -1045,6 +1077,13 @@ function collectionParameters() {
 		pages_per_provider: Type.Optional(Type.Integer({ minimum: 1, maximum: 5, description: "Default: 1" })),
 		max_results_per_provider: Type.Optional(
 			Type.Integer({ minimum: 1, maximum: 500, description: "Across pages for each provider/query; default: 20" }),
+		),
+		candidate_limit: Type.Optional(
+			Type.Integer({
+				minimum: 1,
+				maximum: 500,
+				description: "Max rows in the returned candidate table; default: 60",
+			}),
 		),
 		scope: Type.Optional(scopeSchema),
 		mode: Type.Optional(modeSchema),
@@ -1317,6 +1356,65 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "filter_search_run_results",
+		label: "Filter search run results",
+		description:
+			"Filter an existing persisted search run's results by title/abstract terms, year range, or CCF venue rank without re-searching. Returns a re-ranked candidate table (citation count first) with the total match count, so you can narrow a noisy result set and reach papers beyond the original display limit.",
+		promptSnippet: "Filter collected literature results in place",
+		promptGuidelines: [
+			"Use after collect_literature when the candidate table is noisy or truncated; prefer this over re-searching.",
+			"Use include_terms as broad topical terms (any match keeps the paper); use exclude_terms to drop off-topic domains.",
+			"Filtering does not change the stored search run; it only narrows what is returned.",
+		],
+		parameters: Type.Object({
+			search_run_id: Type.String(),
+			include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
+			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default: 60" })),
+			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
+			corpus_root: Type.Optional(Type.String()),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const store = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", params.namespace ?? "default", params.corpus_root),
+				"personal",
+				params.namespace ?? "default",
+			);
+			const run = await store.getSearchRun(params.search_run_id);
+			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
+			const { matched, total } = filterSearchRunResults(run, {
+				includeTerms: params.include_terms,
+				excludeTerms: params.exclude_terms,
+				yearFrom: params.year_from,
+				yearTo: params.year_to,
+				venueRank: params.venue_rank,
+				limit: params.limit,
+			});
+			const rows = buildCandidatePaperTable(matched).slice(0, params.limit ?? 60);
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							`Search run ${run.id}: ${run.results.length} results total, ${total} matched the filter.`,
+							...formatCandidateTable(rows, rows.length),
+						].join("\n"),
+					},
+				],
+				details: {
+					totalResults: run.results.length,
+					matched,
+					shown: rows.length,
+					paperIds: rows.map((row) => row.paperId),
+				},
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "collect_literature",
 		label: "Collect literature",
 		description:
@@ -1360,7 +1458,9 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 			const result = await collectLiterature(options);
 			void appendSearchRunJournal(result.run, ctx.cwd);
 			return {
-				content: [{ type: "text", text: formatCollection(result) }],
+				content: [
+					{ type: "text", text: formatCollection(result, params.candidate_limit ?? 60) },
+				],
 				details: {
 					searchRunId: result.run.id,
 					queries: result.run.queries,
