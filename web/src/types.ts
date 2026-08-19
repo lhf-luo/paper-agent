@@ -264,6 +264,7 @@ export interface AgentMessageView {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	thinking?: string;
 	status: "complete" | "streaming" | "error" | "aborted";
 	createdAt: string;
 	error?: string;
@@ -317,6 +318,7 @@ export type AgentEvent =
 	| (AgentEventBase & { type: "session"; session: AgentSessionSummary })
 	| (AgentEventBase & { type: "message"; message: AgentMessageView })
 	| (AgentEventBase & { type: "message_delta"; messageId: string; delta: string })
+	| (AgentEventBase & { type: "thinking_delta"; messageId: string; delta: string })
 	| (AgentEventBase & { type: "tool"; tool: AgentToolView })
 	| (AgentEventBase & { type: "ui_request"; request: AgentUIRequestView })
 	| (AgentEventBase & { type: "ui_resolved"; requestId: string })

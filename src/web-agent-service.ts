@@ -69,6 +69,7 @@ export interface WebAgentMessageView {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	thinking?: string;
 	status: "complete" | "streaming" | "error" | "aborted";
 	createdAt: string;
 	error?: string;
@@ -122,6 +123,7 @@ export type WebAgentEvent =
 	| (WebAgentEventBase & { type: "session"; session: WebAgentSessionSummary })
 	| (WebAgentEventBase & { type: "message"; message: WebAgentMessageView })
 	| (WebAgentEventBase & { type: "message_delta"; messageId: string; delta: string })
+	| (WebAgentEventBase & { type: "thinking_delta"; messageId: string; delta: string })
 	| (WebAgentEventBase & { type: "tool"; tool: WebAgentToolView })
 	| (WebAgentEventBase & { type: "ui_request"; request: WebAgentUIRequestView })
 	| (WebAgentEventBase & { type: "ui_resolved"; requestId: string })
@@ -727,6 +729,16 @@ export class WebAgentService implements WebAgentServiceApi {
 		return message;
 	}
 
+	private projectedThinking(message: unknown): string | undefined {
+		if (!message || typeof message !== "object") return undefined;
+		const source = message as { content?: Array<{ type?: string; thinking?: unknown }> };
+		const thinking = (source.content ?? [])
+			.filter((entry) => entry?.type === "thinking" && typeof entry.thinking === "string")
+			.map((entry) => entry.thinking as string)
+			.join("");
+		return thinking ? this.redact(thinking).slice(0, MAX_MESSAGE_CHARACTERS) : undefined;
+	}
+
 	private projectedAssistantText(message: unknown): { text: string; error?: string; aborted: boolean } {
 		if (!message || typeof message !== "object") return { text: "", aborted: false };
 		const source = message as {
@@ -762,12 +774,23 @@ export class WebAgentService implements WebAgentServiceApi {
 			this.emit(session, { type: "message_delta", messageId: message.id, delta });
 			return;
 		}
+		if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta") {
+			const message = this.assistantMessage(session);
+			const remaining = MAX_MESSAGE_CHARACTERS - (message.thinking?.length ?? 0);
+			if (remaining <= 0) return;
+			const delta = this.redact(event.assistantMessageEvent.delta).slice(0, remaining);
+			message.thinking = (message.thinking ?? "") + delta;
+			this.touch(session);
+			this.emit(session, { type: "thinking_delta", messageId: message.id, delta });
+			return;
+		}
 		if (event.type === "message_end") {
 			const source = event.message as { role?: string };
 			if (source.role !== "assistant") return;
 			const message = this.assistantMessage(session);
 			const projected = this.projectedAssistantText(event.message);
 			if (projected.text || !message.content) message.content = projected.text;
+			if (!message.thinking) message.thinking = this.projectedThinking(event.message);
 			message.error = projected.error;
 			message.status = projected.aborted ? "aborted" : projected.error ? "error" : "complete";
 			if (projected.error && !projected.aborted) session.error = projected.error;
@@ -990,7 +1013,7 @@ export class WebAgentService implements WebAgentServiceApi {
 				cwd: this.projectRoot,
 				agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
 				model,
-				thinkingLevel: "off",
+				thinkingLevel: "low",
 				modelRuntime,
 				resourceLoader,
 				sessionManager,

@@ -340,6 +340,21 @@ export function AgentPage({
 				);
 				return;
 			}
+			if (event.type === "thinking_delta") {
+				setActive((current) =>
+					current?.id === event.sessionId
+						? {
+								...current,
+								messages: current.messages.map((message) =>
+									message.id === event.messageId
+										? { ...message, thinking: (message.thinking ?? "") + event.delta, status: "streaming" }
+										: message,
+								),
+							}
+						: current,
+				);
+				return;
+			}
 			if (event.type === "tool") {
 				setActive((current) =>
 					current?.id === event.sessionId ? { ...current, tools: upsert(current.tools, event.tool) } : current,
@@ -674,6 +689,14 @@ export function AgentPage({
 								<div className="agent-message-text">
 									{message.content || (message.status === "streaming" ? "正在思考并调用研究工具…" : "本轮主要执行了工具调用。")}
 								</div>
+								{message.thinking ? (
+									<details className="agent-thinking">
+										<summary>思考过程</summary>
+										<div className="agent-thinking-body">{message.thinking}</div>
+									</details>
+								) : message.status === "streaming" ? (
+									<div className="agent-thinking-streaming">正在思考…</div>
+								) : null}
 								{message.error && <small className="error-text">{message.error}</small>}
 							</article>
 						))}
