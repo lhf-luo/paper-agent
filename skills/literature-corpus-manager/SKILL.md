@@ -38,7 +38,7 @@ Use this when the user asks for a literature review, related work, reading list,
 1. Restate the research object, problem, scenario, and time range in one sentence before searching.
 2. Call `plan_literature_search` with domain terms, problem terms, method terms, primary query, explicit query variants, and year filters when available.
 3. Use the returned query variants as the starting point for `collect_literature`; add only explicit variants that can be explained in the handoff.
-4. Search existing reusable records first. When `PAPER_AGENT_TEAM_SERVER_URL` is configured, use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus.
+4. Search existing reusable records first. When a team literature server is configured (config.json `team` section, or the legacy `PAPER_AGENT_TEAM_SERVER_URL` environment variable), use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus.
 5. Use `collect_literature` with corpus reuse enabled, documented filters, bounded pagination, and the structured search plan.
 6. Keep provider failures, possible duplicates, corpus hits, discovery paths, PDF links, artifact links, and candidate-table rows visible.
 7. Use once mode for exploration. Use persistent mode only when the user wants reusable search results and accepts the confirmation prompt.
@@ -97,7 +97,7 @@ Use this after selected papers have been saved and the user wants traceable mate
 
 ## Supporting operations
 
-1. Search the selected corpus first. When `PAPER_AGENT_TEAM_SERVER_URL` is configured, use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus. Use `collect_literature` with corpus reuse enabled only after existing records are checked.
+1. Search the selected corpus first. When a team literature server is configured (config.json `team` section, or the legacy `PAPER_AGENT_TEAM_SERVER_URL` environment variable), use `manage_team_literature_server` search for shared team knowledge; otherwise use `search_literature_corpus` for a local corpus. Use `collect_literature` with corpus reuse enabled only after existing records are checked.
    If existing material is only in a local PDF directory, BibTeX file, or paper-agent JSON export, use `import_literature_corpus` into personal scope and inspect its rejection log first.
 2. Before repeating a skim card, comparison matrix, or evidence map, use `manage_literature_memory` lookup with material hashes and tool/model/prompt/config versions. Reuse an exact hit unless refresh is explicit.
 3. Use `manage_literature_corpus` for local annotate/audit/export/promotion. For the central service, use `manage_team_literature_server` to propose explicitly selected, provenance-reviewed personal records into `team-proposed`, then have a reviewer explicitly approve or reject them. Exclude personal notes and screening decisions from every proposal; the server scrubs them again.
