@@ -12,6 +12,7 @@ import type {
 	PaperCuration,
 	PaperRecord,
 	PaperVersion,
+	ReadingStatus,
 	ScreeningStatus,
 	SearchRun,
 } from "./literature-types.ts";
@@ -130,6 +131,20 @@ export class LiteratureStore {
 
 	private searchRunPath(id: string): string {
 		return join(this.root, "search-runs", `${safeSegment(id, "search run id")}.json`);
+	}
+
+	async getSearchRun(id: string): Promise<SearchRun | undefined> {
+		return readJson<SearchRun>(this.searchRunPath(id));
+	}
+
+	async listSearchRuns(): Promise<SearchRun[]> {
+		const directory = join(this.root, "search-runs");
+		if (!(await pathExists(directory))) return [];
+		const names = (await readdir(directory)).filter((name) => name.endsWith(".json")).sort();
+		const runs = await Promise.all(names.map((name) => readJson<SearchRun>(join(directory, name))));
+		return runs
+			.filter((run): run is SearchRun => Boolean(run))
+			.sort((left, right) => right.completedAt.localeCompare(left.completedAt));
 	}
 
 	private derivedPath(key: string): string {
@@ -564,6 +579,8 @@ export class LiteratureStore {
 			note?: string;
 			screeningStatus?: ScreeningStatus;
 			screeningReason?: string;
+			readingStatus?: ReadingStatus;
+			readingNote?: string;
 		},
 	): Promise<PaperRecord> {
 		await this.initialize();
@@ -585,6 +602,14 @@ export class LiteratureStore {
 				curation.screening = {
 					status: input.screeningStatus,
 					reason: input.screeningReason?.trim() || undefined,
+					updatedBy: input.author,
+					updatedAt: now,
+				};
+			}
+			if (input.readingStatus) {
+				curation.reading = {
+					status: input.readingStatus,
+					note: input.readingNote?.trim() || undefined,
 					updatedBy: input.author,
 					updatedAt: now,
 				};
