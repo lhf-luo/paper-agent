@@ -9,6 +9,7 @@ import {
 	JobProgress,
 	LoadingBlock,
 	PaperCard,
+	PaperDetailDrawer,
 	PdfViewer,
 	StatusPill,
 	useJob,
@@ -258,6 +259,7 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [selectedRun, setSelectedRun] = useState<AgentSearchRun>();
 	const [selectedRunId, setSelectedRunId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [detailPaper, setDetailPaper] = useState<PaperRecord | undefined>();
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
@@ -645,6 +647,7 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 								key={paper.id}
 								paper={paper}
 								selected={selected.has(paper.id)}
+								truncateAbstract
 								onSelect={(checked) =>
 									setSelected((current) => {
 										const next = new Set(current);
@@ -653,10 +656,14 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 										return next;
 									})
 								}
+								onOpen={() => setDetailPaper(paper)}
 							/>
 						))}
 					</div>
 				</section>
+			)}
+			{detailPaper && (
+				<PaperDetailDrawer paper={detailPaper} onClose={() => setDetailPaper(undefined)} />
 			)}
 		</>
 	);

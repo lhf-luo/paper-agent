@@ -31,11 +31,13 @@ export function PaperCard({
 	selected,
 	onSelect,
 	onOpen,
+	truncateAbstract,
 }: {
 	paper: PaperRecord;
 	selected?: boolean;
 	onSelect?: (selected: boolean) => void;
 	onOpen?: () => void;
+	truncateAbstract?: boolean;
 }) {
 	return (
 		<article className="paper-card">
@@ -56,7 +58,9 @@ export function PaperCard({
 				</div>
 				<span className="year-badge">{paper.year ?? "—"}</span>
 			</div>
-			{paper.abstract && <p className="paper-abstract">{paper.abstract}</p>}
+			{paper.abstract && (
+				<p className={`paper-abstract${truncateAbstract ? " paper-abstract-truncated" : ""}`}>{paper.abstract}</p>
+			)}
 			<div className="paper-meta">
 				{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
 				<span>{paper.venue || paper.publicationType || "来源未标注"}</span>
@@ -64,6 +68,69 @@ export function PaperCard({
 				<span>{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</span>
 			</div>
 		</article>
+	);
+}
+
+export function PaperDetailDrawer({
+	paper,
+	onClose,
+}: {
+	paper: PaperRecord;
+	onClose: () => void;
+}) {
+	return (
+		<div className="paper-detail-layer">
+			<div className="paper-detail-mask" onClick={onClose} aria-hidden />
+			<aside className="paper-detail-drawer" role="dialog" aria-label={`论文详情 ${paper.title}`}>
+				<header className="paper-detail-head">
+					<strong>论文详情</strong>
+					<button type="button" className="paper-detail-close" aria-label="关闭" onClick={onClose}>
+						×
+					</button>
+				</header>
+				<div className="paper-detail-body">
+					<h2 className="paper-detail-title">{paper.title}</h2>
+					<div className="paper-detail-meta">
+						{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
+						<span className="year-badge">{paper.year ?? "—"}</span>
+						{paper.venue && <span>{paper.venue}</span>}
+						{paper.identifiers.doi && <span>DOI: {paper.identifiers.doi}</span>}
+					</div>
+					{paper.authors.length > 0 && (
+						<section>
+							<h3>作者</h3>
+							<p className="paper-detail-authors">{paper.authors.join(", ")}</p>
+						</section>
+					)}
+					{paper.abstract && (
+						<section>
+							<h3>摘要</h3>
+							<p className="paper-detail-abstract">{paper.abstract}</p>
+						</section>
+					)}
+					{paper.links.length > 0 && (
+						<section>
+							<h3>链接</h3>
+							<ul className="paper-detail-links">
+								{paper.links.map((link) => (
+									<li key={link.url}>
+										<a href={link.url} target="_blank" rel="noreferrer">
+											{link.kind} · {link.url}
+										</a>
+									</li>
+								))}
+							</ul>
+						</section>
+					)}
+					{paper.provenance.length > 0 && (
+						<section>
+							<h3>来源</h3>
+							<p className="paper-detail-source">{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</p>
+						</section>
+					)}
+				</div>
+			</aside>
+		</div>
 	);
 }
 
