@@ -15,8 +15,8 @@ import {
 	parsePdfTsv,
 	refineSubfigureRegionsFromGrayImage,
 	registerPdfAssetTools,
-} from "../src/pdf-asset-tools.ts";
-import { registerProgressTool } from "../src/progress-tools.ts";
+} from "../src/tools/pdf-asset-tools.ts";
+import { registerProgressTool } from "../src/tools/progress-tools.ts";
 
 const tsv = [
 	"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",

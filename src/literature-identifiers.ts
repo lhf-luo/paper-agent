@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { PaperCuration, PaperRecord, PossibleDuplicate } from "./literature-types.ts";
+import type { PaperCuration, PaperDiscoveryPath, PaperRecord, PossibleDuplicate } from "./literature-types.ts";
 
 export function sha256Text(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
@@ -132,6 +132,26 @@ function uniqueStrings(values: Array<string | undefined>): string[] {
 	return result;
 }
 
+function uniqueDiscoveryPaths(values: Array<PaperDiscoveryPath | undefined>): PaperDiscoveryPath[] {
+	const seen = new Set<string>();
+	const result: PaperDiscoveryPath[] = [];
+	for (const value of values) {
+		if (!value) continue;
+		const key = [
+			value.kind,
+			value.query ?? "",
+			value.provider ?? "",
+			value.seedPaperId ?? "",
+			value.sourceUrl ?? "",
+			value.note ?? "",
+		].join("|");
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(value);
+	}
+	return result.sort((left, right) => left.discoveredAt.localeCompare(right.discoveredAt));
+}
+
 function mergeCuration(left: PaperCuration | undefined, right: PaperCuration | undefined): PaperCuration | undefined {
 	if (!left) return right;
 	if (!right) return left;
@@ -188,6 +208,7 @@ export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperR
 		referencedWorks: uniqueStrings([...(left.referencedWorks ?? []), ...(right.referencedWorks ?? [])]),
 		citedByApiUrl: left.citedByApiUrl ?? right.citedByApiUrl,
 		provenance: [...provenance.values()],
+		discoveryPaths: uniqueDiscoveryPaths([...(left.discoveryPaths ?? []), ...(right.discoveryPaths ?? [])]),
 		mergedFrom: uniqueStrings([...left.mergedFrom, ...right.mergedFrom, left.id, right.id]),
 		curation: mergeCuration(left.curation, right.curation),
 	};

@@ -4,9 +4,9 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { acquireArtifacts, artifactAcquisitionPlan, assertArtifactSelection } from "./artifact-acquisition.ts";
-import { discoverArtifactsFromPdf } from "./artifact-discovery.ts";
-import { OperationConsentManager } from "./operation-consent.ts";
+import { acquireArtifacts, artifactAcquisitionPlan, assertArtifactSelection } from "../artifact-acquisition.ts";
+import { discoverArtifactsFromPdf } from "../artifact-discovery.ts";
+import { OperationConsentManager } from "../operation-consent.ts";
 import { validatePdfPath } from "./pdf-tools.ts";
 
 interface ArtifactEntry {

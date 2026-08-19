@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { collectLiterature } from "../src/collection-tools.ts";
+import { collectLiterature } from "../src/tools/collection-tools.ts";
 import { LiteratureProviderHttpError } from "../src/literature-providers.ts";
 import { LiteratureSearchCheckpoint } from "../src/literature-search-checkpoint.ts";
 import type { PaperRecord, ProviderPage } from "../src/literature-types.ts";

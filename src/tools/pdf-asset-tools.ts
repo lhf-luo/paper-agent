@@ -10,7 +10,7 @@ import {
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { CommandExecutor } from "./command-executor.ts";
+import type { CommandExecutor } from "../command-executor.ts";
 import { getPdfPageCount, parsePageSelection, validatePdfPath } from "./pdf-tools.ts";
 
 export interface PdfBox {

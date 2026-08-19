@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evaluatePaperAssets, parseAssetEvaluationDataset } from "../src/pdf-asset-evaluation.ts";
-import type { PaperAsset } from "../src/pdf-asset-tools.ts";
+import { evaluatePaperAssets, parseAssetEvaluationDataset } from "../src/tools/pdf-asset-evaluation.ts";
+import type { PaperAsset } from "../src/tools/pdf-asset-tools.ts";
 
 describe("PDF asset evaluation", () => {
 	it("computes caption, crop, and mention metrics with auditable errors", () => {

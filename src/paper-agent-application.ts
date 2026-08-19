@@ -21,7 +21,7 @@ import {
 	corpusAnnotationPlan,
 	corpusExportPlan,
 	expandLiteratureQueries,
-} from "./collection-tools.ts";
+} from "./tools/collection-tools.ts";
 import { type CommandExecutor, NodeCommandExecutor } from "./command-executor.ts";
 import { type BackgroundJob, PersistentJobQueue } from "./job-queue.ts";
 import {
@@ -50,15 +50,15 @@ import {
 } from "./operation-consent.ts";
 import { analyzePdfForLibrary } from "./pdf-analysis.ts";
 import { PdfAnnotationStore } from "./pdf-annotation-store.ts";
-import type { PdfBox } from "./pdf-asset-tools.ts";
-import { validatePdfPath } from "./pdf-tools.ts";
+import type { PdfBox } from "./tools/pdf-asset-tools.ts";
+import { validatePdfPath } from "./tools/pdf-tools.ts";
 import {
 	type ResearchRecord,
 	type ResearchRecordKind,
 	ResearchWorkspace,
 	validateResearchRecord,
 } from "./research-workspace.ts";
-import { sanitizePaperRecordForTeamProposal, TeamCorpusClient, TeamCorpusHttpError } from "./team-corpus-client.ts";
+import { sanitizePaperRecordForTeamProposal, TeamCorpusClient, TeamCorpusHttpError } from "./tools/team-corpus-client.ts";
 import type { TeamRole } from "./team-token-registry.ts";
 
 export interface PaperAgentApplicationConfig {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerCollectionTools } from "../src/collection-tools.ts";
+import { registerCollectionTools } from "../src/tools/collection-tools.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature-store.ts";
 import type { PaperRecord } from "../src/literature-types.ts";
 

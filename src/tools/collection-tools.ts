@@ -3,6 +3,50 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { lookupCcfLevel } from "../ccf-ranking.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "../literature-download.ts";
+import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "../literature-identifiers.ts";
+import { readableErrorMessage } from "../network-security.ts";
+import {
+	fetchOpenAlexWorks,
+	LiteratureProviderHttpError,
+	searchOpenAlexCitations,
+	searchProviderPage,
+	searchSemanticScholarCitations,
+} from "../literature-providers.ts";
+import { LiteratureSearchCheckpoint } from "../literature-search-checkpoint.ts";
+import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "../literature-store.ts";
+import type {
+	CandidatePaperTableRow,
+	CitationExpansionTableRow,
+	CorpusScope,
+	DerivedRecord,
+	LiteratureProvider,
+	LiteratureSearchPlan,
+	PaperDiscoveryPath,
+	PaperRecord,
+	PersistenceMode,
+	ProvenanceProvider,
+	ProviderFailure,
+	ReadingStatus,
+	ScreeningStatus,
+	SearchFilters,
+	SearchRun,
+} from "../literature-types.ts";
+import {
+	corpusUpsertPlan,
+	derivedRecordWritePlan,
+	persistDerivedRecord,
+	persistPaperRecords,
+	runAuthorizedMutation,
+} from "../literature-write.ts";
+import {
+	type OperationAuthorization,
+	OperationConsentManager,
+	type OperationPlan,
+	requestOperationAuthorization,
+} from "../operation-consent.ts";
 
 /** 最近 Agent/工具搜索运行日志的保留条数上限 */
 const SEARCH_RUN_JOURNAL_LIMIT = 50;
@@ -29,44 +73,6 @@ async function appendSearchRunJournal(run: SearchRun, cwd: string): Promise<void
 		// 日志写入是尽力而为, 不影响搜索本身。
 	}
 }
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import { lookupCcfLevel } from "./ccf-ranking.ts";
-import { readableErrorMessage } from "./network-security.ts";
-import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "./literature-download.ts";
-import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "./literature-identifiers.ts";
-import {
-	fetchOpenAlexWorks,
-	LiteratureProviderHttpError,
-	searchOpenAlexCitations,
-	searchProviderPage,
-	searchSemanticScholarCitations,
-} from "./literature-providers.ts";
-import { LiteratureSearchCheckpoint } from "./literature-search-checkpoint.ts";
-import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
-import type {
-	CorpusScope,
-	DerivedRecord,
-	LiteratureProvider,
-	PaperRecord,
-	PersistenceMode,
-	ProviderFailure,
-	ScreeningStatus,
-	SearchFilters,
-	SearchRun,
-} from "./literature-types.ts";
-import {
-	corpusUpsertPlan,
-	derivedRecordWritePlan,
-	persistDerivedRecord,
-	persistPaperRecords,
-	runAuthorizedMutation,
-} from "./literature-write.ts";
-import {
-	type OperationAuthorization,
-	OperationConsentManager,
-	type OperationPlan,
-	requestOperationAuthorization,
-} from "./operation-consent.ts";
 
 const providerSchema = Type.Union([
 	Type.Literal("arxiv"),
@@ -100,9 +106,10 @@ export interface CollectLiteratureOptions {
 	authorization?: OperationAuthorization;
 	checkpointPath?: string;
 	providerPageSearch?: typeof searchProviderPage;
+	searchPlan?: LiteratureSearchPlan;
 }
 
-interface CollectionResult {
+export interface CollectionResult {
 	run: SearchRun;
 	cached: boolean;
 	corpusPath?: string;
@@ -168,6 +175,63 @@ interface CorpusAnnotationInput {
 	note?: string;
 	screeningStatus?: ScreeningStatus;
 	screeningReason?: string;
+	readingStatus?: ReadingStatus;
+	readingNote?: string;
+}
+
+export function searchRunSelectionPlan(
+	source: LiteratureStore,
+	target: LiteratureStore,
+	run: SearchRun,
+	records: PaperRecord[],
+	contributor: string,
+): OperationPlan {
+	const normalized = [...records].sort((left, right) => left.id.localeCompare(right.id));
+	return {
+		kind: "personal-corpus-write",
+		summary: `Save ${normalized.length} selected search result(s) into personal corpus ${target.namespace}`,
+		actor: contributor,
+		targets: [
+			{ label: "source-search-run", value: run.id, risk: "low" },
+			{ label: "target-corpus", value: target.root, risk: "medium" },
+			...normalized.map((record) => ({ label: record.title.slice(0, 120), value: record.id, risk: "medium" as const })),
+		],
+		details: {
+			sourcePath: source.root,
+			targetPath: target.root,
+			sourceScope: source.scope,
+			sourceNamespace: source.namespace,
+			targetNamespace: target.namespace,
+			searchRunId: run.id,
+			recordIds: normalized.map((record) => record.id),
+			recordsFingerprint: sha256Text(JSON.stringify(normalized)),
+		},
+	};
+}
+
+export async function saveSearchRunSelection(
+	source: LiteratureStore,
+	target: LiteratureStore,
+	searchRunId: string,
+	paperIds: string[] | undefined,
+	authorization: OperationAuthorization,
+	contributor: string,
+): Promise<{
+	searchRun: SearchRun;
+	selected: PaperRecord[];
+	missingPaperIds: string[];
+	outcomes: Array<{ record: PaperRecord; status?: "created" | "updated" | "unchanged"; error?: string }>;
+}> {
+	const run = await source.getSearchRun(searchRunId);
+	if (!run) throw new Error(`Search run not found in source corpus: ${searchRunId}`);
+	const wanted = paperIds?.length ? new Set(paperIds) : undefined;
+	const selected = wanted ? run.results.filter((record) => wanted.has(record.id)) : run.results;
+	const present = new Set(selected.map((record) => record.id));
+	const missingPaperIds = paperIds?.filter((id) => !present.has(id)) ?? [];
+	const plan = searchRunSelectionPlan(source, target, run, selected, contributor);
+	await authorization.manager.consume(authorization.grant, plan);
+	const outcomes = await target.upsertPapers(selected);
+	return { searchRun: run, selected, missingPaperIds, outcomes };
 }
 
 export function corpusAnnotationPlan(
@@ -285,6 +349,206 @@ export function expandLiteratureQueries(primary: string, explicit: string[] = []
 	return uniqueQueries(generated).slice(0, 12);
 }
 
+function uniqueTerms(values: Array<string | undefined>): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of values) {
+		const normalized = value?.trim().replace(/\s+/g, " ");
+		if (!normalized) continue;
+		const key = normalized.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(normalized);
+	}
+	return result;
+}
+
+function inferTimeRange(filters: SearchFilters): string | undefined {
+	if (filters.yearFrom && filters.yearTo) return `${filters.yearFrom}-${filters.yearTo}`;
+	if (filters.yearFrom) return `${filters.yearFrom}-present`;
+	if (filters.yearTo) return `up to ${filters.yearTo}`;
+	return undefined;
+}
+
+export function planLiteratureSearch(input: {
+	researchObject?: string;
+	researchProblem?: string;
+	scenario?: string;
+	timeRange?: string;
+	domainTerms?: string[];
+	problemTerms?: string[];
+	methodTerms?: string[];
+	primaryQuery?: string;
+	explicitQueryVariants?: string[];
+	filters?: SearchFilters;
+}): LiteratureSearchPlan {
+	const researchObject = input.researchObject?.trim();
+	const researchProblem = input.researchProblem?.trim();
+	const scenario = input.scenario?.trim();
+	const timeRange = input.timeRange?.trim() || inferTimeRange(input.filters ?? {});
+	const primaryQuery = input.primaryQuery?.trim();
+	const domain = uniqueTerms([researchObject, ...(input.domainTerms ?? [])]);
+	const problem = uniqueTerms([researchProblem, ...(input.problemTerms ?? [])]);
+	const method = uniqueTerms(input.methodTerms ?? []);
+	const researchQuestion =
+		[researchObject, researchProblem, scenario, timeRange].filter(Boolean).join(" | ") ||
+		primaryQuery ||
+		"unspecified literature search";
+	const generatedPrimary =
+		primaryQuery || uniqueTerms([...domain, ...problem, ...method]).join(" ") || researchQuestion;
+	const queryVariants = generatedPrimary
+		? expandLiteratureQueries(generatedPrimary, input.explicitQueryVariants ?? [])
+		: uniqueQueries(input.explicitQueryVariants ?? []);
+	return {
+		researchQuestion,
+		researchObject,
+		researchProblem,
+		scenario,
+		timeRange,
+		keywordGroups: { domain, problem, method },
+		queryVariants,
+		unsupportedProviders: [
+			{
+				provider: "google-scholar",
+				reason:
+					"Google Scholar is not exposed by a stable first-party API in this project; do not claim it was searched.",
+				suggestedAlternatives: ["openalex", "semanticscholar", "crossref", "dblp"],
+			},
+		],
+		notes: [
+			"Search metadata is discovery evidence only; open primary papers or official artifacts for claims.",
+			"Venue prestige can prioritize reading but must not replace topical relevance.",
+		],
+	};
+}
+
+function discoveryPathKey(path: PaperDiscoveryPath): string {
+	return [
+		path.kind,
+		path.query ?? "",
+		path.provider ?? "",
+		path.seedPaperId ?? "",
+		path.sourceUrl ?? "",
+		path.note ?? "",
+	]
+		.join("|")
+		.toLowerCase();
+}
+
+function addDiscoveryPath(record: PaperRecord, path: PaperDiscoveryPath): PaperRecord {
+	const existing = record.discoveryPaths ?? [];
+	if (existing.some((item) => discoveryPathKey(item) === discoveryPathKey(path))) return record;
+	return { ...record, discoveryPaths: [...existing, path] };
+}
+
+function withCorpusDiscoveryPath(record: PaperRecord, query: string, discoveredAt: string): PaperRecord {
+	return addDiscoveryPath(record, { kind: "corpus-reuse", query, provider: "local-pdf", discoveredAt });
+}
+
+function withProviderDiscoveryPath(
+	record: PaperRecord,
+	provider: LiteratureProvider,
+	query: string,
+	discoveredAt: string,
+): PaperRecord {
+	return addDiscoveryPath(record, { kind: "keyword-search", provider, query, discoveredAt });
+}
+
+export function tagCitationExpansionRecords(
+	records: PaperRecord[],
+	seed: PaperRecord,
+	relationship: "reference" | "citation",
+	provider: LiteratureProvider,
+	depth: number,
+	discoveredAt: string,
+): PaperRecord[] {
+	const kind = relationship === "reference" ? "reference-expansion" : "citation-expansion";
+	return records.map((record) =>
+		addDiscoveryPath(record, {
+			kind,
+			provider,
+			query: `${relationship}s:${seed.id}`,
+			seedPaperId: seed.id,
+			note: `depth=${depth}`,
+			discoveredAt,
+		}),
+	);
+}
+
+function primaryIdentifier(record: PaperRecord): string {
+	if (record.identifiers.doi) return "doi:" + record.identifiers.doi;
+	if (record.identifiers.arxivId) return "arXiv:" + record.identifiers.arxivId;
+	if (record.identifiers.openAlexId) return "OpenAlex:" + record.identifiers.openAlexId;
+	if (record.identifiers.semanticScholarId) return "S2:" + record.identifiers.semanticScholarId;
+	return "unavailable";
+}
+
+function discoveryPathLabel(path: PaperDiscoveryPath): string {
+	return [
+		path.kind,
+		path.provider ? `provider=${path.provider}` : undefined,
+		path.query ? `query=${path.query}` : undefined,
+		path.seedPaperId ? `seed=${path.seedPaperId}` : undefined,
+	]
+		.filter(Boolean)
+		.join(":");
+}
+
+function linkLabel(record: PaperRecord, kind: "pdf" | "artifact"): string {
+	const link = record.links.find((item) => item.kind === kind);
+	return link?.url ?? "not checked";
+}
+
+export function buildCandidatePaperTable(records: PaperRecord[]): CandidatePaperTableRow[] {
+	return records.map((record) => {
+		const providers = new Set<ProvenanceProvider>(record.provenance.map((item) => item.provider));
+		const screening = record.curation?.screening;
+		return {
+			paperId: record.id,
+			title: record.title,
+			authors: record.authors.slice(0, 6).join(", ") || "unavailable",
+			year: record.year === undefined ? "unknown" : String(record.year),
+			venue: record.venue ?? "unknown",
+			doiOrArxiv: primaryIdentifier(record),
+			sources: [...providers].join(", ") || "unknown",
+			discoveryPath: (record.discoveryPaths ?? []).map(discoveryPathLabel).join(" | ") || "unknown",
+			screeningResult: screening
+				? `${screening.status}${screening.reason ? ": " + screening.reason : ""}`
+				: "unreviewed",
+			pdf: linkLabel(record, "pdf"),
+			code: linkLabel(record, "artifact"),
+		};
+	});
+}
+
+function expansionPathRelationship(path: PaperDiscoveryPath): "reference" | "citation" | undefined {
+	if (path.kind === "reference-expansion") return "reference";
+	if (path.kind === "citation-expansion") return "citation";
+	return undefined;
+}
+
+function expansionPathDepth(path: PaperDiscoveryPath): string {
+	return /^depth=\d+$/.test(path.note ?? "") ? (path.note ?? "").slice("depth=".length) : "unknown";
+}
+
+export function buildCitationExpansionTable(records: PaperRecord[]): CitationExpansionTableRow[] {
+	const rows: CitationExpansionTableRow[] = [];
+	for (const record of records) {
+		const base = buildCandidatePaperTable([record])[0];
+		for (const path of record.discoveryPaths ?? []) {
+			const relationship = expansionPathRelationship(path);
+			if (!relationship || !path.seedPaperId) continue;
+			rows.push({
+				...base,
+				seedPaperId: path.seedPaperId,
+				relationship,
+				depth: expansionPathDepth(path),
+			});
+		}
+	}
+	return rows;
+}
+
 function isSearchRun(value: unknown): value is SearchRun {
 	return (
 		typeof value === "object" &&
@@ -293,6 +557,10 @@ function isSearchRun(value: unknown): value is SearchRun {
 		Array.isArray((value as SearchRun).queries) &&
 		typeof (value as SearchRun).id === "string"
 	);
+}
+
+function normalizeSearchRun(run: SearchRun): SearchRun {
+	return { ...run, candidateTable: run.candidateTable ?? buildCandidatePaperTable(run.results) };
 }
 
 function failureIsRetryable(message: string): boolean {
@@ -352,13 +620,14 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		if (!options.refreshCache) {
 			const cached = await store.getDerived(cacheKey);
 			if (cached && isSearchRun(cached.result)) {
-				return { run: cached.result, cached: true, corpusPath: store.root };
+				return { run: normalizeSearchRun(cached.result), cached: true, corpusPath: store.root };
 			}
 		}
 	}
 	const corpusHits = new Map<string, PaperRecord>();
 	if (options.reuseCorpus !== false) {
 		for (const query of queries) {
+			const discoveredAt = new Date().toISOString();
 			for (const hit of await corpusStore.searchPapers({
 				query,
 				yearFrom: options.filters.yearFrom,
@@ -370,7 +639,9 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 				limit: options.maxResultsPerProvider,
 				readOnly: options.mode === "once",
 			})) {
-				corpusHits.set(hit.record.id, hit.record);
+				const record = withCorpusDiscoveryPath(hit.record, query, discoveredAt);
+				const existing = corpusHits.get(record.id);
+				corpusHits.set(record.id, existing ? deduplicatePaperRecords([existing, record])[0] : record);
 			}
 		}
 	}
@@ -414,7 +685,12 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 									filters: options.filters,
 									signal: options.signal,
 								});
-								records.push(...response.records.slice(0, remaining));
+								const discoveredAt = new Date().toISOString();
+								records.push(
+									...response.records
+										.slice(0, remaining)
+										.map((record) => withProviderDiscoveryPath(record, provider, query, discoveredAt)),
+								);
 								cursor = response.nextCursor;
 								pagesCompleted = page + 1;
 								await checkpoint?.update({
@@ -532,6 +808,8 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		possibleDuplicates,
 		providerHealth,
 		resumedFromCheckpoint: checkpoint?.resumed || undefined,
+		searchPlan: options.searchPlan,
+		candidateTable: buildCandidatePaperTable(results),
 		scope: options.scope,
 		mode: options.mode,
 		namespace: options.namespace,
@@ -598,8 +876,72 @@ function formatPaper(record: PaperRecord, index: number): string {
 	].join("\n");
 }
 
+function tableCell(value: string): string {
+	return value.replaceAll("|", "\\|").replace(/\s+/g, " ").trim();
+}
+
+function formatCandidateTable(rows: CandidatePaperTableRow[], displayLimit: number): string[] {
+	if (!rows.length) return ["Candidate paper table: no records"];
+	const header = "标题 | 作者 | 年份 | venue | DOI/arXiv | 来源 | 发现路径 | 初筛结果 | PDF | 代码";
+	const separator = "--- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+	return [
+		"Candidate paper table:",
+		header,
+		separator,
+		...rows
+			.slice(0, displayLimit)
+			.map((row) =>
+				[
+					row.title,
+					row.authors,
+					row.year,
+					row.venue,
+					row.doiOrArxiv,
+					row.sources,
+					row.discoveryPath,
+					row.screeningResult,
+					row.pdf,
+					row.code,
+				]
+					.map(tableCell)
+					.join(" | "),
+			),
+	];
+}
+
+function formatCitationExpansionTable(rows: CitationExpansionTableRow[], displayLimit: number): string[] {
+	if (!rows.length) return ["Citation expansion table: no records"];
+	const header = "标题 | 作者 | 年份 | venue | DOI/arXiv | 来源 | 发现路径 | 与种子关系 | 初筛结果 | PDF | 代码";
+	const separator = "--- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+	return [
+		"Citation expansion table:",
+		header,
+		separator,
+		...rows
+			.slice(0, displayLimit)
+			.map((row) =>
+				[
+					row.title,
+					row.authors,
+					row.year,
+					row.venue,
+					row.doiOrArxiv,
+					row.sources,
+					row.discoveryPath,
+					`${row.relationship}:${row.seedPaperId}:depth=${row.depth}`,
+					row.screeningResult,
+					row.pdf,
+					row.code,
+				]
+					.map(tableCell)
+					.join(" | "),
+			),
+	];
+}
+
 function formatCollection(result: CollectionResult, displayLimit = 60): string {
 	const run = result.run;
+	const candidateTable = run.candidateTable ?? buildCandidatePaperTable(run.results);
 	const lines = [
 		"Search run: " + run.id,
 		"Queries: " + run.queries.join(" | "),
@@ -614,6 +956,8 @@ function formatCollection(result: CollectionResult, displayLimit = 60): string {
 		result.corpusPath ? "Corpus: " + result.corpusPath : "Corpus: not written (once mode)",
 		"",
 		"Discovery results are leads, not evidence for substantive claims. Open the primary paper or official artifact.",
+		"",
+		...formatCandidateTable(candidateTable, displayLimit),
 		"",
 		...run.results.slice(0, displayLimit).map(formatPaper),
 	];
@@ -699,6 +1043,13 @@ function collectionParameters() {
 		corpus_only: Type.Optional(
 			Type.Boolean({ description: "Search only the existing corpus and make no provider requests; default: false" }),
 		),
+		research_object: Type.Optional(Type.String({ description: "Research object, e.g. malware detection" })),
+		research_problem: Type.Optional(Type.String({ description: "Research problem, e.g. robustness under evasion" })),
+		scenario: Type.Optional(Type.String({ description: "Application scenario or domain" })),
+		time_range: Type.Optional(Type.String({ description: "Natural-language time range for the literature search" })),
+		domain_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+		problem_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+		method_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 	});
 }
 
@@ -723,6 +1074,13 @@ function optionsFromParams(
 		refresh_cache?: boolean;
 		reuse_corpus?: boolean;
 		corpus_only?: boolean;
+		research_object?: string;
+		research_problem?: string;
+		scenario?: string;
+		time_range?: string;
+		domain_terms?: string[];
+		problem_terms?: string[];
+		method_terms?: string[];
 	},
 	cwd: string,
 	signal?: AbortSignal,
@@ -755,10 +1113,94 @@ function optionsFromParams(
 		reuseCorpus: params.reuse_corpus ?? true,
 		corpusOnly: params.corpus_only ?? false,
 		signal,
+		searchPlan: planLiteratureSearch({
+			researchObject: params.research_object,
+			researchProblem: params.research_problem,
+			scenario: params.scenario,
+			timeRange: params.time_range,
+			domainTerms: params.domain_terms,
+			problemTerms: params.problem_terms,
+			methodTerms: params.method_terms,
+			primaryQuery: params.query,
+			explicitQueryVariants: params.query_expansions,
+			filters: {
+				yearFrom: params.year_from,
+				yearTo: params.year_to,
+			},
+		}),
 	};
 }
 
 export function registerCollectionTools(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "plan_literature_search",
+		label: "Plan literature search",
+		description:
+			"Create a structured literature-search plan before provider queries. Splits the topic into research object, problem, scenario, time range, and domain/problem/method terms; expands deterministic query variants; and records unsupported providers such as Google Scholar.",
+		promptSnippet: "Plan a structured literature search before collecting papers",
+		promptGuidelines: [
+			"Use this before collect_literature when the research object, problem, scenario, or time range is under-specified.",
+			"Treat the plan as search scaffolding, not evidence for technical claims.",
+			"Do not claim Google Scholar was searched; this project has no Google Scholar provider.",
+		],
+		parameters: Type.Object({
+			research_object: Type.Optional(Type.String()),
+			research_problem: Type.Optional(Type.String()),
+			scenario: Type.Optional(Type.String()),
+			time_range: Type.Optional(Type.String()),
+			domain_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			problem_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			method_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			primary_query: Type.Optional(Type.String()),
+			query_expansions: Type.Optional(Type.Array(Type.String(), { maxItems: 11 })),
+			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+		}),
+		async execute(_toolCallId, params) {
+			if (params.year_from && params.year_to && params.year_from > params.year_to) {
+				throw new Error("year_from cannot be later than year_to");
+			}
+			const plan = planLiteratureSearch({
+				researchObject: params.research_object,
+				researchProblem: params.research_problem,
+				scenario: params.scenario,
+				timeRange: params.time_range,
+				domainTerms: params.domain_terms,
+				problemTerms: params.problem_terms,
+				methodTerms: params.method_terms,
+				primaryQuery: params.primary_query,
+				explicitQueryVariants: params.query_expansions,
+				filters: { yearFrom: params.year_from, yearTo: params.year_to },
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							"Research question: " + plan.researchQuestion,
+							"Domain terms: " + (plan.keywordGroups.domain.join(", ") || "none"),
+							"Problem terms: " + (plan.keywordGroups.problem.join(", ") || "none"),
+							"Method terms: " + (plan.keywordGroups.method.join(", ") || "none"),
+							"Query variants:",
+							...plan.queryVariants.map((query) => "- " + query),
+							"Unsupported providers:",
+							...(plan.unsupportedProviders ?? []).map(
+								(item) =>
+									"- " +
+									item.provider +
+									": " +
+									item.reason +
+									"; alternatives=" +
+									item.suggestedAlternatives.join(", "),
+							),
+						].join("\n"),
+					},
+				],
+				details: plan,
+			};
+		},
+	});
+
 	pi.registerTool({
 		name: "collect_literature",
 		label: "Collect literature",
@@ -816,6 +1258,100 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					mode: result.run.mode,
 					corpusHitCount: result.run.corpusHitCount ?? 0,
 					possibleDuplicates: result.run.possibleDuplicates ?? [],
+					searchPlan: result.run.searchPlan,
+					candidateTable: result.run.candidateTable ?? buildCandidatePaperTable(result.run.results),
+				},
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "save_literature_selection",
+		label: "Save literature selection",
+		description:
+			"Save selected records from a persisted search run into a personal corpus. This turns a discovered candidate list into a reusable library selection with confirmation, fingerprinting, and created/updated/unchanged reporting.",
+		promptSnippet: "Save selected literature search results into a personal corpus",
+		promptGuidelines: [
+			"Use after a persistent collect_literature run when the user chooses which candidates to keep.",
+			"If the search was run in once mode, rerun it persistently or import records first; once-mode results are intentionally not stored.",
+			"Saving records preserves metadata and discovery paths, but does not prove technical claims.",
+		],
+		parameters: Type.Object({
+			search_run_id: Type.String(),
+			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
+			source_namespace: Type.Optional(Type.String({ description: "Source corpus namespace; default: default" })),
+			target_namespace: Type.Optional(Type.String({ description: "Target personal corpus namespace; default: source" })),
+			source_corpus_root: Type.Optional(Type.String()),
+			target_corpus_root: Type.Optional(Type.String()),
+			contributor: Type.String({ description: "Human or agent identity for the save confirmation audit" }),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!params.contributor.trim()) throw new Error("contributor is required");
+			const sourceNamespace = params.source_namespace ?? "default";
+			const targetNamespace = params.target_namespace ?? sourceNamespace;
+			const source = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", sourceNamespace, params.source_corpus_root),
+				"personal",
+				sourceNamespace,
+			);
+			const target = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", targetNamespace, params.target_corpus_root ?? params.source_corpus_root),
+				"personal",
+				targetNamespace,
+			);
+			const run = await source.getSearchRun(params.search_run_id);
+			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
+			const wanted = params.paper_ids?.length ? new Set(params.paper_ids) : undefined;
+			const selected = wanted ? run.results.filter((record) => wanted.has(record.id)) : run.results;
+			const present = new Set(selected.map((record) => record.id));
+			const missingPaperIds = params.paper_ids?.filter((id) => !present.has(id)) ?? [];
+			const plan = searchRunSelectionPlan(source, target, run, selected, params.contributor.trim());
+			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
+				title: "Save selected literature results?",
+				unavailableMessage:
+					"Saving selected search results requires interactive confirmation before records are written.",
+				details: () => [
+					`Search run: ${run.id}`,
+					`Selected records: ${selected.length}`,
+					`Target corpus: ${target.root}`,
+					`Missing ids: ${missingPaperIds.join(", ") || "none"}`,
+				],
+			});
+			const result = await saveSearchRunSelection(
+				source,
+				target,
+				run.id,
+				params.paper_ids,
+				authorization,
+				params.contributor.trim(),
+			);
+			const counts = {
+				created: result.outcomes.filter((outcome) => outcome.status === "created").length,
+				updated: result.outcomes.filter((outcome) => outcome.status === "updated").length,
+				unchanged: result.outcomes.filter((outcome) => outcome.status === "unchanged").length,
+				failed: result.outcomes.filter((outcome) => outcome.error).length,
+			};
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							`Saved selection from search run ${run.id}`,
+							`Target corpus: ${target.root}`,
+							`Selected: ${result.selected.length}; missing: ${result.missingPaperIds.length}`,
+							`Created/updated/unchanged/failed: ${counts.created}/${counts.updated}/${counts.unchanged}/${counts.failed}`,
+							result.missingPaperIds.length ? `Missing ids: ${result.missingPaperIds.join(", ")}` : "Missing ids: none",
+						].join("\n"),
+					},
+				],
+				details: {
+					searchRunId: run.id,
+					sourcePath: source.root,
+					targetPath: target.root,
+					selectedCount: result.selected.length,
+					missingPaperIds: result.missingPaperIds,
+					counts,
+					outcomes: result.outcomes,
 				},
 			};
 		},
@@ -958,13 +1494,26 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				for (const seed of frontier) {
 					if (discovered.length >= maxTotalNeighbors) break;
 					let seedRemaining = Math.min(limit, maxTotalNeighbors - discovered.length);
-					const accept = (records: PaperRecord[]) => {
+					const accept = (
+						records: PaperRecord[],
+						relationship: "reference" | "citation",
+						provider: LiteratureProvider,
+					) => {
+						const discoveredAt = new Date().toISOString();
 						for (const record of deduplicatePaperRecords(records)) {
 							if (seedRemaining <= 0 || discovered.length >= maxTotalNeighbors) break;
 							if (visited.has(record.id)) continue;
+							const [tagged] = tagCitationExpansionRecords(
+								[record],
+								seed,
+								relationship,
+								provider,
+								level,
+								discoveredAt,
+							);
 							visited.add(record.id);
-							next.push(record);
-							discovered.push(record);
+							next.push(tagged);
+							discovered.push(tagged);
 							seedRemaining--;
 						}
 					};
@@ -976,6 +1525,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										signal,
 										queryLabel: "references:" + seed.id,
 									}),
+									"reference",
+									"openalex",
 								);
 							} else if (seed.identifiers.semanticScholarId) {
 								accept(
@@ -989,6 +1540,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"reference",
+									"semanticscholar",
 								);
 							}
 						} catch (error) {
@@ -1011,6 +1564,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"citation",
+									"openalex",
 								);
 							} else if (seed.identifiers.semanticScholarId) {
 								accept(
@@ -1025,6 +1580,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 										seedRemaining,
 										pagesPerSeed,
 									),
+									"citation",
+									"semanticscholar",
 								);
 							}
 						} catch (error) {
@@ -1036,6 +1593,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				if (frontier.length === 0 || discovered.length >= maxTotalNeighbors) break;
 			}
 			const unique = discovered;
+			const expansionTable = buildCitationExpansionTable(unique);
 			const outcomes = unique.length
 				? await persistPaperRecords(
 						store,
@@ -1066,6 +1624,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								: "Missing seed ids: none",
 							"Corpus: " + store.root,
 							failures.length ? "Failures:\n- " + failures.join("\n- ") : "Failures: none",
+							"",
+							...formatCitationExpansionTable(expansionTable, 60),
 						].join("\n"),
 					},
 				],
@@ -1076,6 +1636,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					pagesPerSeed,
 					maxTotalNeighbors,
 					failures,
+					expansionTable,
 					corpusPath: store.root,
 				},
 			};
@@ -1307,6 +1868,16 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				]),
 			),
 			screening_reason: Type.Optional(Type.String()),
+			reading_status: Type.Optional(
+				Type.Union([
+					Type.Literal("unread"),
+					Type.Literal("queued"),
+					Type.Literal("reading"),
+					Type.Literal("read"),
+					Type.Literal("skimmed"),
+				]),
+			),
+			reading_note: Type.Optional(Type.String()),
 			review_decision: Type.Optional(Type.Union([Type.Literal("team-approved"), Type.Literal("team-rejected")])),
 			reviewer: Type.Optional(Type.String()),
 			review_reason: Type.Optional(Type.String()),
@@ -1351,8 +1922,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				}
 				if (!params.paper_ids?.length) throw new Error("paper_ids is required when action=annotate");
 				if (!params.contributor?.trim()) throw new Error("contributor is required when action=annotate");
-				if (!params.tags?.length && !params.note?.trim() && !params.screening_status) {
-					throw new Error("annotate requires tags, note, or screening_status");
+				if (!params.tags?.length && !params.note?.trim() && !params.screening_status && !params.reading_status) {
+					throw new Error("annotate requires tags, note, screening_status, or reading_status");
 				}
 				const requested = await Promise.all(
 					params.paper_ids.map(async (id) => ({ id, record: await store.getPaper(id) })),
@@ -1369,6 +1940,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					note: params.note,
 					screeningStatus: params.screening_status,
 					screeningReason: params.screening_reason,
+					readingStatus: params.reading_status,
+					readingNote: params.reading_note,
 				};
 				const plan = corpusAnnotationPlan(store, records, annotation);
 				const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {

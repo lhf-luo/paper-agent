@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchPublicUrl } from "../src/network-security.ts";
-import { registerResearchTools } from "../src/research-tools.ts";
+import { registerResearchTools } from "../src/tools/research-tools.ts";
 
 vi.mock("../src/network-security.ts", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/network-security.ts")>()),
