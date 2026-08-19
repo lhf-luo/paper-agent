@@ -50,6 +50,20 @@ function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummar
 	return summary;
 }
 
+function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+	const [open, setOpen] = useState(true);
+	return (
+		<details
+			className="agent-thinking"
+			open={open}
+			onToggle={(event) => setOpen(event.currentTarget.open)}
+		>
+			<summary>{streaming ? "思考中…" : "思考过程"}</summary>
+			<div className="agent-thinking-body">{thinking}</div>
+		</details>
+	);
+}
+
 function upsert<T extends { id: string }>(values: T[], value: T): T[] {
 	const index = values.findIndex((entry) => entry.id === value.id);
 	if (index < 0) return [...values, value];
@@ -690,10 +704,7 @@ export function AgentPage({
 									{message.content || (message.status === "streaming" ? "正在思考并调用研究工具…" : "本轮主要执行了工具调用。")}
 								</div>
 								{message.thinking ? (
-									<details className="agent-thinking">
-										<summary>思考过程</summary>
-										<div className="agent-thinking-body">{message.thinking}</div>
-									</details>
+									<ThinkingBlock thinking={message.thinking} streaming={message.status === "streaming"} />
 								) : message.status === "streaming" ? (
 									<div className="agent-thinking-streaming">正在思考…</div>
 								) : null}

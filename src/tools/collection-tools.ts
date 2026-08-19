@@ -547,6 +547,29 @@ export async function saveSearchRunSelection(
 	return { searchRun: run, selected, missingPaperIds, outcomes };
 }
 
+const PROVIDER_THROTTLE_MS: Partial<Record<LiteratureProvider, number>> = {
+	arxiv: 3200,
+	dblp: 1600,
+	semanticscholar: 1300,
+	crossref: 1300,
+	openalex: 1200,
+};
+
+function throttleProviderRequest(provider: LiteratureProvider, signal?: AbortSignal): Promise<void> {
+	const waitMs = PROVIDER_THROTTLE_MS[provider] ?? 1100;
+	return new Promise<void>((resolve) => {
+		const timer = setTimeout(resolve, waitMs);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				resolve();
+			},
+			{ once: true },
+		);
+	});
+}
+
 function isSearchRun(value: unknown): value is SearchRun {
 	return (
 		typeof value === "object" &&
@@ -676,6 +699,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 									100,
 									Math.min(pageSize, remaining) * (hasClientSideFilters(provider, options.filters) ? 3 : 1),
 								);
+								await throttleProviderRequest(provider, options.signal);
 								const response = await providerPageSearch(provider, {
 									query,
 									limit: requested,
