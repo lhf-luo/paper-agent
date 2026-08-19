@@ -347,7 +347,7 @@ export class LiteratureStore {
 	async saveSearchRun(run: SearchRun): Promise<void> {
 		await this.initialize();
 		return this.withWriteLock(async () => {
-			await writeJsonAtomic(this.searchRunPath(run.id), run);
+			await this.writeSearchRunUnlocked(run);
 		});
 	}
 
@@ -357,11 +357,37 @@ export class LiteratureStore {
 			const counts = { created: 0, updated: 0, unchanged: 0 };
 			const identityCandidates = await this.listPapers();
 			for (const record of run.results) counts[await this.upsertPaperUnlocked(record, identityCandidates)]++;
-			await writeJsonAtomic(this.searchRunPath(run.id), run);
+			await this.writeSearchRunUnlocked(run);
 			await this.refreshManifestUnlocked();
 			await this.markSearchIndexCurrent();
 			return counts;
 		});
+	}
+
+	private async writeSearchRunUnlocked(run: SearchRun): Promise<void> {
+		await writeJsonAtomic(this.searchRunPath(run.id), run);
+		await this.trimSearchRunsUnlocked();
+	}
+
+	/** 只保留最近 keep 次搜索运行(按 completedAt 排序), 删除更早的。 */
+	private async trimSearchRunsUnlocked(keep = 30): Promise<void> {
+		const directory = join(this.root, "search-runs");
+		const names = (await readdir(directory)).filter((name) => name.endsWith(".json"));
+		if (names.length <= keep) return;
+		const entries: Array<{ name: string; completedAt: string }> = [];
+		for (const name of names) {
+			try {
+				const run = (await readJson<SearchRun>(join(directory, name))) as SearchRun | undefined;
+				if (run?.completedAt) entries.push({ name, completedAt: run.completedAt });
+				else await unlink(join(directory, name)).catch(() => {});
+			} catch {
+				await unlink(join(directory, name)).catch(() => {});
+			}
+		}
+		entries.sort((left, right) => (left.completedAt < right.completedAt ? -1 : 1));
+		for (const entry of entries.slice(0, Math.max(0, entries.length - keep))) {
+			await unlink(join(directory, entry.name)).catch(() => {});
+		}
 	}
 
 	async listPapers(): Promise<PaperRecord[]> {
