@@ -1,12 +1,12 @@
 import type { Dirent, Stats } from "node:fs";
 import { lstat, readdir, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { acquireArtifacts, artifactAcquisitionPlan, assertArtifactSelection } from "./artifact-acquisition.ts";
-import { discoverArtifactsFromPdf } from "./artifact-discovery.ts";
-import { OperationConsentManager } from "./operation-consent.ts";
+import { acquireArtifacts, artifactAcquisitionPlan, assertArtifactSelection } from "../artifact-acquisition.ts";
+import { discoverArtifactsFromPdf } from "../artifact-discovery.ts";
+import { OperationConsentManager } from "../operation-consent.ts";
 import { validatePdfPath } from "./pdf-tools.ts";
 
 interface ArtifactEntry {
@@ -133,19 +133,19 @@ export function registerArtifactTools(pi: ExtensionAPI): void {
 			const pdfPath = await validatePdfPath(params.pdf_path, ctx.cwd);
 			const manifest = await discoverArtifactsFromPdf(pi, pdfPath, signal);
 			const text = [
-				"Paper: " + pdfPath,
-				"PDF SHA-256: " + manifest.pdfSha256,
-				"Artifact candidates: " + manifest.candidates.length,
+				`Paper: ${pdfPath}`,
+				`PDF SHA-256: ${manifest.pdfSha256}`,
+				`Artifact candidates: ${manifest.candidates.length}`,
 				"",
 				...manifest.candidates.map((candidate) =>
 					[
-						"- " + candidate.id + " [" + candidate.kind + "/" + candidate.confidence + "] " + candidate.url,
+						`- ${candidate.id} [${candidate.kind}/${candidate.confidence}] ${candidate.url}`,
 						...candidate.sources.map(
 							(source) =>
 								"  source=" +
 								source.method +
-								(source.page ? " page=" + source.page : "") +
-								(source.context ? " context=" + source.context : ""),
+								(source.page ? ` page=${source.page}` : "") +
+								(source.context ? ` context=${source.context}` : ""),
 						),
 					].join("\n"),
 				),
@@ -190,7 +190,7 @@ export function registerArtifactTools(pi: ExtensionAPI): void {
 			const unknownIds = (params.candidate_ids ?? []).filter(
 				(id) => !discovered.candidates.some((candidate) => candidate.id === id),
 				);
-				if (unknownIds.length) throw new Error("Unknown artifact candidate ids: " + unknownIds.join(", "));
+				if (unknownIds.length) throw new Error(`Unknown artifact candidate ids: ${unknownIds.join(", ")}`);
 				assertArtifactSelection(discovered, params.candidate_ids);
 			if (!ctx.hasUI) {
 				throw new Error(
@@ -230,17 +230,17 @@ export function registerArtifactTools(pi: ExtensionAPI): void {
 			const snapshots = acquired.manifest.acquisitions;
 			const failures = snapshots.filter((snapshot) => snapshot.status === "failed");
 			const text = [
-				"Artifact root: " + acquired.root,
-				"Manifest: " + acquired.manifestPath,
-				"Candidates discovered: " + discovered.candidates.length,
-				"Acquisition records: " + snapshots.length + "; failures: " + failures.length,
+				`Artifact root: ${acquired.root}`,
+				`Manifest: ${acquired.manifestPath}`,
+				`Candidates discovered: ${discovered.candidates.length}`,
+				`Acquisition records: ${snapshots.length}; failures: ${failures.length}`,
 				"",
 				...snapshots.map((snapshot) =>
 					[
-						"- " + snapshot.candidateId + ": " + snapshot.status,
-						"  source=" + snapshot.sourceUrl,
-						"  final=" + (snapshot.finalUrl ?? "unavailable"),
-						"  local=" + (snapshot.localPath ?? "none"),
+						`- ${snapshot.candidateId}: ${snapshot.status}`,
+						`  source=${snapshot.sourceUrl}`,
+						`  final=${snapshot.finalUrl ?? "unavailable"}`,
+						`  local=${snapshot.localPath ?? "none"}`,
 						"  commit=" +
 							(snapshot.commit ?? "none") +
 							"; requested_ref=" +
@@ -256,12 +256,12 @@ export function registerArtifactTools(pi: ExtensionAPI): void {
 							"; validation=" +
 							(snapshot.contentValidation ?? "not-applicable"),
 						snapshot.metadata
-							? "  metadata=" + snapshot.metadata.provider + ":" + snapshot.metadata.recordId
+							? `  metadata=${snapshot.metadata.provider}:${snapshot.metadata.recordId}`
 							: snapshot.metadataError
-								? "  metadata_error=" + snapshot.metadataError
+								? `  metadata_error=${snapshot.metadataError}`
 								: "",
-						"  license_files=" + (snapshot.licenseFiles?.join(", ") || "none detected"),
-						snapshot.failureReason ? "  note=" + snapshot.failureReason : "",
+						`  license_files=${snapshot.licenseFiles?.join(", ") || "none detected"}`,
+						snapshot.failureReason ? `  note=${snapshot.failureReason}` : "",
 					]
 						.filter(Boolean)
 						.join("\n"),

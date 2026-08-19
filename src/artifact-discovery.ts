@@ -85,7 +85,7 @@ function stripUrlPunctuation(value: string): string {
 }
 
 function normalizeCandidateUrl(raw: string): URL | undefined {
-	const normalized = /^www\./i.test(raw) ? "https://" + raw : raw;
+	const normalized = /^www\./i.test(raw) ? `https://${raw}` : raw;
 	try {
 		const url = new URL(stripUrlPunctuation(normalized));
 		if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
@@ -132,14 +132,14 @@ export function canonicalArtifactUrl(value: URL | string): string {
 	copy.hash = "";
 	const parts = copy.pathname.split("/").filter(Boolean);
 	if (copy.hostname === "github.com" || copy.hostname === "bitbucket.org" || copy.hostname === "codeberg.org") {
-		if (parts.length >= 2) copy.pathname = "/" + [parts[0], parts[1].replace(/\.git$/i, "")].join("/");
+		if (parts.length >= 2) copy.pathname = `/${[parts[0], parts[1].replace(/\.git$/i, "")].join("/")}`;
 		copy.search = "";
 	} else if (copy.hostname === "gitlab.com") {
 		const marker = parts.indexOf("-");
 		const repositoryParts = (marker >= 0 ? parts.slice(0, marker) : parts).map((part, index, all) =>
 			index === all.length - 1 ? part.replace(/\.git$/i, "") : part,
 		);
-		if (repositoryParts.length >= 2) copy.pathname = "/" + repositoryParts.join("/");
+		if (repositoryParts.length >= 2) copy.pathname = `/${repositoryParts.join("/")}`;
 		copy.search = "";
 	} else {
 		copy.searchParams.sort();
@@ -226,7 +226,7 @@ export function extractArtifactCandidates(
 	for (const match of text.matchAll(
 		/(?<![\w@/])(?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|zenodo\.org|figshare\.com|osf\.io|huggingface\.co)\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+/gi,
 	)) {
-		if (match.index !== undefined) matches.push({ raw: "https://" + match[0], index: match.index });
+		if (match.index !== undefined) matches.push({ raw: `https://${match[0]}`, index: match.index });
 	}
 	const candidates = new Map<string, ArtifactCandidate>();
 	for (const match of matches) {
@@ -268,7 +268,7 @@ export function extractArtifactCandidates(
 			continue;
 		}
 		candidates.set(canonical, {
-			id: "artifact-" + sha256Text(canonical).slice(0, 16),
+			id: `artifact-${sha256Text(canonical).slice(0, 16)}`,
 			url: canonical,
 			kind,
 			host,
@@ -326,7 +326,7 @@ export async function discoverArtifactsFromPdf(
 			: textResult.killed
 				? "pdftotext timed out"
 				: textResult.stderr.trim() || "pdftotext exited with a non-zero status";
-		throw new Error("Could not extract artifact links from PDF: " + reason);
+		throw new Error(`Could not extract artifact links from PDF: ${reason}`);
 	}
 	const groups: ArtifactCandidate[][] = [];
 	if (infoResult.code === 0) groups.push(extractArtifactCandidates(infoResult.stdout, "pdfinfo-url"));
@@ -340,7 +340,7 @@ export async function discoverArtifactsFromPdf(
 		if (!doi || match.index === undefined) continue;
 		const context = contextAround(textResult.stdout, match.index, match[0].length);
 		if (!/\b(?:artifact|code|dataset|data|supplement|repository)\b/i.test(context)) continue;
-		groups.push(extractArtifactCandidates("https://doi.org/" + doi + " " + context, "doi-derived"));
+		groups.push(extractArtifactCandidates(`https://doi.org/${doi} ${context}`, "doi-derived"));
 	}
 	return {
 		schemaVersion: 1,

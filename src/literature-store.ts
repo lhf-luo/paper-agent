@@ -18,7 +18,7 @@ import type {
 
 function safeSegment(value: string, label: string): string {
 	if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) {
-		throw new Error(label + " must use 1-64 letters, numbers, dots, underscores, or hyphens");
+		throw new Error(`${label} must use 1-64 letters, numbers, dots, underscores, or hyphens`);
 	}
 	return value;
 }
@@ -39,9 +39,9 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
-	const temporaryPath = path + "." + randomUUID() + ".tmp";
+	const temporaryPath = `${path}.${randomUUID()}.tmp`;
 	try {
-		await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+		await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
 		await rename(temporaryPath, path);
 	} catch (error) {
 		try {
@@ -65,7 +65,7 @@ async function readJson<T>(path: string): Promise<T | undefined> {
 
 function csvField(value: unknown): string {
 	const text = value === undefined || value === null ? "" : String(value);
-	return /[",\r\n]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+	return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 function bibKey(record: PaperRecord, index: number): string {
@@ -125,15 +125,15 @@ export class LiteratureStore {
 	}
 
 	private recordPath(id: string): string {
-		return join(this.root, "records", safeSegment(id, "paper id") + ".json");
+		return join(this.root, "records", `${safeSegment(id, "paper id")}.json`);
 	}
 
 	private searchRunPath(id: string): string {
-		return join(this.root, "search-runs", safeSegment(id, "search run id") + ".json");
+		return join(this.root, "search-runs", `${safeSegment(id, "search run id")}.json`);
 	}
 
 	private derivedPath(key: string): string {
-		return join(this.root, "derived", safeSegment(key, "derived key") + ".json");
+		return join(this.root, "derived", `${safeSegment(key, "derived key")}.json`);
 	}
 
 	private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -270,7 +270,7 @@ export class LiteratureStore {
 		try {
 			await writeFile(
 				manifestPath,
-				JSON.stringify(
+				`${JSON.stringify(
 					{
 						schemaVersion: 1,
 						scope: this.scope,
@@ -282,7 +282,7 @@ export class LiteratureStore {
 					},
 					null,
 					2,
-				) + "\n",
+				)}\n`,
 				{ encoding: "utf8", flag: "wx" },
 			);
 		} catch (error) {
@@ -520,7 +520,7 @@ export class LiteratureStore {
 		const existed = await pathExists(path);
 		if (!existed) {
 			await mkdir(dirname(path), { recursive: true });
-			const temporaryPath = path + "." + randomUUID() + ".tmp";
+			const temporaryPath = `${path}.${randomUUID()}.tmp`;
 			try {
 				await writeFile(temporaryPath, data, { flag: "wx" });
 				await rename(temporaryPath, path);
@@ -540,7 +540,7 @@ export class LiteratureStore {
 	async savePaperVersion(version: PaperVersion): Promise<void> {
 		await this.initialize();
 		await this.withWriteLock(async () => {
-			const path = join(this.root, "paper-versions", safeSegment(version.paperId, "paper id") + ".json");
+			const path = join(this.root, "paper-versions", `${safeSegment(version.paperId, "paper id")}.json`);
 			const existing = (await readJson<PaperVersion[]>(path)) ?? [];
 			if (!existing.some((item) => item.sha256 === version.sha256 && item.finalUrl === version.finalUrl)) {
 				existing.push(version);
@@ -685,7 +685,7 @@ export class LiteratureStore {
 				.replace(/[^0-9]/g, "")
 				.slice(0, 14);
 			const name = `${this.scope}-${this.namespace}-${timestamp}-${randomUUID().slice(0, 8)}`;
-			const temporaryPath = join(destinationBase, name + ".tmp");
+			const temporaryPath = join(destinationBase, `${name}.tmp`);
 			const finalPath = join(destinationBase, name);
 			await mkdir(destinationBase, { recursive: true });
 			await cp(this.root, temporaryPath, {
@@ -744,14 +744,14 @@ export class LiteratureStore {
 			content = records
 				.map((record, index) => {
 					const fields = [
-						"  title = {" + record.title.replace(/[{}]/g, "") + "}",
-						"  author = {" + record.authors.join(" and ").replace(/[{}]/g, "") + "}",
-						record.year ? "  year = {" + record.year + "}" : undefined,
-						record.venue ? "  booktitle = {" + record.venue.replace(/[{}]/g, "") + "}" : undefined,
-						record.identifiers.doi ? "  doi = {" + record.identifiers.doi + "}" : undefined,
-						record.links[0] ? "  url = {" + record.links[0].url + "}" : undefined,
+						`  title = {${record.title.replace(/[{}]/g, "")}}`,
+						`  author = {${record.authors.join(" and ").replace(/[{}]/g, "")}}`,
+						record.year ? `  year = {${record.year}}` : undefined,
+						record.venue ? `  booktitle = {${record.venue.replace(/[{}]/g, "")}}` : undefined,
+						record.identifiers.doi ? `  doi = {${record.identifiers.doi}}` : undefined,
+						record.links[0] ? `  url = {${record.links[0].url}}` : undefined,
 					].filter(Boolean);
-					return "@misc{" + bibKey(record, index) + ",\n" + fields.join(",\n") + "\n}";
+					return `@misc{${bibKey(record, index)},\n${fields.join(",\n")}\n}`;
 				})
 				.join("\n\n");
 		} else {
@@ -759,24 +759,24 @@ export class LiteratureStore {
 			content = [
 				"# Literature corpus",
 				"",
-				"Scope: " + this.scope + " / " + this.namespace,
+				`Scope: ${this.scope} / ${this.namespace}`,
 				"",
 				...records.flatMap((record) => [
-					"## " + record.title,
+					`## ${record.title}`,
 					"",
-					"- Authors: " + (record.authors.join(", ") || "unknown"),
-					"- Year: " + (record.year ?? "unknown"),
-					"- Venue: " + (record.venue ?? "unknown"),
-					"- DOI: " + (record.identifiers.doi ?? "none"),
-					"- URL: " + (record.links[0]?.url ?? "none"),
-					"- Sources: " + record.provenance.map((item) => item.provider).join(", "),
+					`- Authors: ${record.authors.join(", ") || "unknown"}`,
+					`- Year: ${record.year ?? "unknown"}`,
+					`- Venue: ${record.venue ?? "unknown"}`,
+					`- DOI: ${record.identifiers.doi ?? "none"}`,
+					`- URL: ${record.links[0]?.url ?? "none"}`,
+					`- Sources: ${record.provenance.map((item) => item.provider).join(", ")}`,
 					"",
 				]),
 			].join("\n");
 		}
-		const outputName = filename ? safeSegment(filename, "filename") : "literature-" + Date.now() + "." + extension;
+		const outputName = filename ? safeSegment(filename, "filename") : `literature-${Date.now()}.${extension}`;
 		const outputPath = join(this.root, "exports", outputName);
-		await writeFile(outputPath, content + "\n", "utf8");
+		await writeFile(outputPath, `${content}\n`, "utf8");
 		return outputPath;
 	}
 

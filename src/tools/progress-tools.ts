@@ -246,7 +246,7 @@ export function registerProgressTool(pi: ExtensionAPI): void {
 						for (const failure of details.failures) {
 							if (isRecord(failure)) {
 								literatureFailures.push(
-									String(failure.provider ?? "provider") + ": " + String(failure.message ?? "unknown failure"),
+									`${String(failure.provider ?? "provider")}: ${String(failure.message ?? "unknown failure")}`,
 								);
 							}
 						}
@@ -359,7 +359,7 @@ export function registerProgressTool(pi: ExtensionAPI): void {
 				`Persistent/structured collections: ${literatureCollections}`,
 				`Literature provider counts: ${
 					Object.entries(literatureProviderCounts)
-						.map(([provider, count]) => provider + "=" + count)
+						.map(([provider, count]) => `${provider}=${count}`)
 						.join(", ") || "none"
 				}`,
 				`Literature provider failures: ${literatureFailures.length}`,

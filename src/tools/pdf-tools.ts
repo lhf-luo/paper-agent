@@ -1,11 +1,11 @@
 import type { Stats } from "node:fs";
 import { mkdtemp, open, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { CommandExecutor } from "./command-executor.ts";
+import type { CommandExecutor } from "../command-executor.ts";
 
 interface ExtractedPdf {
 	mtimeMs: number;

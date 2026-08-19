@@ -47,12 +47,12 @@ export function paperDedupKey(
 	record: Pick<PaperRecord, "title" | "authors" | "year" | "identifiers" | "materialHashes">,
 ): string {
 	const doi = normalizeDoi(record.identifiers.doi);
-	if (doi) return "doi:" + doi;
+	if (doi) return `doi:${doi}`;
 	const arxivId = normalizeArxivId(record.identifiers.arxivId);
-	if (arxivId) return "arxiv:" + arxivId;
+	if (arxivId) return `arxiv:${arxivId}`;
 	const materialHash = record.materialHashes?.find((value) => /^[a-f0-9]{64}$/i.test(value));
-	if (materialHash) return "material:" + materialHash.toLowerCase();
-	return "metadata:" + paperMetadataKey(record);
+	if (materialHash) return `material:${materialHash.toLowerCase()}`;
+	return `metadata:${paperMetadataKey(record)}`;
 }
 
 export function paperMetadataKey(record: Pick<PaperRecord, "title" | "authors" | "year">): string {
@@ -105,18 +105,18 @@ export function paperRecordId(
 	record: Pick<PaperRecord, "title" | "authors" | "year" | "identifiers" | "materialHashes" | "provenance" | "links">,
 ): string {
 	const doi = normalizeDoi(record.identifiers.doi);
-	if (doi) return "doi-" + sha256Text(doi).slice(0, 20);
+	if (doi) return `doi-${sha256Text(doi).slice(0, 20)}`;
 	const arxivId = normalizeArxivId(record.identifiers.arxivId);
-	if (arxivId) return "arxiv-" + arxivId.replace(/[^a-z0-9]+/gi, "-");
+	if (arxivId) return `arxiv-${arxivId.replace(/[^a-z0-9]+/gi, "-")}`;
 	const materialHash = record.materialHashes?.find((value) => /^[a-f0-9]{64}$/i.test(value));
-	if (materialHash) return "material-" + materialHash.slice(0, 20).toLowerCase();
+	if (materialHash) return `material-${materialHash.slice(0, 20).toLowerCase()}`;
 	const sourceIdentity =
 		record.provenance
 			.map((item) => [item.provider, item.providerRecordId ?? "", item.rawUrl ?? ""].join(":"))
 			.find((value) => !value.endsWith("::")) ??
 		record.links.map((link) => link.url).sort()[0] ??
 		"source-unknown";
-	return "paper-" + sha256Text(`${paperMetadataKey(record)}:${sourceIdentity}`).slice(0, 20);
+	return `paper-${sha256Text(`${paperMetadataKey(record)}:${sourceIdentity}`).slice(0, 20)}`;
 }
 
 function uniqueStrings(values: Array<string | undefined>): string[] {

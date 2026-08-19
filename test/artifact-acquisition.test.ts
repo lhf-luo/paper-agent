@@ -30,7 +30,7 @@ describe("artifact acquisition manifest", () => {
 		temporaryPaths.push(root);
 		const pdfPath = join(root, "paper.pdf");
 		const pdfSha256 = "a".repeat(64);
-		const artifactRoot = join(root, "artifacts", "paper-" + pdfSha256.slice(0, 12));
+		const artifactRoot = join(root, "artifacts", `paper-${pdfSha256.slice(0, 12)}`);
 		const localPath = join(artifactRoot, "downloads", "existing.zip");
 		await mkdir(join(artifactRoot, "downloads"), { recursive: true });
 		await writeFile(localPath, "existing");
@@ -87,7 +87,7 @@ describe("artifact acquisition manifest", () => {
 		temporaryPaths.push(root);
 		const pdfPath = join(root, "paper.pdf");
 		const pdfSha256 = "d".repeat(64);
-		const artifactRoot = join(root, "artifacts", "paper-" + pdfSha256.slice(0, 12));
+		const artifactRoot = join(root, "artifacts", `paper-${pdfSha256.slice(0, 12)}`);
 		const localPath = join(artifactRoot, "downloads", "existing.zip");
 		await mkdir(join(artifactRoot, "downloads"), { recursive: true });
 		await writeFile(localPath, "tampered");
@@ -138,7 +138,7 @@ describe("artifact acquisition manifest", () => {
 		temporaryPaths.push(root);
 		const pdfPath = join(root, "paper.pdf");
 		const pdfSha256 = "c".repeat(64);
-		const artifactRoot = join(root, "artifacts", "paper-" + pdfSha256.slice(0, 12));
+		const artifactRoot = join(root, "artifacts", `paper-${pdfSha256.slice(0, 12)}`);
 		const outsidePath = join(root, "outside-repository");
 		await mkdir(outsidePath, { recursive: true });
 		await mkdir(artifactRoot, { recursive: true });

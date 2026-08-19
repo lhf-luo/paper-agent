@@ -116,7 +116,7 @@ export async function downloadLiteraturePdfs(
 						timeoutMs: 60_000,
 						maxBytes: request.maxBytesPerFile,
 					});
-				} catch (pythonError) {
+				} catch (_pythonError) {
 					// Python 不可用或失败时回退到 Node 通道。
 					const fetched = await fetchPublicUrl(pdfUrl, {
 						signal: request.signal,

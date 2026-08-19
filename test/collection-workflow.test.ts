@@ -11,7 +11,7 @@ import {
 	expandLiteratureQueries,
 	planLiteratureSearch,
 	tagCitationExpansionRecords,
-} from "../src/collection-tools.ts";
+} from "../src/tools/collection-tools.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature-store.ts";
 import type { PaperRecord } from "../src/literature-types.ts";
 import { OperationConsentManager } from "../src/operation-consent.ts";
@@ -32,9 +32,9 @@ afterEach(async () => {
 
 function crossrefItem(index: number) {
 	return {
-		title: ["Paper " + index],
-		DOI: "10.5555/test." + index,
-		URL: "https://doi.org/10.5555/test." + index,
+		title: [`Paper ${index}`],
+		DOI: `10.5555/test.${index}`,
+		URL: `https://doi.org/10.5555/test.${index}`,
 		author: [{ given: "Author", family: String(index) }],
 		issued: { "date-parts": [[2024 + index]] },
 		type: "proceedings-article",

@@ -70,7 +70,7 @@ async function bibtexForRecord(record: PaperRecord, signal?: AbortSignal): Promi
 
 export async function exportBibtexForRecords(records: PaperRecord[], signal?: AbortSignal): Promise<string> {
 	const entries = await Promise.all(records.map((record) => bibtexForRecord(record, signal)));
-	return entries.join("\n\n") + "\n";
+	return `${entries.join("\n\n")}\n`;
 }
 
 export function registerBibtexTool(pi: ExtensionAPI): void {

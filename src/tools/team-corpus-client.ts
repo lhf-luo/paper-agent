@@ -1,22 +1,22 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolve } from "node:path";
-import { LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
+import { LiteratureStore, resolveCorpusRoot } from "../literature-store.ts";
 import type {
 	ArtifactManifest,
 	CorpusSearchHit,
 	DerivedRecord,
 	PaperRecord,
 	PaperVersion,
-} from "./literature-types.ts";
+} from "../literature-types.ts";
 import {
 	OperationConsentManager,
 	type OperationPlan,
 	requestOperationAuthorization,
-} from "./operation-consent.ts";
-import { teamNamespacePattern, validateTeamNamespace } from "./team-corpus-validation.ts";
-import type { TeamArtifactEntry, TeamAuditEvent, TeamDerivedEntry } from "./team-knowledge-store.ts";
-import type { TeamRole } from "./team-token-registry.ts";
+} from "../operation-consent.ts";
+import { teamNamespacePattern, validateTeamNamespace } from "../team-corpus-validation.ts";
+import type { TeamArtifactEntry, TeamAuditEvent, TeamDerivedEntry } from "../team-knowledge-store.ts";
+import type { TeamRole } from "../team-token-registry.ts";
 
 function isLoopback(hostname: string): boolean {
 	return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname.toLowerCase());

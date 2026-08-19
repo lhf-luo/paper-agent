@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import type { AssetEvaluationDataset } from "../src/pdf-asset-evaluation.ts";
+import type { AssetEvaluationDataset } from "../src/tools/pdf-asset-evaluation.ts";
 
 const annotationsDirectory = resolve(process.argv[2] ?? "eval-data/annotations");
 const maximumBytes = 64 * 1024 * 1024;

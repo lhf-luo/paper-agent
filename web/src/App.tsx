@@ -1564,19 +1564,22 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 						{pdfPickerOpen && availablePdfs.length > 0 && (
 							<ul className="pdf-combobox-list">
 								{availablePdfs.map((pdf) => (
-									<li
-										key={pdf.paperId}
-										title={pdf.title}
-										onClick={() => {
-											setPath(pdf.hasPdf ? pdf.blobPath : "");
-											setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
-											setPdfPickerOpen(false);
-										}}
-									>
-										<span className="pdf-combobox-title">{pdf.title}</span>
-										<span className="pdf-combobox-meta">
-											{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
-										</span>
+									<li key={pdf.paperId}>
+										<button
+											type="button"
+											className="pdf-combobox-option"
+											title={pdf.title}
+											onClick={() => {
+												setPath(pdf.hasPdf ? pdf.blobPath : "");
+												setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
+												setPdfPickerOpen(false);
+											}}
+										>
+											<span className="pdf-combobox-title">{pdf.title}</span>
+											<span className="pdf-combobox-meta">
+												{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
+											</span>
+										</button>
 									</li>
 								))}
 							</ul>
@@ -3973,7 +3976,22 @@ export default function App() {
 					</>
 				)}
 			</aside>
-			<div className="sidebar-resizer" onMouseDown={onResizeStart} />
+			<button
+				type="button"
+				className="sidebar-resizer"
+				aria-label="调整侧边栏宽度"
+				onMouseDown={onResizeStart}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+						event.preventDefault();
+						setSidebarWidth((current) => {
+							const next = Math.max(0, Math.min(520, current + (event.key === "ArrowRight" ? 24 : -24)));
+							window.localStorage.setItem("paper-agent-sidebar-width", String(next));
+							return next;
+						});
+					}
+				}}
+			/>
 			<main className="main-area">
 				{page !== "agent" && (
 					<div className="topbar">

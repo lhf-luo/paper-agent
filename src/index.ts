@@ -5,17 +5,18 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setProviderCredentials } from "./literature-providers.ts";
 import { setProxyUrl } from "./network-security.ts";
-import { setTeamConnection } from "./team-corpus-client.ts";
-import { registerArtifactTools } from "./artifact-tools.ts";
+import { setTeamConnection } from "./tools/team-corpus-client.ts";
+import { registerArtifactTools } from "./tools/artifact-tools.ts";
 import { registerBibtexTool } from "./literature-bibtex.ts";
-import { registerCollectionTools } from "./collection-tools.ts";
-import { registerLiteratureImportTool } from "./literature-import.ts";
-import { registerPdfAssetEvaluationTool } from "./pdf-asset-evaluation.ts";
-import { registerPdfAssetTools } from "./pdf-asset-tools.ts";
-import { registerPdfTools } from "./pdf-tools.ts";
-import { registerProgressTool } from "./progress-tools.ts";
-import { registerResearchTools } from "./research-tools.ts";
-import { registerTeamCorpusClientTool } from "./team-corpus-client.ts";
+import { registerCollectionTools } from "./tools/collection-tools.ts";
+import { registerLiteratureImportTool } from "./tools/literature-import.ts";
+import { registerPaperPackageTools } from "./tools/paper-package-tools.ts";
+import { registerPdfAssetEvaluationTool } from "./tools/pdf-asset-evaluation.ts";
+import { registerPdfAssetTools } from "./tools/pdf-asset-tools.ts";
+import { registerPdfTools } from "./tools/pdf-tools.ts";
+import { registerProgressTool } from "./tools/progress-tools.ts";
+import { registerResearchTools } from "./tools/research-tools.ts";
+import { registerTeamCorpusClientTool } from "./tools/team-corpus-client.ts";
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
 export const paperSystemPrompt = readFileSync(resolve(extensionDirectory, "SYSTEM.md"), "utf8");
@@ -137,6 +138,7 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 	registerBibtexTool(pi);
 	registerCollectionTools(pi);
 	registerLiteratureImportTool(pi);
+	registerPaperPackageTools(pi);
 	registerResearchTools(pi);
 	registerTeamCorpusClientTool(pi);
 	registerProgressTool(pi);
@@ -194,10 +196,10 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("Usage: /collect [--save] [--namespace name] [--max N] <research query>", "warning");
 				return;
 			}
-			pi.setSessionName("collect: " + commandArguments.query.slice(0, 60));
+			pi.setSessionName(`collect: ${commandArguments.query.slice(0, 60)}`);
 			pi.sendUserMessage(
 				[
-					"Build a literature collection for this focused query: " + commandArguments.query,
+					`Build a literature collection for this focused query: ${commandArguments.query}`,
 					"First propose explicit query variants and inclusion filters, then use collect_literature.",
 					`Use scope=personal, mode=${commandArguments.mode}, namespace=${commandArguments.namespace}.`,
 					commandArguments.maxResults
@@ -221,10 +223,10 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			const request = args.trim() || "show a concise overview of my default personal library";
-			pi.setSessionName("library: " + request.slice(0, 60));
+			pi.setSessionName(`library: ${request.slice(0, 60)}`);
 			pi.sendUserMessage(
 				[
-					"Handle this literature-library request: " + request,
+					`Handle this literature-library request: ${request}`,
 					"Use search_literature_corpus and manage_literature_corpus for personal data; use manage_team_literature_server only when a team service is configured.",
 					"Default to scope=personal and namespace=default unless the request names another namespace.",
 					"For a bare overview, audit the personal corpus and report namespaces, record counts, recent activity, and useful next actions.",
@@ -242,10 +244,10 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			const request = args.trim() || "show team-library status and a concise audit";
-			pi.setSessionName("team: " + request.slice(0, 60));
+			pi.setSessionName(`team: ${request.slice(0, 60)}`);
 			pi.sendUserMessage(
 				[
-					"Handle this shared team-library request: " + request,
+					`Handle this shared team-library request: ${request}`,
 					"Use manage_team_literature_server. If the service is not configured, explain how to run paper-agent --team demo (or paper-agent --team demo --agent) for a local exercise, or configure a production server.",
 					"For proposals, select records from the personal corpus and preserve the explicit review gate. Never include personal notes or screening opinions.",
 					"Do not reveal bearer tokens, API keys, or Authorization headers.",

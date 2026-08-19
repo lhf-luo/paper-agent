@@ -53,7 +53,7 @@ function readNumber(record: Record<string, unknown>, key: string): number | unde
 }
 
 function extractXmlTag(xml: string, tag: string): string | undefined {
-	const match = new RegExp("<" + tag + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + tag + ">", "i").exec(xml);
+	const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i").exec(xml);
 	return match
 		? decodeEntities(
 				match[1]
@@ -65,7 +65,7 @@ function extractXmlTag(xml: string, tag: string): string | undefined {
 }
 
 function extractXmlTags(xml: string, tag: string): string[] {
-	const matches = xml.matchAll(new RegExp("<" + tag + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + tag + ">", "gi"));
+	const matches = xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "gi"));
 	return [...matches].map((match) =>
 		decodeEntities(
 			match[1]
@@ -117,7 +117,7 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 	const start = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(start) || start < 0) throw new Error("Invalid arXiv cursor");
 	const url = new URL("https://export.arxiv.org/api/query");
-	url.searchParams.set("search_query", "all:" + options.query);
+	url.searchParams.set("search_query", `all:${options.query}`);
 	url.searchParams.set("start", String(start));
 	url.searchParams.set("max_results", String(options.limit));
 	url.searchParams.set("sortBy", "relevance");
@@ -140,9 +140,9 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 			const arxivId = normalizeArxivId(landing);
 			const links: PaperLink[] = [
 				{ url: landing, kind: "landing", openAccess: true },
-				{ url: landing.replace("/abs/", "/pdf/") + ".pdf", kind: "pdf", openAccess: true },
+				{ url: `${landing.replace("/abs/", "/pdf/")}.pdf`, kind: "pdf", openAccess: true },
 			];
-			if (doi) links.push({ url: "https://doi.org/" + doi, kind: "doi" });
+			if (doi) links.push({ url: `https://doi.org/${doi}`, kind: "doi" });
 			return [
 				withId({
 					title,
@@ -210,8 +210,8 @@ function openAlexLinks(work: Record<string, unknown>): PaperLink[] {
 		if (pdf) links.push({ url: pdf, kind: "pdf", openAccess: true });
 	}
 	const doi = normalizeDoi(readString(work, "doi"));
-	if (doi && !links.some((link) => link.url === "https://doi.org/" + doi)) {
-		links.push({ url: "https://doi.org/" + doi, kind: "doi" });
+	if (doi && !links.some((link) => link.url === `https://doi.org/${doi}`)) {
+		links.push({ url: `https://doi.org/${doi}`, kind: "doi" });
 	}
 	const id = readString(work, "id");
 	if (id && !links.some((link) => link.url === id)) links.push({ url: id, kind: "landing" });
@@ -268,8 +268,8 @@ export async function searchOpenAlexPage(options: ProviderSearchOptions): Promis
 	const openAlexMailto = options.openAlexMailto ?? providerCredentials.openAlexMailto ?? process.env.OPENALEX_MAILTO;
 	if (openAlexMailto) url.searchParams.set("mailto", openAlexMailto);
 	const filters: string[] = [];
-	if (options.filters?.yearFrom) filters.push("from_publication_date:" + options.filters.yearFrom + "-01-01");
-	if (options.filters?.yearTo) filters.push("to_publication_date:" + options.filters.yearTo + "-12-31");
+	if (options.filters?.yearFrom) filters.push(`from_publication_date:${options.filters.yearFrom}-01-01`);
+	if (options.filters?.yearTo) filters.push(`to_publication_date:${options.filters.yearTo}-12-31`);
 	if (options.filters?.openAccess) filters.push("is_oa:true");
 	if (filters.length) url.searchParams.set("filter", filters.join(","));
 	const response = await fetchWithRetry(url, {
@@ -335,7 +335,7 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
 		const from = options.filters.yearFrom ?? 1000;
 		const until = options.filters.yearTo ?? 9999;
-		url.searchParams.set("filter", "from-pub-date:" + from + "-01-01,until-pub-date:" + until + "-12-31");
+		url.searchParams.set("filter", `from-pub-date:${from}-01-01,until-pub-date:${until}-12-31`);
 	}
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -354,7 +354,7 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 			if (!isRecord(value)) return [];
 			const title = firstString(value.title);
 			const doi = normalizeDoi(readString(value, "DOI"));
-			const landing = readString(value, "URL") ?? (doi ? "https://doi.org/" + doi : undefined);
+			const landing = readString(value, "URL") ?? (doi ? `https://doi.org/${doi}` : undefined);
 			if (!title || !landing) return [];
 			const links: PaperLink[] = [{ url: landing, kind: doi ? "doi" : "landing" }];
 			if (Array.isArray(value.link)) {
@@ -1234,7 +1234,7 @@ export async function fetchOpenAlexWorks(
 	for (let offset = 0; offset < normalized.length; offset += 50) {
 		const batch = normalized.slice(offset, offset + 50);
 		const url = new URL("https://api.openalex.org/works");
-		url.searchParams.set("filter", "ids.openalex:" + batch.join("|"));
+		url.searchParams.set("filter", `ids.openalex:${batch.join("|")}`);
 		url.searchParams.set("per-page", String(batch.length));
 		if (options.openAlexMailto) url.searchParams.set("mailto", options.openAlexMailto);
 		const response = await fetchWithRetry(url, {
@@ -1269,7 +1269,7 @@ export async function searchOpenAlexCitations(
 	const normalized = workId.replace(/^https:\/\/openalex\.org\//i, "");
 	if (!/^W\d+$/i.test(normalized)) throw new Error("Citation expansion requires an OpenAlex work id");
 	const url = new URL("https://api.openalex.org/works");
-	url.searchParams.set("filter", "cites:" + normalized);
+	url.searchParams.set("filter", `cites:${normalized}`);
 	url.searchParams.set("per-page", String(options.limit));
 	url.searchParams.set("cursor", options.cursor ?? "*");
 	if (options.openAlexMailto) url.searchParams.set("mailto", options.openAlexMailto);

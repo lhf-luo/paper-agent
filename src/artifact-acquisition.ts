@@ -39,8 +39,8 @@ function isWithinRoot(root: string, path: string): boolean {
 
 async function atomicJson(path: string, value: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
-	const temporary = path + "." + randomUUID() + ".tmp";
-	await writeFile(temporary, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+	const temporary = `${path}.${randomUUID()}.tmp`;
+	await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
 	await rename(temporary, path);
 }
 
@@ -67,7 +67,7 @@ function acquisitionRoot(manifest: ArtifactManifest): string {
 	const stem = basename(manifest.pdfPath, extname(manifest.pdfPath))
 		.replace(/[^a-zA-Z0-9._-]+/g, "-")
 		.slice(0, 80);
-	return join(dirname(manifest.pdfPath), "artifacts", stem + "-" + manifest.pdfSha256.slice(0, 12));
+	return join(dirname(manifest.pdfPath), "artifacts", `${stem}-${manifest.pdfSha256.slice(0, 12)}`);
 }
 
 function repositoryUrl(candidate: ArtifactCandidate): URL {
@@ -78,15 +78,15 @@ function repositoryUrl(candidate: ArtifactCandidate): URL {
 	if (source.hostname.toLowerCase() === "github.com") {
 		const parts = source.pathname.split("/").filter(Boolean);
 		if (parts.length < 2) throw new Error("GitHub artifact URL does not identify a repository");
-		source.pathname = "/" + parts.slice(0, 2).join("/") + ".git";
+		source.pathname = `/${parts.slice(0, 2).join("/")}.git`;
 	} else if (source.hostname.toLowerCase() === "gitlab.com") {
 		const parts = source.pathname.split("/").filter(Boolean);
 		const marker = parts.indexOf("-");
 		const repositoryParts = marker >= 0 ? parts.slice(0, marker) : parts;
 		if (repositoryParts.length < 2) throw new Error("GitLab artifact URL does not identify a repository");
-		source.pathname = "/" + repositoryParts.join("/").replace(/\.git$/i, "") + ".git";
+		source.pathname = `/${repositoryParts.join("/").replace(/\.git$/i, "")}.git`;
 	} else if (!source.pathname.endsWith(".git")) {
-		source.pathname = source.pathname.replace(/\/+$/, "") + ".git";
+		source.pathname = `${source.pathname.replace(/\/+$/, "")}.git`;
 	}
 	return source;
 }
@@ -99,7 +99,7 @@ function artifactDirectoryName(candidate: ArtifactCandidate): string {
 		.slice(-2)
 		.join("-")
 		.replace(/\.git$/i, "");
-	return (candidate.host + "-" + (pathName || candidate.id)).replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120);
+	return (`${candidate.host}-${pathName || candidate.id}`).replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120);
 }
 
 async function inspectClone(
@@ -290,7 +290,7 @@ async function cloneRepository(
 		};
 	}
 	await mkdir(root, { recursive: true });
-	const temporary = destination + ".partial-" + randomUUID();
+	const temporary = `${destination}.partial-${randomUUID()}`;
 	let result: Awaited<ReturnType<CommandExecutor["exec"]>>;
 	try {
 		result = await pi.exec(
@@ -450,7 +450,7 @@ async function downloadArtifact(
 	const requested = new URL(candidate.url);
 	if (requested.protocol !== "https:") throw new Error("Artifact downloads must use public HTTPS URLs");
 	const fetched = await fetchPublicUrl(requested, { signal, ...network, requireHttps: true });
-	if (!fetched.response.ok) throw new Error("HTTP " + fetched.response.status);
+	if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status}`);
 	const body = await readResponseBody(fetched.response, maxBytes);
 	if (metadataFile?.bytes !== undefined && metadataFile.bytes !== body.length) {
 		throw new Error(
@@ -482,7 +482,7 @@ async function downloadArtifact(
 	}
 	const content = inspectArtifactContent(candidate, fetched.response, body, fetched.finalUrl);
 	const sha256 = createHash("sha256").update(body).digest("hex");
-	const filename = candidate.id + "-" + safeDownloadName(fetched.finalUrl);
+	const filename = `${candidate.id}-${safeDownloadName(fetched.finalUrl)}`;
 	const destination = join(root, "downloads", filename);
 	await mkdir(dirname(destination), { recursive: true });
 	if (await exists(destination)) {
@@ -506,7 +506,7 @@ async function downloadArtifact(
 			failureReason: "destination already exists",
 		};
 	}
-	const temporary = destination + "." + randomUUID() + ".tmp";
+	const temporary = `${destination}.${randomUUID()}.tmp`;
 	try {
 		await writeFile(temporary, body, { flag: "wx" });
 		await rename(temporary, destination);

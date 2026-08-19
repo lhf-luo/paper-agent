@@ -24,25 +24,25 @@ async function appendSearchRunJournal(run: SearchRun, cwd: string): Promise<void
 		if (lines.length > SEARCH_RUN_JOURNAL_LIMIT) {
 			lines = lines.slice(lines.length - SEARCH_RUN_JOURNAL_LIMIT);
 		}
-		await writeFile(journal, lines.join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
+		await writeFile(journal, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 	} catch {
 		// 日志写入是尽力而为, 不影响搜索本身。
 	}
 }
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import { lookupCcfLevel } from "./ccf-ranking.ts";
-import { readableErrorMessage } from "./network-security.ts";
-import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "./literature-download.ts";
-import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "./literature-identifiers.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { lookupCcfLevel } from "../ccf-ranking.ts";
+import { readableErrorMessage } from "../network-security.ts";
+import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "../literature-download.ts";
+import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "../literature-identifiers.ts";
 import {
 	fetchOpenAlexWorks,
 	LiteratureProviderHttpError,
 	searchOpenAlexCitations,
 	searchProviderPage,
 	searchSemanticScholarCitations,
-} from "./literature-providers.ts";
-import { LiteratureSearchCheckpoint } from "./literature-search-checkpoint.ts";
-import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
+} from "../literature-providers.ts";
+import { LiteratureSearchCheckpoint } from "../literature-search-checkpoint.ts";
+import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "../literature-store.ts";
 import type {
 	CandidatePaperTableRow,
 	CitationExpansionTableRow,
@@ -58,20 +58,20 @@ import type {
 	ScreeningStatus,
 	SearchFilters,
 	SearchRun,
-} from "./literature-types.ts";
+} from "../literature-types.ts";
 import {
 	corpusUpsertPlan,
 	derivedRecordWritePlan,
 	persistDerivedRecord,
 	persistPaperRecords,
 	runAuthorizedMutation,
-} from "./literature-write.ts";
+} from "../literature-write.ts";
 import {
 	type OperationAuthorization,
 	OperationConsentManager,
 	type OperationPlan,
 	requestOperationAuthorization,
-} from "./operation-consent.ts";
+} from "../operation-consent.ts";
 
 const providerSchema = Type.Union([
 	Type.Literal("arxiv"),
@@ -418,10 +418,10 @@ export function tagCitationExpansionRecords(
 }
 
 function primaryIdentifier(record: PaperRecord): string {
-	if (record.identifiers.doi) return "doi:" + record.identifiers.doi;
-	if (record.identifiers.arxivId) return "arXiv:" + record.identifiers.arxivId;
-	if (record.identifiers.openAlexId) return "OpenAlex:" + record.identifiers.openAlexId;
-	if (record.identifiers.semanticScholarId) return "S2:" + record.identifiers.semanticScholarId;
+	if (record.identifiers.doi) return `doi:${record.identifiers.doi}`;
+	if (record.identifiers.arxivId) return `arXiv:${record.identifiers.arxivId}`;
+	if (record.identifiers.openAlexId) return `OpenAlex:${record.identifiers.openAlexId}`;
+	if (record.identifiers.semanticScholarId) return `S2:${record.identifiers.semanticScholarId}`;
 	return "unavailable";
 }
 
@@ -455,7 +455,7 @@ export function buildCandidatePaperTable(records: PaperRecord[]): CandidatePaper
 			sources: [...providers].join(", ") || "unknown",
 			discoveryPath: (record.discoveryPaths ?? []).map(discoveryPathLabel).join(" | ") || "unknown",
 			screeningResult: screening
-				? `${screening.status}${screening.reason ? ": " + screening.reason : ""}`
+				? `${screening.status}${screening.reason ? `: ${screening.reason}` : ""}`
 				: "unreviewed",
 			pdf: linkLabel(record, "pdf"),
 			code: linkLabel(record, "artifact"),
@@ -734,7 +734,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		}),
 	) as SearchRun["providerHealth"];
 	const run: SearchRun = {
-		id: "search-" + randomUUID(),
+		id: `search-${randomUUID()}`,
 		startedAt,
 		completedAt: new Date().toISOString(),
 		queries,
@@ -808,13 +808,13 @@ async function collectCitationPages(
 function formatPaper(record: PaperRecord, index: number): string {
 	const sourceNames = [...new Set(record.provenance.map((item) => item.provider))].join(", ");
 	return [
-		String(index + 1) + ". " + record.title,
-		"   id: " + record.id,
-		"   authors: " + (record.authors.slice(0, 10).join(", ") || "unavailable"),
-		"   year/venue: " + (record.year ?? "unknown") + " / " + (record.venue ?? "unknown"),
-		"   DOI/arXiv: " + (record.identifiers.doi ?? "none") + " / " + (record.identifiers.arxivId ?? "none"),
-		"   URL: " + (record.links[0]?.url ?? "unavailable"),
-		"   sources: " + sourceNames,
+		`${String(index + 1)}. ${record.title}`,
+		`   id: ${record.id}`,
+		`   authors: ${record.authors.slice(0, 10).join(", ") || "unavailable"}`,
+		`   year/venue: ${record.year ?? "unknown"} / ${record.venue ?? "unknown"}`,
+		`   DOI/arXiv: ${record.identifiers.doi ?? "none"} / ${record.identifiers.arxivId ?? "none"}`,
+		`   URL: ${record.links[0]?.url ?? "unavailable"}`,
+		`   sources: ${sourceNames}`,
 	].join("\n");
 }
 
@@ -885,17 +885,17 @@ function formatCollection(result: CollectionResult, displayLimit = 60): string {
 	const run = result.run;
 	const candidateTable = run.candidateTable ?? buildCandidatePaperTable(run.results);
 	const lines = [
-		"Search run: " + run.id,
-		"Queries: " + run.queries.join(" | "),
-		"Providers: " + run.providers.join(", "),
-		"Results: " + run.results.length + " unique; merged duplicates: " + run.deduplicatedCount,
-		"Corpus hits reused: " + (run.corpusHitCount ?? 0),
-		"Possible duplicates requiring review: " + (run.possibleDuplicates?.length ?? 0),
+		`Search run: ${run.id}`,
+		`Queries: ${run.queries.join(" | ")}`,
+		`Providers: ${run.providers.join(", ")}`,
+		`Results: ${run.results.length} unique; merged duplicates: ${run.deduplicatedCount}`,
+		`Corpus hits reused: ${run.corpusHitCount ?? 0}`,
+		`Possible duplicates requiring review: ${run.possibleDuplicates?.length ?? 0}`,
 		"Source counts: " +
-			run.providers.map((provider) => provider + "=" + (run.sourceCounts[provider] ?? 0)).join(", "),
-		"Mode: " + run.scope + "/" + run.mode + "/" + run.namespace,
-		"Cache: " + (result.cached ? "hit (no repeated API search)" : "miss"),
-		result.corpusPath ? "Corpus: " + result.corpusPath : "Corpus: not written (once mode)",
+			run.providers.map((provider) => `${provider}=${run.sourceCounts[provider] ?? 0}`).join(", "),
+		`Mode: ${run.scope}/${run.mode}/${run.namespace}`,
+		`Cache: ${result.cached ? "hit (no repeated API search)" : "miss"}`,
+		result.corpusPath ? `Corpus: ${result.corpusPath}` : "Corpus: not written (once mode)",
 		"",
 		"Discovery results are leads, not evidence for substantive claims. Open the primary paper or official artifact.",
 		"",
@@ -903,7 +903,7 @@ function formatCollection(result: CollectionResult, displayLimit = 60): string {
 		"",
 		...run.results.slice(0, displayLimit).map(formatPaper),
 	];
-	if (run.results.length > displayLimit) lines.push("[Only the first " + displayLimit + " records are displayed.]");
+	if (run.results.length > displayLimit) lines.push(`[Only the first ${displayLimit} records are displayed.]`);
 	if (run.possibleDuplicates?.length) {
 		lines.push("", "Possible duplicates (not merged):");
 		for (const candidate of run.possibleDuplicates.slice(0, 30)) {
@@ -1119,12 +1119,12 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					{
 						type: "text",
 						text: [
-							"Research question: " + plan.researchQuestion,
-							"Domain terms: " + (plan.keywordGroups.domain.join(", ") || "none"),
-							"Problem terms: " + (plan.keywordGroups.problem.join(", ") || "none"),
-							"Method terms: " + (plan.keywordGroups.method.join(", ") || "none"),
+							`Research question: ${plan.researchQuestion}`,
+							`Domain terms: ${plan.keywordGroups.domain.join(", ") || "none"}`,
+							`Problem terms: ${plan.keywordGroups.problem.join(", ") || "none"}`,
+							`Method terms: ${plan.keywordGroups.method.join(", ") || "none"}`,
 							"Query variants:",
-							...plan.queryVariants.map((query) => "- " + query),
+							...plan.queryVariants.map((query) => `- ${query}`),
 							"Unsupported providers:",
 							...(plan.unsupportedProviders ?? []).map(
 								(item) =>
@@ -1373,7 +1373,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								accept(
 									await fetchOpenAlexWorks(seed.referencedWorks.slice(0, seedRemaining), {
 										signal,
-										queryLabel: "references:" + seed.id,
+										queryLabel: `references:${seed.id}`,
 									}),
 									"reference",
 									"openalex",
@@ -1385,7 +1385,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 											searchSemanticScholarCitations(
 												seed.identifiers.semanticScholarId ?? "",
 												"references",
-												{ limit: pageLimit, cursor, signal, queryLabel: "references:" + seed.id },
+												{ limit: pageLimit, cursor, signal, queryLabel: `references:${seed.id}` },
 											),
 										seedRemaining,
 										pagesPerSeed,
@@ -1409,7 +1409,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 												limit: pageLimit,
 												cursor,
 												signal,
-												queryLabel: "citations:" + seed.id,
+												queryLabel: `citations:${seed.id}`,
 											}),
 										seedRemaining,
 										pagesPerSeed,
@@ -1425,7 +1425,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 												limit: pageLimit,
 												cursor,
 												signal,
-												queryLabel: "citations:" + seed.id,
+												queryLabel: `citations:${seed.id}`,
 											}),
 										seedRemaining,
 										pagesPerSeed,
@@ -1466,14 +1466,14 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					{
 						type: "text",
 						text: [
-							"Expanded " + seeds.length + " seeds to " + unique.length + " unique neighboring papers.",
-							"Direction/depth/pages: " + direction + "/" + depth + "/" + pagesPerSeed,
-							"Neighbor budget: per-seed=" + limit + "; total=" + maxTotalNeighbors,
+							`Expanded ${seeds.length} seeds to ${unique.length} unique neighboring papers.`,
+							`Direction/depth/pages: ${direction}/${depth}/${pagesPerSeed}`,
+							`Neighbor budget: per-seed=${limit}; total=${maxTotalNeighbors}`,
 							missingSeedIds.length
-								? "Missing seed ids: " + missingSeedIds.join(", ")
+								? `Missing seed ids: ${missingSeedIds.join(", ")}`
 								: "Missing seed ids: none",
-							"Corpus: " + store.root,
-							failures.length ? "Failures:\n- " + failures.join("\n- ") : "Failures: none",
+							`Corpus: ${store.root}`,
+							failures.length ? `Failures:\n- ${failures.join("\n- ")}` : "Failures: none",
 							"",
 							...formatCitationExpansionTable(expansionTable, 60),
 						].join("\n"),
@@ -1557,9 +1557,9 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					{
 						type: "text",
 						text: [
-							"Downloaded PDFs: " + downloaded.length,
-							"Failures/skips: " + failures.length,
-							"Corpus: " + store.root,
+							`Downloaded PDFs: ${downloaded.length}`,
+							`Failures/skips: ${failures.length}`,
+							`Corpus: ${store.root}`,
 							...downloaded.map(
 								(item) =>
 									"- " +
@@ -1571,7 +1571,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 									" path=" +
 									item.blobPath,
 							),
-							...failures.map((item) => "- " + item.paperId + " failed: " + item.reason),
+							...failures.map((item) => `- ${item.paperId} failed: ${item.reason}`),
 						].join("\n"),
 					},
 				],
@@ -1750,7 +1750,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 					store.export(format, filename, records),
 				);
 				return {
-					content: [{ type: "text", text: "Exported " + format + " corpus to " + path }],
+					content: [{ type: "text", text: `Exported ${format} corpus to ${path}` }],
 					details: { exportPath: path, corpusPath: store.root },
 				};
 			}
@@ -1867,7 +1867,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 							promoted.promoted +
 							" records to " +
 							target.root +
-							(promoted.missing.length ? "\nMissing ids: " + promoted.missing.join(", ") : ""),
+							(promoted.missing.length ? `\nMissing ids: ${promoted.missing.join(", ")}` : ""),
 					},
 				],
 				details: { ...promoted, sourcePath: store.root, targetPath: target.root },

@@ -3343,17 +3343,27 @@ span.chip.active {
 }
 
 .pdf-combobox-list li {
+	display: block;
+}
+
+.pdf-combobox-list .pdf-combobox-option {
 	display: flex;
 	gap: 10px;
 	align-items: baseline;
+	width: 100%;
 	padding: 7px 9px;
+	border: 0;
 	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
 	cursor: pointer;
 	white-space: nowrap;
 	min-width: max-content;
 }
 
-.pdf-combobox-list li:hover {
+.pdf-combobox-list .pdf-combobox-option:hover {
 	background: #eef5f1;
 }
 
@@ -3419,9 +3429,9 @@ span.chip.active {
 }
 
 .agent-suggestion-grid {
-	display: flex !important;
-	flex-direction: column !important;
-	align-items: stretch !important;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
 	gap: 6px;
 	margin-top: 18px;
 	max-width: 780px;
@@ -3430,7 +3440,7 @@ span.chip.active {
 }
 
 .agent-suggestion-grid button {
-	width: 100% !important;
+	width: 100%;
 }
 
 .agent-suggestion-grid button {
@@ -3531,10 +3541,6 @@ span.chip.active {
 	white-space: nowrap;
 }
 
-.agent-chat-heading .agent-stop-button {
-	flex-shrink: 0;
-}
-
 .agent-stop-button {
 	padding: 5px 12px;
 	border: 1px solid #e5b8b5;
@@ -3545,13 +3551,17 @@ span.chip.active {
 	cursor: pointer;
 }
 
+.agent-stop-button {
+	flex-shrink: 0;
+}
+
 .agent-stop-button:hover {
 	background: #fdf0ef;
 }
 
 .agent-session-panel {
-	border: 0 !important;
-	background: #f4f7f5 !important;
+	border: 0;
+	background: #f4f7f5;
 }
 
 .agent-session-list article {
@@ -3626,7 +3636,6 @@ span.chip.active {
 	width: min(80%, 780px);
 	padding: 10px 14px;
 	margin-bottom: 6px;
-	border: 0;
 	border-radius: 14px;
 	background: #fff;
 	box-shadow: none;

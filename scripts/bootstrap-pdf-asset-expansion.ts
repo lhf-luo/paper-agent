@@ -8,7 +8,7 @@ import {
 	parsePdfTsv,
 	refinePaperAssetRegions,
 	type PaperAsset,
-} from "../src/pdf-asset-tools.ts";
+} from "../src/tools/pdf-asset-tools.ts";
 
 interface ExpansionSource {
 	slug: string;

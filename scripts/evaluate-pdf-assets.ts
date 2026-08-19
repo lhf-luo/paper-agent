@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { evaluatePaperAssets, parseAssetEvaluationDataset } from "../src/pdf-asset-evaluation.ts";
+import { evaluatePaperAssets, parseAssetEvaluationDataset } from "../src/tools/pdf-asset-evaluation.ts";
 import {
 	augmentPaperAssetsWithOcr,
 	detectPaperAssets,
 	parsePdfTsv,
 	refinePaperAssetRegions,
-} from "../src/pdf-asset-tools.ts";
+} from "../src/tools/pdf-asset-tools.ts";
 
 const annotationsDirectory = resolve(process.argv[2] ?? "eval-data/annotations");
 const enforceReleaseGate = process.argv.includes("--check");

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { acquireArtifacts, artifactAcquisitionPlan } from "../src/artifact-acquisition.ts";
-import { collectLiterature } from "../src/collection-tools.ts";
+import { collectLiterature } from "../src/tools/collection-tools.ts";
 import type { ArtifactManifest, LiteratureProvider } from "../src/literature-types.ts";
 import { OperationConsentManager } from "../src/operation-consent.ts";
 

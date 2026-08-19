@@ -5,12 +5,12 @@ import { extname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { collectLiterature } from "./collection-tools.ts";
-import type { PaperRecord } from "./literature-types.ts";
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import { ResearchWorkspace, validateResearchRecord, type SourceLocator } from "./research-workspace.ts";
-import type { OperationPlan } from "./operation-consent.ts";
-import { runAuthorizedMutation } from "./literature-write.ts";
-import { fetchPublicUrl, htmlToText, readResponseBody } from "./network-security.ts";
+import type { PaperRecord } from "../literature-types.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { ResearchWorkspace, validateResearchRecord, type SourceLocator } from "../research-workspace.ts";
+import type { OperationPlan } from "../operation-consent.ts";
+import { runAuthorizedMutation } from "../literature-write.ts";
+import { fetchPublicUrl, htmlToText, readResponseBody } from "../network-security.ts";
 
 interface SearchDetails {
 	query: string;
@@ -37,12 +37,12 @@ function formatResult(result: PaperRecord, index: number): string {
 		"   Authors: " +
 			(result.authors.slice(0, 12).join(", ") || "unavailable") +
 			(result.authors.length > 12 ? ", et al." : ""),
-		"   Year: " + (result.year ?? "unavailable"),
-		"   URL: " + (result.links[0]?.url ?? "unavailable"),
+		`   Year: ${result.year ?? "unavailable"}`,
+		`   URL: ${result.links[0]?.url ?? "unavailable"}`,
 	];
-	if (result.identifiers.doi) fields.push("   DOI: " + result.identifiers.doi);
-	if (result.citationCount !== undefined) fields.push("   cited_by_count: " + result.citationCount);
-	if (result.abstract) fields.push("   Abstract: " + result.abstract.slice(0, 1_200));
+	if (result.identifiers.doi) fields.push(`   DOI: ${result.identifiers.doi}`);
+	if (result.citationCount !== undefined) fields.push(`   cited_by_count: ${result.citationCount}`);
+	if (result.abstract) fields.push(`   Abstract: ${result.abstract.slice(0, 1_200)}`);
 	return fields.join("\n");
 }
 
@@ -162,18 +162,18 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 				signal,
 			});
 			if (result.run.results.length === 0) {
-				const reasons = result.run.failures.map((failure) => failure.provider + ": " + failure.message).join("; ");
+				const reasons = result.run.failures.map((failure) => `${failure.provider}: ${failure.message}`).join("; ");
 				throw new Error(
-					"Literature search returned no results." + (reasons ? " Provider failures: " + reasons : ""),
+					`Literature search returned no results.${reasons ? ` Provider failures: ${reasons}` : ""}`,
 				);
 			}
-			const errors = result.run.failures.map((failure) => failure.provider + ": " + failure.message);
+			const errors = result.run.failures.map((failure) => `${failure.provider}: ${failure.message}`);
 			const text = [
-				"Query: " + params.query,
+				`Query: ${params.query}`,
 				"Discovery warning: verify claims against the paper, official artifact, or another primary source.",
 				"",
 				result.run.results.map(formatResult).join("\n\n"),
-				errors.length > 0 ? "\nSource errors: " + errors.join("; ") : "",
+				errors.length > 0 ? `\nSource errors: ${errors.join("; ")}` : "",
 			].join("\n");
 			const details: SearchDetails = {
 				query: params.query,
@@ -211,11 +211,11 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 			try {
 				requestedUrl = new URL(params.url);
 			} catch {
-				throw new Error("Invalid URL: " + params.url);
+				throw new Error(`Invalid URL: ${params.url}`);
 			}
 			const fetched = await fetchPublicUrl(requestedUrl, { signal });
 			if (!fetched.response.ok) {
-				throw new Error("Source returned HTTP " + fetched.response.status + ": " + fetched.finalUrl);
+				throw new Error(`Source returned HTTP ${fetched.response.status}: ${fetched.finalUrl}`);
 			}
 			const contentType = fetched.response.headers.get("content-type")?.toLowerCase() ?? "application/octet-stream";
 			const isPdf =
@@ -294,9 +294,9 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 					{
 						type: "text",
 						text: [
-							"Source: " + fetched.finalUrl.href,
-							"Content-Type: " + contentType,
-							truncated ? "[Truncated to " + maxChars + " characters]" : "",
+							`Source: ${fetched.finalUrl.href}`,
+							`Content-Type: ${contentType}`,
+							truncated ? `[Truncated to ${maxChars} characters]` : "",
 							"",
 							text,
 						].join("\n"),

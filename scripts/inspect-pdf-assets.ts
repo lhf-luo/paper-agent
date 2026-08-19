@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { detectPaperAssets, parsePdfTsv } from "../src/pdf-asset-tools.ts";
+import { detectPaperAssets, parsePdfTsv } from "../src/tools/pdf-asset-tools.ts";
 
 const pdfs = process.argv.slice(2);
 if (pdfs.length === 0) {

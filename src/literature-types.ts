@@ -13,6 +13,7 @@ export type ProvenanceProvider = LiteratureProvider | "local-pdf" | "bibtex-impo
 export type CorpusScope = "personal" | "team";
 export type PersistenceMode = "once" | "persistent";
 export type ScreeningStatus = "unreviewed" | "include" | "exclude" | "maybe";
+export type ReadingStatus = "unread" | "queued" | "reading" | "read" | "skimmed";
 export type TeamReviewStatus = "personal" | "team-proposed" | "team-approved" | "team-rejected";
 
 export interface SearchFilters {
@@ -85,6 +86,12 @@ export interface PaperCuration {
 		updatedBy: string;
 		updatedAt: string;
 	};
+	reading?: {
+		status: ReadingStatus;
+		note?: string;
+		updatedBy: string;
+		updatedAt: string;
+	};
 	teamReview?: {
 		status: TeamReviewStatus;
 		proposedBy?: string;
@@ -138,6 +145,10 @@ export interface PaperVersion {
 	bytes: number;
 	blobPath: string;
 	contentType: string;
+	versionKind?: "published" | "preprint" | "supplement" | "unknown";
+	versionLabel?: string;
+	relatedVersionSha256?: string;
+	isPreferred?: boolean;
 }
 
 export interface ProviderPage {
@@ -206,6 +217,27 @@ export interface CitationExpansionTableRow extends CandidatePaperTableRow {
 	seedPaperId: string;
 	relationship: "reference" | "citation";
 	depth: string;
+}
+
+export interface PaperPackageTableRow {
+	paperId: string;
+	metadata: string;
+	version: string;
+	pdf: string;
+	artifact: string;
+	discoverySource: string;
+	screeningStatus: string;
+	readingStatus: string;
+	updatedAt: string;
+}
+
+export interface PaperMaterialPackage {
+	paperId: string;
+	record: PaperRecord;
+	versions: PaperVersion[];
+	artifactManifests: ArtifactManifest[];
+	tableRow: PaperPackageTableRow;
+	missing: string[];
 }
 
 export interface SearchRun {

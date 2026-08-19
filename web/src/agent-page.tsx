@@ -62,7 +62,7 @@ function timeLabel(value: string): string {
 	return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function credentialLabel(config?: AgentConfigView): string {
+function _credentialLabel(config?: AgentConfigView): string {
 	if (!config?.credentialsAvailable) return "未提供凭据";
 	switch (config.credentialSource) {
 		case "memory":
@@ -165,7 +165,7 @@ export function AgentPage({
 	onPromptConsumed?: () => void;
 }) {
 	const [config, setConfig] = useState<AgentConfigView>();
-	const [configuredKey, setConfiguredKey] = useState("");
+	const [configuredKey, _setConfiguredKey] = useState("");
 	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
 	const [skillPaletteOpen, setSkillPaletteOpen] = useState(false);
 	const [skillFilter, setSkillFilter] = useState("");
@@ -219,7 +219,7 @@ export function AgentPage({
 	}, []);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
-	const [newMode, setNewMode] = useState<AgentMode>("persistent");
+	const [newMode, _setNewMode] = useState<AgentMode>("persistent");
 	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
 	useEffect(() => {
@@ -232,7 +232,7 @@ export function AgentPage({
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
-	const [streamState, setStreamState] = useState<"idle" | "connected" | "reconnecting">("idle");
+	const [_streamState, setStreamState] = useState<"idle" | "connected" | "reconnecting">("idle");
 	const [sidebarOpen, setSidebarOpen] = useState(
 		() => window.localStorage.getItem("paper-agent-sidebar-open") !== "closed",
 	);
@@ -242,7 +242,7 @@ export function AgentPage({
 		setConfig(next);
 	}, []);
 
-	const applyConfigured = useCallback(async () => {
+	const _applyConfigured = useCallback(async () => {
 		if (!configuredKey) return;
 		setBusy(true);
 		setError("");

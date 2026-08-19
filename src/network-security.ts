@@ -27,7 +27,7 @@ export function readableErrorMessage(error: unknown): string {
 	return String(error);
 }
 
-const PYTHON_DOWNLOAD_SCRIPT = String.raw`
+const PYTHON_DOWNLOAD_SCRIPT = `
 import sys, urllib.request, ssl
 url = sys.argv[1]
 proxy = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
@@ -69,10 +69,10 @@ export async function downloadViaPython(
 		hostname.endsWith(".local") ||
 		hostname.endsWith(".internal")
 	) {
-		throw new Error("Private hostname is not allowed: " + hostname);
+		throw new Error(`Private hostname is not allowed: ${hostname}`);
 	}
 	if (isIP(hostname) && isPrivateAddress(hostname)) {
-		throw new Error("Private or reserved address is not allowed: " + hostname);
+		throw new Error(`Private or reserved address is not allowed: ${hostname}`);
 	}
 	const timeoutMs = options.timeoutMs ?? 60_000;
 	const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
@@ -110,7 +110,7 @@ export async function downloadViaPython(
 		child.once("close", (code) => {
 			clearTimeout(timer);
 			if (code !== 0) {
-				reject(new Error(`python download failed (exit ${code})${stderr ? ": " + stderr.slice(0, 200) : ""}`));
+				reject(new Error(`python download failed (exit ${code})${stderr ? `: ${stderr.slice(0, 200)}` : ""}`));
 				return;
 			}
 			const body = Buffer.concat(chunks);
@@ -153,7 +153,7 @@ function proxyTarget(
 				signal: options.signal,
 			});
 			tunnel.once("connect", (_response, socket, head) => {
-				if (head && head.length) socket.unshift(head);
+				if (head?.length) socket.unshift(head);
 				const secured = httpsRequest(
 					{
 						host: target.hostname,
@@ -258,15 +258,15 @@ export async function assertPublicUrl(url: URL, resolver: AddressResolver = defa
 		hostname.endsWith(".local") ||
 		hostname.endsWith(".internal")
 	) {
-		throw new Error("Private hostname is not allowed: " + hostname);
+		throw new Error(`Private hostname is not allowed: ${hostname}`);
 	}
 	if (isIP(hostname)) {
-		if (isPrivateAddress(hostname)) throw new Error("Private or reserved address is not allowed: " + hostname);
+		if (isPrivateAddress(hostname)) throw new Error(`Private or reserved address is not allowed: ${hostname}`);
 		return [hostname];
 	}
 	const addresses = await resolver(hostname);
 	if (addresses.length === 0 || addresses.some((entry) => isPrivateAddress(entry.address))) {
-		throw new Error("Hostname does not resolve exclusively to public addresses: " + hostname);
+		throw new Error(`Hostname does not resolve exclusively to public addresses: ${hostname}`);
 	}
 	return [...new Set(addresses.map((entry) => entry.address))];
 }
@@ -478,7 +478,7 @@ export async function fetchPublicUrl(
 		});
 		if (response.status < 300 || response.status >= 400) return { response, finalUrl: currentUrl };
 		const location = response.headers.get("location");
-		if (!location) throw new Error("HTTP " + response.status + " response did not include a redirect location");
+		if (!location) throw new Error(`HTTP ${response.status} response did not include a redirect location`);
 		await response.body?.cancel();
 		currentUrl = new URL(location, currentUrl);
 		if (options.requireHttps && currentUrl.protocol !== "https:") {
@@ -491,7 +491,7 @@ export async function fetchPublicUrl(
 export async function readResponseBody(response: Response, maxBytes: number): Promise<Buffer> {
 	const declaredLength = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-		throw new Error("Response is " + declaredLength + " bytes; limit is " + maxBytes + " bytes");
+		throw new Error(`Response is ${declaredLength} bytes; limit is ${maxBytes} bytes`);
 	}
 	if (!response.body) return Buffer.alloc(0);
 	const reader = response.body.getReader();
@@ -503,7 +503,7 @@ export async function readResponseBody(response: Response, maxBytes: number): Pr
 		total += chunk.value.byteLength;
 		if (total > maxBytes) {
 			await reader.cancel();
-			throw new Error("Response exceeded the " + maxBytes + "-byte limit");
+			throw new Error(`Response exceeded the ${maxBytes}-byte limit`);
 		}
 		chunks.push(Buffer.from(chunk.value));
 	}

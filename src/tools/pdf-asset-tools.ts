@@ -10,7 +10,7 @@ import {
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { CommandExecutor } from "./command-executor.ts";
+import type { CommandExecutor } from "../command-executor.ts";
 import { getPdfPageCount, parsePageSelection, validatePdfPath } from "./pdf-tools.ts";
 
 export interface PdfBox {
@@ -991,7 +991,7 @@ function referenceIdentifiers(
 function attachAssetMentions(layouts: PdfLayoutPage[], assets: PaperAsset[]): void {
 	const keyCounts = new Map<string, number>();
 	for (const asset of assets) {
-		const key = asset.type + ":" + asset.identifier.toLowerCase();
+		const key = `${asset.type}:${asset.identifier.toLowerCase()}`;
 		keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
 	}
 	let section: string | undefined;
@@ -1021,7 +1021,7 @@ function attachAssetMentions(layouts: PdfLayoutPage[], assets: PaperAsset[]): vo
 							.replace(/\s+/g, " ")
 							.trim()
 							.slice(0, 600);
-						const key = asset.type + ":" + identifier;
+						const key = `${asset.type}:${identifier}`;
 						asset.mentions.push({
 							page: page.page,
 							matchedText: reference.matchedText,
@@ -1166,8 +1166,8 @@ export async function augmentPaperAssetsWithOcr(
 				{ cwd: dirname(pdfPath), signal: options.signal, timeout: 60_000 },
 			);
 			if (rendered.code !== 0 || rendered.killed || options.signal?.aborted) continue;
-			const image = parsePgm(await readFile(prefix + ".pgm"));
-			const recognized = await pi.exec("tesseract", [prefix + ".pgm", "stdout", "--psm", "6", "tsv"], {
+			const image = parsePgm(await readFile(`${prefix}.pgm`));
+			const recognized = await pi.exec("tesseract", [`${prefix}.pgm`, "stdout", "--psm", "6", "tsv"], {
 				cwd: temporaryDirectory,
 				signal: options.signal,
 				timeout: 90_000,
@@ -1514,7 +1514,7 @@ export async function refinePaperAssetRegions(
 				{ cwd: dirname(pdfPath), signal, timeout: 60_000 },
 			);
 			if (rendered.code !== 0 || rendered.killed || signal?.aborted) continue;
-			const image = parsePgm(await readFile(prefix + ".pgm"));
+			const image = parsePgm(await readFile(`${prefix}.pgm`));
 			const pageAssets = assets.filter((item) => item.page === pageNumber);
 			for (const asset of pageAssets) {
 				asset.candidateRegion = refineRegionFromGrayImage(asset.candidateRegion, page, image);
@@ -2049,7 +2049,7 @@ export function registerPdfAssetTools(pi: ExtensionAPI): void {
 									(continuation) =>
 										`  continuation_page=${continuation.page}; region=[${formatBox(continuation.region)}]; confidence=${continuation.confidence}`,
 								),
-								"  body_mentions=" + asset.mentions.length,
+								`  body_mentions=${asset.mentions.length}`,
 								...asset.mentions
 									.slice(0, 20)
 									.map(

@@ -115,37 +115,37 @@ function isMissing(error: unknown): boolean {
 }
 
 function plainObject(value: unknown, label: string): Record<string, unknown> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(label + " must be an object");
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
 	return value as Record<string, unknown>;
 }
 
 function boundedText(value: unknown, label: string, maximum: number, required = false): string | undefined {
 	if (value === undefined || value === null) {
-		if (required) throw new Error(label + " is required");
+		if (required) throw new Error(`${label} is required`);
 		return undefined;
 	}
-	if (typeof value !== "string") throw new Error(label + " must be a string");
+	if (typeof value !== "string") throw new Error(`${label} must be a string`);
 	const normalized = value.trim();
-	if (required && !normalized) throw new Error(label + " is required");
-	if (normalized.length > maximum) throw new Error(label + " is too long");
+	if (required && !normalized) throw new Error(`${label} is required`);
+	if (normalized.length > maximum) throw new Error(`${label} is too long`);
 	return normalized || undefined;
 }
 
 function pageList(value: unknown, label: string, pageCount: number): number[] {
-	if (!Array.isArray(value)) throw new Error(label + " must be an array");
+	if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
 	const pages = [...new Set(value.map((page) => Number(page)))].sort((left, right) => left - right);
 	if (pages.some((page) => !Number.isInteger(page) || page < 1 || page > pageCount)) {
-		throw new Error(label + " contains a page outside the pinned PDF");
+		throw new Error(`${label} contains a page outside the pinned PDF`);
 	}
 	return pages;
 }
 
 function stringList(value: unknown, label: string, maximumItems: number, maximumLength: number): string[] {
 	if (value === undefined) return [];
-	if (!Array.isArray(value) || value.length > maximumItems) throw new Error(label + " must be a bounded string array");
+	if (!Array.isArray(value) || value.length > maximumItems) throw new Error(`${label} must be a bounded string array`);
 	const strings = value.map((item) => {
 		if (typeof item !== "string" || !item.trim() || item.trim().length > maximumLength) {
-			throw new Error(label + " contains an invalid string");
+			throw new Error(`${label} contains an invalid string`);
 		}
 		return item.trim();
 	});
@@ -155,7 +155,7 @@ function stringList(value: unknown, label: string, maximumItems: number, maximum
 function safeArtifactId(value: unknown, label: string): string {
 	const id = boundedText(value, label, 200, true) as string;
 	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(id)) {
-		throw new Error(label + " must use letters, numbers, dots, underscores, colons, or hyphens");
+		throw new Error(`${label} must use letters, numbers, dots, underscores, colons, or hyphens`);
 	}
 	return id;
 }
@@ -188,12 +188,12 @@ export class ArtifactEvaluationReviewService {
 		const paperId = boundedText(source.paperId, "source.paperId", 500);
 		const pdfPath = boundedText(source.pdfPath, "source.pdfPath", 2_000, true) as string;
 		const pdfSha256 = boundedText(source.pdfSha256, "source.pdfSha256", 64);
-		if (pdfSha256 && !/^[a-f0-9]{64}$/i.test(pdfSha256)) throw new Error(slug + ": source PDF SHA-256 is invalid");
+		if (pdfSha256 && !/^[a-f0-9]{64}$/i.test(pdfSha256)) throw new Error(`${slug}: source PDF SHA-256 is invalid`);
 		const sourceUrl = boundedText(source.sourceUrl, "source.sourceUrl", 2_000, true) as string;
 		const url = new URL(sourceUrl);
-		if (url.protocol !== "https:") throw new Error(slug + ": sourceUrl must use HTTPS");
+		if (url.protocol !== "https:") throw new Error(`${slug}: sourceUrl must use HTTPS`);
 		if (source.status !== "available" && source.status !== "pending-download") {
-			throw new Error(slug + ": source.status is invalid");
+			throw new Error(`${slug}: source.status is invalid`);
 		}
 		return {
 			slug,
@@ -213,7 +213,7 @@ export class ArtifactEvaluationReviewService {
 		const sources = parsed.map((value) => this.validateSource(value));
 		const slugs = new Set<string>();
 		for (const source of sources) {
-			if (slugs.has(source.slug)) throw new Error("Duplicate artifact evaluation slug: " + source.slug);
+			if (slugs.has(source.slug)) throw new Error(`Duplicate artifact evaluation slug: ${source.slug}`);
 			slugs.add(source.slug);
 		}
 		return sources;
@@ -223,7 +223,7 @@ export class ArtifactEvaluationReviewService {
 		if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(slug))
 			throw new ArtifactReviewNotFoundError("Unknown artifact evaluation paper");
 		const source = (await this.sources()).find((candidate) => candidate.slug === slug);
-		if (!source) throw new ArtifactReviewNotFoundError("Unknown artifact evaluation paper: " + slug);
+		if (!source) throw new ArtifactReviewNotFoundError(`Unknown artifact evaluation paper: ${slug}`);
 		return source;
 	}
 
@@ -236,7 +236,7 @@ export class ArtifactEvaluationReviewService {
 			isAbsolute(pathRelative) ||
 			!path.toLowerCase().endsWith(".pdf")
 		) {
-			throw new Error(source.slug + ": pdfPath must resolve to one PDF under eval-data/pdfs");
+			throw new Error(`${source.slug}: pdfPath must resolve to one PDF under eval-data/pdfs`);
 		}
 		return path;
 	}
@@ -245,41 +245,41 @@ export class ArtifactEvaluationReviewService {
 		source: ArtifactEvaluationSource,
 	): Promise<{ path: string; body: Buffer; pdfSha256: string }> {
 		if (source.status !== "available" || !source.pdfSha256) {
-			throw new Error(source.slug + ": PDF is not available and hash-pinned");
+			throw new Error(`${source.slug}: PDF is not available and hash-pinned`);
 		}
 		const path = this.pdfPath(source);
 		const body = await readFile(path);
 		if (!body.subarray(0, 5).equals(Buffer.from("%PDF-")))
-			throw new Error(source.slug + ": pinned file is not a PDF");
+			throw new Error(`${source.slug}: pinned file is not a PDF`);
 		const actual = sha256(body);
-		if (actual !== source.pdfSha256) throw new Error(source.slug + ": pinned PDF SHA-256 changed");
+		if (actual !== source.pdfSha256) throw new Error(`${source.slug}: pinned PDF SHA-256 changed`);
 		return { path, body, pdfSha256: actual };
 	}
 
 	private async pageCount(pdfPath: string, slug: string): Promise<number> {
 		const result = await this.executor.exec("pdfinfo", [pdfPath], { timeout: 30_000 });
-		if (result.code !== 0 || result.killed) throw new Error(slug + ": " + (result.stderr.trim() || "pdfinfo failed"));
+		if (result.code !== 0 || result.killed) throw new Error(`${slug}: ${result.stderr.trim() || "pdfinfo failed"}`);
 		const pageCount = Number(/^Pages:\s+(\d+)\s*$/im.exec(result.stdout)?.[1]);
 		if (!Number.isInteger(pageCount) || pageCount < 1)
-			throw new Error(slug + ": pdfinfo did not report a page count");
+			throw new Error(`${slug}: pdfinfo did not report a page count`);
 		return pageCount;
 	}
 
 	private async candidateSnapshot(source: ArtifactEvaluationSource): Promise<ArtifactGoldAnnotation> {
 		const snapshot = JSON.parse(
-			await readFile(join(this.candidateRoot, source.slug + ".json"), "utf8"),
+			await readFile(join(this.candidateRoot, `${source.slug}.json`), "utf8"),
 		) as ArtifactGoldAnnotation;
 		validateArtifactGoldAnnotation(snapshot);
 		if (snapshot.annotationStatus !== "machine-generated-candidate") {
-			throw new Error(source.slug + ": candidate snapshot must remain machine-generated-candidate");
+			throw new Error(`${source.slug}: candidate snapshot must remain machine-generated-candidate`);
 		}
 		if (snapshot.source.slug !== source.slug || snapshot.source.pdfSha256 !== source.pdfSha256) {
-			throw new Error(source.slug + ": candidate snapshot does not match sources.json");
+			throw new Error(`${source.slug}: candidate snapshot does not match sources.json`);
 		}
 		const ids = new Set<string>();
 		for (const candidate of snapshot.detectorCandidates ?? []) {
 			if (!candidate.id || ids.has(candidate.id))
-				throw new Error(source.slug + ": detector candidate ids must be unique");
+				throw new Error(`${source.slug}: detector candidate ids must be unique`);
 			ids.add(candidate.id);
 		}
 		return snapshot;
@@ -289,11 +289,11 @@ export class ArtifactEvaluationReviewService {
 		source: ArtifactEvaluationSource,
 	): Promise<{ annotation?: ArtifactGoldAnnotation; hash?: string }> {
 		try {
-			const body = await readFile(join(this.annotationRoot, source.slug + ".json"));
+			const body = await readFile(join(this.annotationRoot, `${source.slug}.json`));
 			const annotation = JSON.parse(body.toString("utf8")) as ArtifactGoldAnnotation;
 			validateArtifactGoldAnnotation(annotation);
 			if (annotation.source.slug !== source.slug || annotation.source.pdfSha256 !== source.pdfSha256) {
-				throw new Error(source.slug + ": reviewed annotation does not match sources.json");
+				throw new Error(`${source.slug}: reviewed annotation does not match sources.json`);
 			}
 			return { annotation, hash: sha256(body) };
 		} catch (error) {
@@ -388,12 +388,12 @@ export class ArtifactEvaluationReviewService {
 				try {
 					candidateCount = (await this.candidateSnapshot(source)).detectorCandidates?.length ?? 0;
 				} catch (error) {
-					issues.push("Candidate snapshot: " + (error instanceof Error ? error.message : String(error)));
+					issues.push(`Candidate snapshot: ${error instanceof Error ? error.message : String(error)}`);
 				}
 				try {
 					annotation = (await this.existingAnnotation(source)).annotation;
 				} catch (error) {
-					issues.push("Reviewed annotation: " + (error instanceof Error ? error.message : String(error)));
+					issues.push(`Reviewed annotation: ${error instanceof Error ? error.message : String(error)}`);
 				}
 				return this.queueItem(source, candidateCount, pdfAvailable, annotation, issues);
 			}),
@@ -442,7 +442,7 @@ export class ArtifactEvaluationReviewService {
 	async readPdf(slug: string): Promise<{ body: Buffer; filename: string }> {
 		const source = await this.source(slug);
 		const verified = await this.verifiedPdf(source);
-		return { body: verified.body, filename: verified.path.split(/[\\/]/).at(-1) ?? source.slug + ".pdf" };
+		return { body: verified.body, filename: verified.path.split(/[\\/]/).at(-1) ?? `${source.slug}.pdf` };
 	}
 
 	private normalizeSubmission(detail: ArtifactReviewDetail, input: unknown): ArtifactGoldAnnotation {
@@ -472,7 +472,7 @@ export class ArtifactEvaluationReviewService {
 			if (seenCandidateIds.has(candidateId)) throw new Error("Each detector candidate may be classified only once");
 			seenCandidateIds.add(candidateId);
 			const candidate = candidates.get(candidateId);
-			if (!candidate) throw new Error("Unknown detector candidate: " + candidateId);
+			if (!candidate) throw new Error(`Unknown detector candidate: ${candidateId}`);
 			const canonicalCandidate = canonicalArtifactUrl(candidate.url);
 			if (review.disposition === "ignored") {
 				const reason = boundedText(review.reason, "ignored reason", 10_000, true) as string;
@@ -616,9 +616,9 @@ export class ArtifactEvaluationReviewService {
 	}> {
 		const detail = await this.detail(slug);
 		const annotation = this.normalizeSubmission(detail, input);
-		const content = JSON.stringify(annotation, null, 2) + "\n";
+		const content = `${JSON.stringify(annotation, null, 2)}\n`;
 		const previous = await this.existingAnnotation(detail.source);
-		const path = join(this.annotationRoot, slug + ".json");
+		const path = join(this.annotationRoot, `${slug}.json`);
 		return {
 			annotation,
 			content,
@@ -637,7 +637,7 @@ export class ArtifactEvaluationReviewService {
 				targets: [
 					{ label: "Reviewed annotation", value: path, risk: "high" },
 					...annotation.expectedArtifacts.slice(0, 100).map((artifact) => ({
-						label: "Expected artifact " + artifact.id,
+						label: `Expected artifact ${artifact.id}`,
 						value: artifact.urls.join(" | "),
 						risk: "medium" as const,
 					})),
@@ -662,7 +662,7 @@ export class ArtifactEvaluationReviewService {
 		const prepared = await this.reviewOperation(slug, input);
 		await this.consent.consume(grant, prepared.plan);
 		await mkdir(this.annotationRoot, { recursive: true });
-		const temporary = prepared.path + "." + randomUUID() + ".tmp";
+		const temporary = `${prepared.path}.${randomUUID()}.tmp`;
 		try {
 			await writeFile(temporary, prepared.content, { encoding: "utf8", flag: "wx" });
 			await rename(temporary, prepared.path);

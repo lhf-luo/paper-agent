@@ -3,12 +3,12 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { sha256File } from "./artifact-discovery.ts";
-import { requestInteractiveOperationAuthorization } from "./interactive-operation-consent.ts";
-import { normalizeArxivId, normalizeDoi, paperRecordId, sha256Text } from "./literature-identifiers.ts";
-import { LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
-import type { PaperCuration, PaperProvenance, PaperRecord } from "./literature-types.ts";
-import type { OperationPlan } from "./operation-consent.ts";
+import { sha256File } from "../artifact-discovery.ts";
+import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { normalizeArxivId, normalizeDoi, paperRecordId, sha256Text } from "../literature-identifiers.ts";
+import { LiteratureStore, resolveCorpusRoot } from "../literature-store.ts";
+import type { PaperCuration, PaperProvenance, PaperRecord } from "../literature-types.ts";
+import type { OperationPlan } from "../operation-consent.ts";
 
 interface ImportRejection {
 	source: string;
@@ -585,7 +585,7 @@ export function registerLiteratureImportTool(pi: ExtensionAPI): void {
 			};
 			await store.initialize();
 			await mkdir(dirname(rejectionPath), { recursive: true });
-			await writeFile(rejectionPath, JSON.stringify(rejectionLog, null, 2) + "\n", "utf8");
+			await writeFile(rejectionPath, `${JSON.stringify(rejectionLog, null, 2)}\n`, "utf8");
 			return {
 				content: [
 					{

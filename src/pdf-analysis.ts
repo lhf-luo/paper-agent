@@ -6,8 +6,8 @@ import {
 	type PaperAsset,
 	parsePdfTsv,
 	refinePaperAssetRegions,
-} from "./pdf-asset-tools.ts";
-import { getPdfPageCount, validatePdfPath } from "./pdf-tools.ts";
+} from "./tools/pdf-asset-tools.ts";
+import { getPdfPageCount, validatePdfPath } from "./tools/pdf-tools.ts";
 
 export interface PdfAnalysisResult {
 	pdfPath: string;

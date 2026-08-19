@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadPaperAgentConfig } from "../src/app-config.ts";
 import { setProviderCredentials } from "../src/literature-providers.ts";
 import { setProxyUrl } from "../src/network-security.ts";
-import { setTeamConnection } from "../src/team-corpus-client.ts";
+import { setTeamConnection } from "../src/tools/team-corpus-client.ts";
 import { startLocalWebServer } from "../src/local-web-server.ts";
 import { PaperAgentApplication } from "../src/paper-agent-application.ts";
 import { createWebAgentService } from "../src/web-agent-service.ts";
