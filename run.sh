@@ -150,7 +150,7 @@ start_agent() {
 				;;
 		esac
 	done
-	local args=("$AGENT_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" --no-approve --no-extensions --extension "$AGENT_DIR/src/index.ts" --skill "$AGENT_DIR/skills/literature-corpus-manager")
+	local args=("$AGENT_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" --no-approve --no-extensions --extension "$AGENT_DIR/src/index.ts" --skill "$AGENT_DIR/skills/literature-corpus-manager" --skill "$AGENT_DIR/skills/literature-survey" --skill "$AGENT_DIR/skills/skim-card")
 	if [[ -n "$pdf" ]]; then
 		if [[ ! -f "$pdf" ]]; then echo "PDF not found: $pdf" >&2; exit 1; fi
 		local absolute_pdf

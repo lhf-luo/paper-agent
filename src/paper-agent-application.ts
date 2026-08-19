@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -34,6 +35,7 @@ import type {
 	ArtifactManifest,
 	LiteratureProvider,
 	PaperRecord,
+	PaperVersion,
 	ScreeningStatus,
 	SearchFilters,
 } from "./literature-types.ts";
@@ -110,7 +112,8 @@ interface AuthorizedArtifactJob {
 }
 
 interface CorpusImportInput {
-	searchJobId: string;
+	searchJobId?: string;
+	searchRunId?: string;
 	paperIds?: string[];
 	namespace?: string;
 }
@@ -286,10 +289,45 @@ export class PaperAgentApplication {
 			team: config.team
 				? {
 						...config.team,
-						credentialsAvailable: Boolean(process.env[config.team.tokenEnvironmentVariable]),
+						credentialsAvailable: Boolean(
+							config.team.token ?? process.env[config.team.tokenEnvironmentVariable],
+						),
 					}
 				: undefined,
 		};
+	}
+
+	private configCredentialsSync(): {
+		coreApiKey?: string;
+		semanticScholarApiKey?: string;
+		pubmedApiKey?: string;
+		exaApiKey?: string;
+		unpaywallEmail?: string;
+	} {
+		try {
+			const raw = readFileSync(join(this.projectRoot, ".paper-agent", "config.json"), "utf8");
+			const parsed = JSON.parse(raw) as { credentials?: Record<string, unknown> };
+			return (parsed.credentials ?? {}) as ReturnType<PaperAgentApplication["configCredentialsSync"]>;
+		} catch {
+			return {};
+		}
+	}
+
+	private credentialKeyFor(providerId: string): keyof ReturnType<PaperAgentApplication["configCredentialsSync"]> {
+		switch (providerId) {
+			case "core":
+				return "coreApiKey";
+			case "semanticscholar":
+				return "semanticScholarApiKey";
+			case "pubmed":
+				return "pubmedApiKey";
+			case "unpaywall":
+				return "unpaywallEmail";
+			case "exa":
+				return "exaApiKey";
+			default:
+				return "coreApiKey";
+		}
 	}
 
 	providerCatalog() {
@@ -313,7 +351,10 @@ export class PaperAgentApplication {
 			queryMode: definition.queryMode,
 			requiresEnvironmentVariable: definition.requiresEnvironmentVariable,
 			credentialsAvailable: definition.requiresEnvironmentVariable
-				? Boolean(process.env[definition.requiresEnvironmentVariable])
+				? Boolean(
+						process.env[definition.requiresEnvironmentVariable] ||
+							this.configCredentialsSync()[this.credentialKeyFor(definition.id)],
+					)
 				: true,
 			lastHealth: latestHealth.get(definition.id),
 		}));
@@ -326,9 +367,9 @@ export class PaperAgentApplication {
 	}> {
 		const config = await loadPaperAgentConfig(this.projectRoot);
 		if (!config.team) throw new Error("Team knowledge service is not configured");
-		const token = process.env[config.team.tokenEnvironmentVariable];
+		const token = config.team.token ?? process.env[config.team.tokenEnvironmentVariable];
 		if (!token)
-			throw new Error(`Team token environment variable is missing: ${config.team.tokenEnvironmentVariable}`);
+			throw new Error(`Team token is missing: set config.team.token or the ${config.team.tokenEnvironmentVariable} environment variable`);
 		return {
 			client: new TeamCorpusClient({ baseUrl: config.team.serverUrl, token }),
 			namespace: config.team.namespace,
@@ -336,11 +377,98 @@ export class PaperAgentApplication {
 		};
 	}
 
+	async listAvailablePdfs(
+		namespace = this.defaultNamespace,
+	): Promise<
+		Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			bytes: number;
+			contentType: string;
+		}>
+	> {
+		await this.initialize();
+		const store = this.personalStore(namespace);
+		await store.initialize();
+		const versionsDir = join(store.root, "paper-versions");
+		let files: string[];
+		try {
+			files = await readdir(versionsDir);
+		} catch {
+			return [];
+		}
+		const results: Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			bytes: number;
+			contentType: string;
+			hasPdf: boolean;
+		}> = [];
+		const seen = new Set<string>();
+		for (const file of files) {
+			if (!file.endsWith(".json")) continue;
+			const paperId = file.slice(0, -".json".length);
+			try {
+				const versions = JSON.parse(
+					await readFile(join(versionsDir, file), "utf8"),
+				) as PaperVersion[];
+				if (!versions.length || !versions[0].blobPath) continue;
+				const record = await store.getPaper(paperId);
+				results.push({
+					paperId,
+					title: record?.title ?? paperId,
+					sha256: versions[0].sha256,
+					blobPath: versions[0].blobPath,
+					sourceUrl: versions[0].sourceUrl,
+					bytes: versions[0].bytes,
+					contentType: versions[0].contentType,
+					hasPdf: true,
+				});
+				seen.add(paperId);
+			} catch {
+				// 跳过损坏的版本文件
+			}
+		}
+		// 补充未下载 PDF 的论文(仅元数据), 让用户知道可以去下载
+		try {
+			const recordFiles = await readdir(join(store.root, "records"));
+			for (const file of recordFiles) {
+				if (!file.endsWith(".json")) continue;
+				const paperId = file.slice(0, -".json".length);
+				if (seen.has(paperId)) continue;
+				try {
+					const record = await store.getPaper(paperId);
+					if (!record) continue;
+					results.push({
+						paperId,
+						title: record.title ?? paperId,
+						sha256: "",
+						blobPath: "",
+						bytes: 0,
+						contentType: "",
+						hasPdf: false,
+					});
+				} catch {
+					// 跳过损坏的记录
+				}
+			}
+		} catch {
+			// records 目录不存在时忽略
+		}
+		return results.sort((left, right) => left.title.localeCompare(right.title));
+	}
+
 	async teamOverview() {
 		const config = await loadPaperAgentConfig(this.projectRoot);
 		if (!config.team)
 			return { configured: false, connected: false, reason: "Team knowledge service is not configured" };
-		const tokenAvailable = Boolean(process.env[config.team.tokenEnvironmentVariable]);
+		const tokenAvailable = Boolean(config.team.token ?? process.env[config.team.tokenEnvironmentVariable]);
 		if (!tokenAvailable) {
 			return {
 				configured: true,
@@ -348,7 +476,7 @@ export class PaperAgentApplication {
 				serverUrl: config.team.serverUrl,
 				namespace: config.team.namespace,
 				tokenEnvironmentVariable: config.team.tokenEnvironmentVariable,
-				reason: `Environment variable ${config.team.tokenEnvironmentVariable} is not set`,
+				reason: `Team token is missing: set config.team.token or the ${config.team.tokenEnvironmentVariable} environment variable`,
 			};
 		}
 		try {
@@ -1190,6 +1318,17 @@ export class PaperAgentApplication {
 		return this.jobs.enqueue("artifact-discovery", input);
 	}
 
+	async deleteJob(id: string): Promise<{ ok: true }> {
+		await this.initialize();
+		const job = this.jobs.get(id);
+		if (!job) throw new Error("Job not found");
+		if (["queued", "running", "paused"].includes(job.status)) {
+			throw new Error(`Cannot delete a ${job.status} job; cancel it first`);
+		}
+		this.jobs.delete(id);
+		return { ok: true };
+	}
+
 	async retryJob(id: string): Promise<BackgroundJob> {
 		await this.initialize();
 		const job = this.jobs.get(id);
@@ -1239,7 +1378,9 @@ export class PaperAgentApplication {
 
 	async prepareCorpusImport(input: CorpusImportInput): Promise<PreparedOperation> {
 		await this.initialize();
-		const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+		const records = input.searchRunId
+			? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+			: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 		return this.consent.prepare(corpusUpsertPlan(this.personalStore(input.namespace), records));
 	}
 
@@ -1304,7 +1445,9 @@ export class PaperAgentApplication {
 
 	async enqueueAuthorizedCorpusImport(input: CorpusImportInput, grant: ConfirmationGrant): Promise<BackgroundJob> {
 		await this.initialize();
-		const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+		const records = input.searchRunId
+			? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+			: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 		const executionPermit = await authorizeOperationExecution(
 			{ manager: this.consent, grant },
 			corpusUpsertPlan(this.personalStore(input.namespace), records),
@@ -1361,7 +1504,34 @@ export class PaperAgentApplication {
 		}
 		const run = (job.result as { run?: { results?: unknown } }).run;
 		if (!run || !Array.isArray(run.results)) throw new Error("Search job does not contain literature results");
-		const records = run.results as PaperRecord[];
+		return this.filterRecords(run.results as PaperRecord[], paperIds);
+	}
+
+	private async recordsFromSearchRun(searchRunId: string, paperIds?: string[]): Promise<PaperRecord[]> {
+		const journal = join(this.projectRoot, ".paper-agent", "search-runs.jsonl");
+		let raw: string;
+		try {
+			raw = await readFile(journal, "utf8");
+		} catch {
+			throw new Error("Agent search run journal was not found");
+		}
+		for (const line of raw.split(/\n/)) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line) as { id?: string; run?: { results?: unknown } };
+				if (entry.id !== searchRunId) continue;
+				if (!entry.run || !Array.isArray(entry.run.results)) {
+					throw new Error("Agent search run does not contain literature results");
+				}
+				return this.filterRecords(entry.run.results as PaperRecord[], paperIds);
+			} catch {
+				// 跳过损坏行, 继续找。
+			}
+		}
+		throw new Error("Agent search run was not found");
+	}
+
+	private filterRecords(records: PaperRecord[], paperIds?: string[]): PaperRecord[] {
 		const selected = paperIds?.length ? records.filter((record) => paperIds.includes(record.id)) : records;
 		if (selected.length === 0) throw new Error("No matching search results were selected");
 		if (paperIds?.some((id) => !selected.some((record) => record.id === id))) {
@@ -1427,6 +1597,17 @@ export class PaperAgentApplication {
 				{ ...input.request, signal: context.signal },
 				{ manager: this.consent, permit: input.executionPermit },
 			);
+			// 给新下载的论文打上"待生成略读卡"标记(方案A: 提示用户可一键生成)
+			for (const version of result.downloaded) {
+				try {
+					await this.personalStore(input.namespace).annotatePaper(version.paperId, {
+						author: "paper-agent",
+						tags: ["needs-skim-card"],
+					});
+				} catch {
+					// 打标是尽力而为, 不影响下载结果
+				}
+			}
 			context.report(1, "PDF downloads completed");
 			return result;
 		});
@@ -1444,7 +1625,9 @@ export class PaperAgentApplication {
 			return result;
 		});
 		this.jobs.register<AuthorizedCorpusImportJob, unknown>("corpus-import", async (input, context) => {
-			const records = this.recordsFromSearchJob(input.searchJobId, input.paperIds);
+			const records = input.searchRunId
+				? await this.recordsFromSearchRun(input.searchRunId, input.paperIds)
+				: this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 			context.report(0.1, "validating the persisted corpus-write confirmation permit");
 			const outcomes = await persistPaperRecords(this.personalStore(input.namespace), records, {
 				manager: this.consent,

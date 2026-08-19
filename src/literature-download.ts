@@ -1,6 +1,6 @@
 import type { LiteratureStore } from "./literature-store.ts";
 import type { PaperRecord, PaperVersion } from "./literature-types.ts";
-import { type AddressResolver, type Fetcher, fetchPublicUrl, readResponseBody } from "./network-security.ts";
+import { type AddressResolver, type Fetcher, downloadViaPython, fetchPublicUrl, readResponseBody, readableErrorMessage } from "./network-security.ts";
 import {
 	authorizeOperationExecution,
 	type OperationExecutionAuthorization,
@@ -97,15 +97,48 @@ export async function downloadLiteraturePdfs(
 			failures.push({ paperId: record.id, reason: "no PDF link in provider metadata" });
 			return;
 		}
+		const pdfUrl = new URL(pdfLink.url);
+		const isArxivHost =
+			pdfUrl.hostname === "arxiv.org" ||
+			pdfUrl.hostname.endsWith(".arxiv.org") ||
+			pdfUrl.hostname === "export.arxiv.org" ||
+			pdfUrl.hostname.endsWith(".export.arxiv.org");
+		// 部分历史记录/源会给 http 链接; arXiv 的 80 端口常被网络阻断(443 正常), 强制用 https
+		if (isArxivHost && pdfUrl.protocol === "http:") pdfUrl.protocol = "https:";
 		try {
-			const fetched = await fetchPublicUrl(new URL(pdfLink.url), {
-				signal: request.signal,
-				fetcher: request.fetcher,
-				resolver: request.resolver,
-			});
-			if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status}`);
-			const body = await readResponseBody(fetched.response, request.maxBytesPerFile);
-			const contentType = fetched.response.headers.get("content-type") ?? "application/octet-stream";
+			let body: Uint8Array;
+			let contentType = "application/pdf";
+			let finalUrl = pdfUrl.href;
+			if (isArxivHost) {
+				// arXiv 对 Node 的 TLS 指纹返回反爬挑战页, 改用 Python 标准库下载(指纹与 curl 类似)。
+				try {
+					body = await downloadViaPython(pdfUrl, {
+						timeoutMs: 60_000,
+						maxBytes: request.maxBytesPerFile,
+					});
+				} catch (pythonError) {
+					// Python 不可用或失败时回退到 Node 通道。
+					const fetched = await fetchPublicUrl(pdfUrl, {
+						signal: request.signal,
+						fetcher: request.fetcher,
+						resolver: request.resolver,
+					});
+					if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status}`);
+					body = await readResponseBody(fetched.response, request.maxBytesPerFile);
+					contentType = fetched.response.headers.get("content-type") ?? "application/octet-stream";
+					finalUrl = fetched.finalUrl.href;
+				}
+			} else {
+				const fetched = await fetchPublicUrl(pdfUrl, {
+					signal: request.signal,
+					fetcher: request.fetcher,
+					resolver: request.resolver,
+				});
+				if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status}`);
+				body = await readResponseBody(fetched.response, request.maxBytesPerFile);
+				contentType = fetched.response.headers.get("content-type") ?? "application/octet-stream";
+				finalUrl = fetched.finalUrl.href;
+			}
 			if (!contentType.toLowerCase().includes("pdf") && body.subarray(0, 5).toString() !== "%PDF-") {
 				throw new Error("response is not a PDF");
 			}
@@ -113,7 +146,7 @@ export async function downloadLiteraturePdfs(
 			const version: PaperVersion = {
 				paperId: record.id,
 				sourceUrl: pdfLink.url,
-				finalUrl: fetched.finalUrl.href,
+				finalUrl,
 				retrievedAt: new Date().toISOString(),
 				sha256: blob.sha256,
 				bytes: body.length,
@@ -123,7 +156,7 @@ export async function downloadLiteraturePdfs(
 			await store.savePaperVersion(version);
 			downloaded.push(version);
 		} catch (error) {
-			failures.push({ paperId: record.id, reason: error instanceof Error ? error.message : String(error) });
+			failures.push({ paperId: record.id, reason: readableErrorMessage(error) });
 		}
 	};
 	const worker = async () => {

@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { lookupCcfLevel } from "../ccf-ranking.ts";
 import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
 import { downloadLiteraturePdfs, literaturePdfDownloadPlan } from "../literature-download.ts";
 import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "../literature-identifiers.ts";
+import { readableErrorMessage } from "../network-security.ts";
 import {
 	fetchOpenAlexWorks,
 	LiteratureProviderHttpError,
@@ -44,6 +47,32 @@ import {
 	type OperationPlan,
 	requestOperationAuthorization,
 } from "../operation-consent.ts";
+
+/** 最近 Agent/工具搜索运行日志的保留条数上限 */
+const SEARCH_RUN_JOURNAL_LIMIT = 50;
+
+async function appendSearchRunJournal(run: SearchRun, cwd: string): Promise<void> {
+	try {
+		const dir = join(cwd, ".paper-agent");
+		const journal = join(dir, "search-runs.jsonl");
+		await mkdir(dir, { recursive: true });
+		const entry = `${JSON.stringify({ id: run.id, run })}\n`;
+		let lines: string[] = [];
+		try {
+			const raw = await readFile(journal, "utf8");
+			lines = raw.split(/\n/).filter((line) => line.trim());
+		} catch {
+			// 日志文件尚不存在, 从空开始。
+		}
+		lines.push(entry.trimEnd());
+		if (lines.length > SEARCH_RUN_JOURNAL_LIMIT) {
+			lines = lines.slice(lines.length - SEARCH_RUN_JOURNAL_LIMIT);
+		}
+		await writeFile(journal, lines.join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
+	} catch {
+		// 日志写入是尽力而为, 不影响搜索本身。
+	}
+}
 
 const providerSchema = Type.Union([
 	Type.Literal("arxiv"),
@@ -685,7 +714,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 							outcomes.push({ provider, query, records });
 						} catch (error) {
 							if (options.signal?.aborted) throw error;
-							const message = error instanceof Error ? error.message : String(error);
+							const message = readableErrorMessage(error);
 							const statusMatch = /\b([1-5]\d\d)\b/.exec(message);
 							const statusCode =
 								error instanceof LiteratureProviderHttpError
@@ -733,6 +762,9 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		}
 	}
 	const results = deduplicatePaperRecords(allRecords);
+	for (const record of results) {
+		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
+	}
 	const possibleDuplicates = findPossibleDuplicates(results);
 	const checkedAt = new Date().toISOString();
 	const providerHealth = Object.fromEntries(
@@ -1211,6 +1243,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				);
 			}
 			const result = await collectLiterature(options);
+			void appendSearchRunJournal(result.run, ctx.cwd);
 			return {
 				content: [{ type: "text", text: formatCollection(result) }],
 				details: {
@@ -1512,7 +1545,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								);
 							}
 						} catch (error) {
-							failures.push(`${seed.id}/references: ${error instanceof Error ? error.message : String(error)}`);
+							failures.push(`${seed.id}/references: ${readableErrorMessage(error)}`);
 						}
 					}
 					if ((direction === "citations" || direction === "both") && seedRemaining > 0) {
@@ -1552,7 +1585,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 								);
 							}
 						} catch (error) {
-							failures.push(`${seed.id}/citations: ${error instanceof Error ? error.message : String(error)}`);
+							failures.push(`${seed.id}/citations: ${readableErrorMessage(error)}`);
 						}
 					}
 				}

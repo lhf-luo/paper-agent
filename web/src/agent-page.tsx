@@ -21,6 +21,14 @@ const taskTemplates = [
 		prompt: "分析本地 PDF：请替换为绝对路径。先核实文件身份与页数，给出研究问题、方法、主要证据、局限和下一步；不要自动下载 Artifact。",
 	},
 	{
+		title: "导入本地 PDF 到个人库",
+		prompt: "把本地 PDF 导入到 default 个人库：请替换为 PDF 的绝对路径（支持单个文件或整个目录）。用 import_literature_corpus 工具导入 personal 范围，先展示解析出的记录数与拒绝日志，完成确认后再写入；导入后说明 PDF 已入库、可在 PDF 工作区按标题选择分析。",
+	},
+	{
+		title: "生成略读卡",
+		prompt: "为这篇论文生成略读卡：请替换为 PDF 路径或论文 ID。按 skim-card 技能的五问法（解决什么问题 / 现有方法为何不够 / 核心机制 / 哪个实验最直接支持 / 留下什么边界）回答，输出「问题 | research gap | 核心创新 | 关键证据 | 主要局限 | 精读/保留/排除」格式，并给出处置建议。gap 与创新点必须回到原文确认，标注证据位置；读完按规范写入 research 略读卡记录。",
+	},
+	{
 		title: "查询个人库",
 		prompt: "查询 default 个人论文库中与“请替换为主题”有关的记录，说明命中依据、已有笔记与证据边界，不要执行写入。",
 	},
@@ -159,7 +167,13 @@ function AgentToolCard({ tool }: { tool: AgentToolView }) {
 	);
 }
 
-export function AgentPage() {
+export function AgentPage({
+	initialPrompt = "",
+	onPromptConsumed,
+}: {
+	initialPrompt?: string;
+	onPromptConsumed?: () => void;
+}) {
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [form, setForm] = useState<AgentConfigForm>({
 		providerId: "",
@@ -168,15 +182,76 @@ export function AgentPage() {
 		api: "openai-completions",
 	});
 	const [apiKey, setApiKey] = useState("");
+	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
+	const [skillPaletteOpen, setSkillPaletteOpen] = useState(false);
+	const [skillFilter, setSkillFilter] = useState("");
+	const [loadedSkills, setLoadedSkills] = useState<
+		Array<{ name: string; description: string; disableModelInvocation: boolean }>
+	>([]);
+	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const [uploading, setUploading] = useState(false);
+
+	const handleFiles = async (files: FileList | null) => {
+		if (!files?.length || !active) return;
+		setUploading(true);
+		setError("");
+		try {
+			for (const file of Array.from(files)) {
+				const data = await file.arrayBuffer();
+				const response = await fetch(`/api/agent/sessions/${encodeURIComponent(active.id)}/attachments`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${sessionStorage.getItem("paper-agent-session-token") ?? ""}`,
+						"content-type": "application/octet-stream",
+						"x-filename": encodeURIComponent(file.name),
+					},
+					body: data,
+				});
+				if (!response.ok) {
+					let message = `${response.status} ${response.statusText}`;
+					try {
+						const body = (await response.json()) as { error?: string };
+						if (body.error) message = body.error;
+					} catch {
+						// ignore
+					}
+					throw new Error(message);
+				}
+				const attachment = (await response.json()) as { path: string; name: string; size: number };
+				setAttachments((current) => [...current, attachment]);
+			}
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setUploading(false);
+			if (fileInputRef.current) fileInputRef.current.value = "";
+		}
+	};
+	useEffect(() => {
+		void api<{ skills: typeof loadedSkills }>("/api/agent/skills")
+			.then((value) => setLoadedSkills(value.skills))
+			.catch(() => setLoadedSkills([]));
+	}, []);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
 	const [newMode, setNewMode] = useState<AgentMode>("persistent");
+	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
+	useEffect(() => {
+		if (initialPrompt) {
+			setPrompt(initialPrompt);
+			onPromptConsumed?.();
+		}
+	}, [initialPrompt, onPromptConsumed]);
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const [streamState, setStreamState] = useState<"idle" | "connected" | "reconnecting">("idle");
+	const [sidebarOpen, setSidebarOpen] = useState(
+		() => window.localStorage.getItem("paper-agent-sidebar-open") !== "closed",
+	);
 	const transcriptEnd = useRef<HTMLDivElement>(null);
 
 	const applyConfig = useCallback((next: AgentConfigView) => {
@@ -373,8 +448,9 @@ export function AgentPage() {
 		try {
 			const snapshot = await api<AgentSessionSnapshot>("/api/agent/sessions", {
 				method: "POST",
-				body: JSON.stringify({ mode: newMode }),
+				body: JSON.stringify({ mode: newMode, ...(newTitle.trim() ? { title: newTitle.trim() } : {}) }),
 			});
+			setNewTitle("");
 			setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
 			setActive(snapshot);
 		} catch (reason) {
@@ -406,6 +482,31 @@ export function AgentPage() {
 		}
 	};
 
+	const renameSession = async (id: string) => {
+		const current = orderedSessions.find((session) => session.id === id)?.title ?? "";
+		const next = window.prompt("输入新的会话名称", current);
+		if (next === null) return;
+		const trimmed = next.trim();
+		if (!trimmed || trimmed.length > 120) {
+			setError("会话名称必须包含 1-120 个字符");
+			return;
+		}
+		setBusy(true);
+		setError("");
+		try {
+			const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(id)}/rename`, {
+				method: "POST",
+				body: JSON.stringify({ title: trimmed }),
+			});
+			setSessions((currentList) => upsert(currentList, summaryFromSnapshot(snapshot)));
+			if (active?.id === id) setActive(snapshot);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	const send = async () => {
 		if (!active || !prompt.trim()) return;
 		setBusy(true);
@@ -413,9 +514,16 @@ export function AgentPage() {
 		try {
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(active.id)}/messages`,
-				{ method: "POST", body: JSON.stringify({ message: prompt }) },
+				{
+					method: "POST",
+					body: JSON.stringify({
+						message: prompt,
+						attachments: attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
+					}),
+				},
 			);
 			setPrompt("");
+			setAttachments([]);
 			setActive(snapshot);
 			setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
 		} catch (reason) {
@@ -476,21 +584,6 @@ export function AgentPage() {
 
 	return (
 		<>
-			<header className="page-heading">
-				<div>
-					<span className="eyebrow">Paper Agent runtime</span>
-					<h1>Agent 对话</h1>
-					<p>直接提出论文检索、PDF 分析、Artifact、个人库、团队库与调研整理需求；所有高风险写入仍需你在网页明确确认。</p>
-				</div>
-				<div className="agent-runtime-status">
-					<span className={configurationReady ? "ready" : "missing"} />
-					<div>
-						<strong>{configurationReady ? "可开始对话" : "需要模型配置或密钥"}</strong>
-						<small>{credentialLabel(config)}</small>
-					</div>
-				</div>
-			</header>
-
 			{error && <div className="error-banner">{error}</div>}
 			{notice && <div className="success-banner">{notice}</div>}
 
@@ -576,24 +669,23 @@ export function AgentPage() {
 				</div>
 			</section>
 
-			<div className="agent-workspace">
+			<div
+				className="agent-workspace"
+				style={{
+					gridTemplateColumns: sidebarOpen ? "minmax(200px, 260px) minmax(0, 1fr)" : "0px minmax(0, 1fr)",
+				}}
+			>
 				<aside className="panel agent-session-panel">
-					<div className="panel-heading">
-						<div>
-							<span className="eyebrow">In-memory sessions</span>
-							<h2>会话</h2>
-						</div>
-						<small>{orderedSessions.length} 个</small>
-					</div>
-					<div className="agent-new-session">
-						<select value={newMode} onChange={(event) => setNewMode(event.target.value as AgentMode)}>
-							<option value="persistent">persistent · 保留上下文</option>
-							<option value="once">once · 每轮重置模型上下文</option>
-						</select>
-						<button className="button primary" type="button" disabled={busy} onClick={() => void createSession()}>
-							新建会话
-						</button>
-					</div>
+					<button
+						className="agent-new-chat-button"
+						type="button"
+						onClick={() => {
+							setNewTitle("");
+							void createSession();
+						}}
+					>
+						+ 开始新对话
+					</button>
 					<div className="agent-session-list">
 						{orderedSessions.map((session) => (
 							<article className={active?.id === session.id ? "active" : ""} key={session.id}>
@@ -604,24 +696,57 @@ export function AgentPage() {
 									</span>
 									{session.pendingUIRequests > 0 && <em>{session.pendingUIRequests} 个确认待处理</em>}
 								</button>
-								<button
-									className="agent-session-delete"
-									type="button"
-									aria-label={`删除 ${session.title}`}
-									onClick={() => void deleteSession(session.id)}
-								>
-									×
-								</button>
+								<div className="agent-session-more-wrap">
+									<button
+										className="agent-session-more"
+										type="button"
+										aria-label={`更多操作 ${session.title}`}
+										onClick={(event) => {
+											const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+											setMenuOpen(
+												menuOpen?.id === session.id
+													? null
+													: { id: session.id, left: rect.right - 104, top: rect.bottom + 4 },
+												);
+										}}
+									>
+										⋯
+									</button>
+									{menuOpen?.id === session.id && (
+										<div
+											className="agent-session-menu"
+											style={{ position: "fixed", left: menuOpen.left, top: menuOpen.top, zIndex: 999 }}
+										>
+											<button
+												type="button"
+												onClick={() => {
+													setMenuOpen(null);
+													void renameSession(session.id);
+												}}
+											>
+												编辑
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setMenuOpen(null);
+													void deleteSession(session.id);
+												}}
+											>
+												删除
+											</button>
+										</div>
+									)}
+								</div>
 							</article>
 						))}
-						{!orderedSessions.length && <p className="muted">新建 once 或 persistent 内存会话后开始对话。</p>}
+							{!orderedSessions.length && <p className="muted">新建一个会话后开始对话。</p>}
 					</div>
 					<div className="agent-template-list">
-						<span className="eyebrow">常用任务模板</span>
+						<span className="agent-template-head">任务模板</span>
 						{taskTemplates.map((template) => (
 							<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
 								<strong>{template.title}</strong>
-								<span>填入输入框后可继续修改</span>
 							</button>
 						))}
 					</div>
@@ -629,19 +754,26 @@ export function AgentPage() {
 
 				<section className="panel agent-chat-panel">
 					<div className="agent-chat-heading">
-						<div>
-							<span className="eyebrow">Streaming research conversation</span>
-							<h2>{active?.title ?? "选择或新建会话"}</h2>
-						</div>
-						<div className="agent-chat-state">
-							<span className={streamState} />
-							<small>{streamState === "connected" ? "实时连接" : streamState === "reconnecting" ? "正在重连" : "未连接"}</small>
-							{running && (
-								<button className="button danger" type="button" disabled={busy} onClick={() => void stop()}>
-									停止生成
-								</button>
-							)}
-						</div>
+						<button
+							className="agent-sidebar-toggle"
+							type="button"
+							onClick={() => {
+								setSidebarOpen((current) => {
+									window.localStorage.setItem("paper-agent-sidebar-open", current ? "closed" : "open");
+									return !current;
+								});
+							}}
+							aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+							title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+						>
+							{sidebarOpen ? "☰" : "☰"}
+						</button>
+						<h2 className="agent-chat-title">{active?.title ?? ""}</h2>
+						{running && (
+							<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
+								停止生成
+							</button>
+						)}
 					</div>
 
 					{active?.error && <div className="error-banner">{active.error}</div>}
@@ -674,28 +806,98 @@ export function AgentPage() {
 							<div className="agent-chat-empty">
 								<span>✦</span>
 								<h3>在网页中使用完整的 Paper Agent 工具</h3>
-								<p>配置模型，创建会话，然后从模板开始，或直接描述你的论文调研目标。</p>
+								<p>新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。</p>
+								<div className="agent-suggestion-grid">
+									{taskTemplates.map((template) => (
+										<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
+											<strong>{template.title}</strong>
+											<span>{template.prompt.slice(0, 56)}…</span>
+										</button>
+									))}
+								</div>
 							</div>
 						)}
 						<div ref={transcriptEnd} />
 					</div>
 
 					<div className="agent-composer">
+						{skillPaletteOpen && (
+							<div className="agent-skill-palette">
+								<div className="agent-skill-palette-head">技能（/skill: 名称）</div>
+								{loadedSkills
+									.filter((skill) => skill.name.includes(skillFilter) || skill.description.includes(skillFilter))
+									.map((skill) => (
+										<button
+											key={skill.name}
+											type="button"
+											onClick={() => {
+												setPrompt(`/skill:${skill.name} `);
+												setSkillPaletteOpen(false);
+											}}
+										>
+											{skill.name}
+										</button>
+									))}
+							</div>
+						)}
 						<textarea
 							value={prompt}
-							onChange={(event) => setPrompt(event.target.value)}
+							onChange={(event) => {
+								const value = event.target.value;
+								setPrompt(value);
+								if (value.startsWith("/")) {
+									setSkillFilter(value.slice(1).toLowerCase());
+									setSkillPaletteOpen(true);
+								} else {
+									setSkillPaletteOpen(false);
+								}
+							}}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 									event.preventDefault();
 									void send();
 								}
 							}}
-							placeholder="描述你的论文调研任务。Ctrl / Cmd + Enter 发送。"
+							placeholder="描述任务，或输入 / 选择技能… Ctrl / Cmd + Enter 发送"
 							rows={4}
 							disabled={!active || running}
 						/>
-						<div>
-							<small>写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
+						{attachments.length > 0 && (
+							<div className="agent-attachment-chips">
+								{attachments.map((attachment) => (
+									<span className="agent-attachment-chip" key={attachment.path}>
+										{attachment.name}
+										<button
+											type="button"
+											aria-label={`移除 ${attachment.name}`}
+											onClick={() => setAttachments((current) => current.filter((entry) => entry.path !== attachment.path))}
+										>
+											×
+										</button>
+									</span>
+								))}
+							</div>
+						)}
+						<div className="agent-composer-actions">
+							<div className="agent-composer-actions-left">
+								<button
+									className="agent-attach-button"
+									type="button"
+									title="上传附件（PDF / 文本 / 图片，最多 10 个）"
+									disabled={!active || running || uploading}
+									onClick={() => fileInputRef.current?.click()}
+								>
+									{uploading ? "上传中…" : "＋"}
+								</button>
+								<input
+									ref={fileInputRef}
+									type="file"
+									multiple
+									style={{ display: "none" }}
+									onChange={(event) => void handleFiles(event.target.files)}
+								/>
+								<small className="agent-composer-hint">写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
+							</div>
 							<button
 								className="button primary"
 								type="button"

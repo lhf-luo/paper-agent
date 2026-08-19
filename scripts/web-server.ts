@@ -3,6 +3,9 @@ import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPaperAgentConfig } from "../src/app-config.ts";
+import { setProviderCredentials } from "../src/literature-providers.ts";
+import { setProxyUrl } from "../src/network-security.ts";
+import { setTeamConnection } from "../src/team-corpus-client.ts";
 import { startLocalWebServer } from "../src/local-web-server.ts";
 import { PaperAgentApplication } from "../src/paper-agent-application.ts";
 import { createWebAgentService } from "../src/web-agent-service.ts";
@@ -26,6 +29,23 @@ function openBrowser(url: string): void {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const config = await loadPaperAgentConfig(projectRoot);
+if (config.network?.proxyEnabled && config.network.proxyUrl) {
+	setProxyUrl(config.network.proxyUrl);
+	console.log(`HTTP proxy enabled: ${config.network.proxyUrl}`);
+} else {
+	console.log("HTTP proxy: disabled (config.json network.proxyEnabled)");
+}
+if (config.credentials) {
+	setProviderCredentials(config.credentials);
+	console.log("Provider credentials: loaded from config.json credentials");
+}
+if (config.team?.serverUrl && (config.team.token || process.env[config.team.tokenEnvironmentVariable])) {
+	setTeamConnection({
+		baseUrl: config.team.serverUrl,
+		token: config.team.token ?? process.env[config.team.tokenEnvironmentVariable] ?? "",
+	});
+	console.log(`Team connection: ${config.team.serverUrl}/${config.team.namespace}`);
+}
 const sessionToken = randomBytes(32).toString("base64url");
 const application = new PaperAgentApplication({
 	projectRoot,

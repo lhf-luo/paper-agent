@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { basename, dirname, extname, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerBibtexTool } from "./literature-bibtex.ts";
+import { setProviderCredentials } from "./literature-providers.ts";
+import { setProxyUrl } from "./network-security.ts";
 import { registerArtifactTools } from "./tools/artifact-tools.ts";
 import { registerCollectionTools } from "./tools/collection-tools.ts";
 import { registerLiteratureImportTool } from "./tools/literature-import.ts";
@@ -12,10 +15,32 @@ import { registerPdfAssetTools } from "./tools/pdf-asset-tools.ts";
 import { registerPdfTools } from "./tools/pdf-tools.ts";
 import { registerProgressTool } from "./tools/progress-tools.ts";
 import { registerResearchTools } from "./tools/research-tools.ts";
-import { registerTeamCorpusClientTool } from "./tools/team-corpus-client.ts";
+import { registerTeamCorpusClientTool, setTeamConnection } from "./tools/team-corpus-client.ts";
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
 export const paperSystemPrompt = readFileSync(resolve(extensionDirectory, "SYSTEM.md"), "utf8");
+
+/** 启动时同步应用 config.json 的代理/凭据/团队连接(与 web-server 保持一致的优先级: 配置 > 环境变量) */
+function applySyncConfig(): void {
+	try {
+		const raw = readFileSync(join(extensionDirectory, "..", ".paper-agent", "config.json"), "utf8");
+		const config = JSON.parse(raw) as {
+			network?: { proxyEnabled?: boolean; proxyUrl?: string };
+			credentials?: Record<string, string>;
+			team?: { serverUrl?: string; token?: string; tokenEnvironmentVariable?: string };
+		};
+		if (config.network?.proxyEnabled && config.network.proxyUrl) setProxyUrl(config.network.proxyUrl);
+		if (config.credentials) setProviderCredentials(config.credentials);
+		if (config.team?.serverUrl) {
+			const token =
+				config.team.token ??
+				process.env[config.team.tokenEnvironmentVariable ?? "PAPER_AGENT_TEAM_TOKEN"];
+			if (token) setTeamConnection({ baseUrl: config.team.serverUrl, token });
+		}
+	} catch {
+		// 无配置文件或损坏时保持默认(环境变量)行为。
+	}
+}
 
 interface PaperCommandArguments {
 	path: string;
@@ -102,12 +127,14 @@ function parseCollectCommandArguments(value: string): CollectCommandArguments | 
 }
 
 export default function paperAgentExtension(pi: ExtensionAPI): void {
+	applySyncConfig();
 	let paperModeActive = false;
 
 	registerPdfTools(pi);
 	registerPdfAssetTools(pi);
 	registerPdfAssetEvaluationTool(pi);
 	registerArtifactTools(pi);
+	registerBibtexTool(pi);
 	registerCollectionTools(pi);
 	registerLiteratureImportTool(pi);
 	registerPaperPackageTools(pi);

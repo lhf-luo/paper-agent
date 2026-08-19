@@ -7,6 +7,7 @@ import {
 	type AgentSessionEvent,
 	createAgentSession,
 	DefaultResourceLoader,
+	loadSkills,
 	type ExtensionFactory,
 	type ExtensionUIDialogOptions,
 	type ExtensionUIContext,
@@ -138,16 +139,28 @@ export interface WebAgentEventSubscription {
 	unsubscribe(): void;
 }
 
+export interface WebAgentAttachmentRef {
+	path: string;
+	name: string;
+}
+
+export interface WebAgentAttachment extends WebAgentAttachmentRef {
+	size: number;
+}
+
 export interface WebAgentServiceApi {
 	getConfig(): WebAgentConfigView | Promise<WebAgentConfigView>;
+	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }>;
 	updateConfig(input: WebAgentConfigUpdate): WebAgentConfigView | Promise<WebAgentConfigView>;
 	applyConfiguredModel(key: string): WebAgentConfigView | Promise<WebAgentConfigView>;
 	clearKey(): WebAgentConfigView | Promise<WebAgentConfigView>;
 	listSessions(): WebAgentSessionSummary[] | Promise<WebAgentSessionSummary[]>;
 	createSession(input: { mode: WebAgentMode; title?: string }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	renameSession(id: string, title: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	getSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	deleteSession(id: string): void | Promise<void>;
-	sendMessage(id: string, input: { message: string }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	sendMessage(id: string, input: { message: string; attachments?: WebAgentAttachmentRef[] }): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	uploadAttachment(id: string, input: { name: string; data: Uint8Array }): WebAgentAttachment | Promise<WebAgentAttachment>;
 	abortSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	respondToUI(id: string, requestId: string, value: unknown): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	subscribeSession(id: string, listener: (event: WebAgentEvent) => void): WebAgentEventSubscription;
@@ -280,6 +293,8 @@ export class WebAgentService implements WebAgentServiceApi {
 		this.systemPrompt = options.systemPrompt ?? paperSystemPrompt;
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [
 			join(options.projectRoot, "skills", "literature-corpus-manager"),
+			join(options.projectRoot, "skills", "literature-survey"),
+			join(options.projectRoot, "skills", "skim-card"),
 		];
 		this.endpoint = endpoint;
 		this.environmentCredentialScope = endpoint.apiKeyEnvironmentVariable
@@ -446,6 +461,20 @@ export class WebAgentService implements WebAgentServiceApi {
 		return model?.apiKey;
 	}
 
+	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }> {
+		const result = loadSkills({
+			cwd: this.projectRoot,
+			agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
+			skillPaths: this.additionalSkillPaths,
+			includeDefaults: true,
+		});
+		return result.skills.map((skill) => ({
+			name: skill.name,
+			description: skill.description,
+			disableModelInvocation: skill.disableModelInvocation,
+		}));
+	}
+
 	getConfig(): WebAgentConfigView {
 		const credential = this.credential();
 		const configured = Boolean(
@@ -602,6 +631,19 @@ export class WebAgentService implements WebAgentServiceApi {
 		};
 		this.sessions.set(session.id, session);
 		void this.persistView(session);
+		return this.snapshot(session);
+	}
+
+	async renameSession(id: string, title: string): Promise<WebAgentSessionSnapshot> {
+		this.assertOpen();
+		const session = this.managedSession(id);
+		const trimmed = title.trim();
+		if (!trimmed || trimmed.length > 120) {
+			throw new WebAgentServiceError(400, "会话标题必须包含 1-120 个字符");
+		}
+		session.title = trimmed;
+		this.touch(session);
+		this.emitSession(session);
 		return this.snapshot(session);
 	}
 
@@ -1034,13 +1076,19 @@ export class WebAgentService implements WebAgentServiceApi {
 		}
 	}
 
-	async sendMessage(id: string, input: { message: string }): Promise<WebAgentSessionSnapshot> {
+	async sendMessage(id: string, input: { message: string; attachments?: WebAgentAttachmentRef[] }): Promise<WebAgentSessionSnapshot> {
 		this.assertOpen();
 		const session = this.managedSession(id);
 		if (session.runPromise) throw new WebAgentServiceError(409, "该 Agent 会话正在生成，请先停止或等待完成");
 		const message = input.message?.trim();
 		if (!message || message.length > 20_000) {
 			throw new WebAgentServiceError(400, "消息必须包含 1-20000 个字符");
+		}
+		const attachments = (input.attachments ?? []).slice(0, 10);
+		let text = message;
+		if (attachments.length > 0) {
+			const lines = attachments.map((attachment) => `- ${attachment.name} (${attachment.path})`).join("\n");
+			text += `\n\n[附件]\n${lines}`;
 		}
 		const revision = this.configRevision;
 		const pi = await this.ensurePiSession(session, revision);
@@ -1051,7 +1099,7 @@ export class WebAgentService implements WebAgentServiceApi {
 		session.error = undefined;
 		session.status = "running";
 		session.abortRequested = false;
-		const safeMessage = this.redact(message);
+		const safeMessage = this.redact(text);
 		const userMessage: WebAgentMessageView = {
 			id: randomUUID(),
 			role: "user",
@@ -1063,6 +1111,24 @@ export class WebAgentService implements WebAgentServiceApi {
 		this.emitSession(session);
 		session.runPromise = this.runPrompt(session, pi, safeMessage);
 		return this.snapshot(session);
+	}
+
+	async uploadAttachment(id: string, input: { name: string; data: Uint8Array }): Promise<WebAgentAttachment> {
+		this.assertOpen();
+		const session = this.managedSession(id);
+		if (input.data.byteLength > 50 * 1024 * 1024) {
+			throw new WebAgentServiceError(400, "附件不能超过 50MB");
+		}
+		const safeName =
+			input.name
+				.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+				.replace(/\s+/g, "_")
+				.slice(0, 120) || "attachment";
+		const dir = join(this.projectRoot, ".paper-agent", "web-agent-memory", "uploads", session.id);
+		await mkdir(dir, { recursive: true });
+		const path = join(dir, `${randomUUID().slice(0, 8)}-${safeName}`);
+		await writeFile(path, input.data);
+		return { path, name: safeName, size: input.data.byteLength };
 	}
 
 	async abortSession(id: string): Promise<WebAgentSessionSnapshot> {

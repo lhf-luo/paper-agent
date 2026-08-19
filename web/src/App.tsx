@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, hasSessionToken, jsonBody, launchPdfPath } from "./api";
 import { AgentPage } from "./agent-page";
 import { ArtifactEvaluationPage } from "./artifact-evaluation-page";
@@ -14,6 +14,9 @@ import {
 	useJob,
 } from "./components";
 import type {
+	AgentConfigView,
+	AgentSearchRun,
+	AgentSearchRunSummary,
 	BackgroundJob,
 	ConfirmationGrant,
 	PaperAgentConfigView,
@@ -64,6 +67,26 @@ const navigation: Array<{ id: Page; label: string; icon: string; section?: strin
 	{ id: "research", label: "调研工作区", icon: "◇" },
 	{ id: "settings", label: "设置与诊断", icon: "⚙", section: "系统" },
 ];
+
+function credentialLabel(config?: AgentConfigView): string {
+	if (!config?.credentialsAvailable) return "未提供凭据";
+	switch (config.credentialSource) {
+		case "memory":
+			return "服务进程内存";
+		case "config":
+			return "config.json 明文";
+		default:
+			return "环境变量";
+	}
+}
+
+function timeLabel(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return value;
+	return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(
+		date.getHours(),
+	).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 function PageHeading({
 	eyebrow,
@@ -231,6 +254,9 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [namespace, setNamespace] = useState("default");
 	const [namespaces, setNamespaces] = useState<string[]>(["default"]);
 	const [searchJobId, setSearchJobId] = useState<string>();
+	const [agentRuns, setAgentRuns] = useState<AgentSearchRunSummary[]>([]);
+	const [selectedRun, setSelectedRun] = useState<AgentSearchRun>();
+	const [selectedRunId, setSelectedRunId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [busy, setBusy] = useState(false);
@@ -246,19 +272,38 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 		}>
 	>([]);
 	const job = useJob(searchJobId);
-	const results: PaperRecord[] = job?.status === "succeeded" ? (job.result?.run?.results ?? []) : [];
+	const jobRun = job?.status === "succeeded" ? (job.result?.run as AgentSearchRun | undefined) : undefined;
+	const run = selectedRun ?? jobRun;
+	const results: PaperRecord[] = run?.results ?? [];
 	const providerHealth: Record<
 		string,
 		{ status: string; recordCount: number; failureCount: number; message?: string }
-	> = job?.result?.run?.providerHealth ?? {};
+	> = run?.providerHealth ?? {};
+	const loadAgentRun = async (id: string) => {
+		if (!id) {
+			setSelectedRun(undefined);
+			return;
+		}
+		setBusy(true);
+		setError("");
+		try {
+			setSelectedRun((await api<{ run: AgentSearchRun }>(`/api/search/runs/${encodeURIComponent(id)}`)).run);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
 	useEffect(() => {
 		void Promise.all([
 			api<{ providers: typeof providerCatalog }>("/api/providers"),
 			api<PaperAgentConfigView>("/api/config"),
 			api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
+			api<{ runs: AgentSearchRunSummary[] }>("/api/search/runs").catch(() => ({ runs: [] })),
 		])
-			.then(([catalogResponse, config, namespaceResponse]) => {
+			.then(([catalogResponse, config, namespaceResponse, runsResponse]) => {
 				setProviderCatalog(catalogResponse.providers);
+				setAgentRuns(runsResponse.runs);
 				const available = new Set(
 					catalogResponse.providers
 						.filter((provider) => provider.credentialsAvailable)
@@ -318,14 +363,19 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
 	const prepareSave = async () => {
-		if (!job || !selected.size) return;
+		if (!job && !selectedRun) return;
+		if (!selected.size) return;
 		setBusy(true);
 		setError("");
 		try {
 			setPending(
 				await api(
 					"/api/library/import/prepare",
-					jsonBody({ searchJobId: job.id, paperIds: [...selected], namespace }),
+					jsonBody({
+						...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
+						paperIds: [...selected],
+						namespace,
+					}),
 				),
 			);
 		} catch (reason) {
@@ -335,14 +385,19 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 		}
 	};
 	const confirmSave = async () => {
-		if (!pending || !job) return;
+		if (!pending || (!job && !selectedRun)) return;
 		setBusy(true);
 		setError("");
 		try {
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const created = await api<BackgroundJob>(
 				"/api/library/import/execute",
-				jsonBody({ searchJobId: job.id, paperIds: [...selected], namespace, grant }),
+				jsonBody({
+					...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
+					paperIds: [...selected],
+					namespace,
+					grant,
+				}),
 			);
 			onTask(created);
 			setPending(undefined);
@@ -531,6 +586,35 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 					onConfirm={() => void confirmSave()}
 				/>
 			)}
+			{agentRuns.length > 0 && (
+				<div className="agent-run-picker">
+					<label htmlFor="agent-run-select">
+						<span>Agent 对话产生的搜索记录</span>
+					</label>
+					<div className="agent-run-row">
+						<select
+							id="agent-run-select"
+							value={selectedRunId}
+							onChange={(event) => setSelectedRunId(event.target.value)}
+						>
+							<option value="">-- 选择一次 Agent 搜索 --</option>
+							{agentRuns.map((entry) => (
+								<option key={entry.id} value={entry.id}>
+									{(entry.queries[0] ?? "").slice(0, 40)} · {entry.resultCount} 条 · {timeLabel(entry.completedAt)}
+								</option>
+							))}
+						</select>
+						<button
+							className="button secondary"
+							type="button"
+							disabled={busy || !selectedRunId}
+							onClick={() => void loadAgentRun(selectedRunId)}
+						>
+							{selectedRunId === selectedRun?.id ? "展示中" : "展示结果"}
+						</button>
+					</div>
+				</div>
+			)}
 			{results.length > 0 && (
 				<section className="results-section">
 					<div className="results-toolbar">
@@ -581,9 +665,11 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 function LibraryPage({
 	onOpenReader,
 	onTask,
+	onGenerateSkimCard,
 }: {
 	onOpenReader: (state: ReaderState) => void;
 	onTask: (job: BackgroundJob) => void;
+	onGenerateSkimCard: (paper: PaperRecord) => void;
 }) {
 	const [query, setQuery] = useState("");
 	const [papers, setPapers] = useState<PaperRecord[]>([]);
@@ -931,20 +1017,30 @@ function LibraryPage({
 					) : papers.length ? (
 						<div className="paper-list">
 							{papers.map((paper) => (
-								<PaperCard
-									key={paper.id}
-									paper={paper}
-									selected={selected.has(paper.id)}
-									onSelect={(checked) =>
-										setSelected((current) => {
-											const next = new Set(current);
-											checked ? next.add(paper.id) : next.delete(paper.id);
-											return next;
-										})
-									}
-									onOpen={() => void open(paper)}
-								/>
-							))}
+								<div key={paper.id} className="library-record">
+									{paper.curation?.tags?.includes("needs-skim-card") && (
+										<div className="skim-pending-bar">
+											<span>待生成略读卡</span>
+											<button type="button" onClick={() => onGenerateSkimCard(paper)}>
+												生成略读卡
+											</button>
+										</div>
+									)}
+									<PaperCard
+										key={paper.id}
+										paper={paper}
+										selected={selected.has(paper.id)}
+										onSelect={(checked) =>
+											setSelected((current) => {
+													const next = new Set(current);
+													checked ? next.add(paper.id) : next.delete(paper.id);
+													return next;
+												})
+											}
+											onOpen={() => void open(paper)}
+										/>
+									</div>
+								))}
 						</div>
 					) : (
 						<EmptyState title="个人库还是空的" text="先到“搜索论文”页面收集并保存感兴趣的论文。" />
@@ -1056,6 +1152,21 @@ function TasksPage() {
 			setActiveJobId(undefined);
 		}
 	};
+	const removeJob = async (job: BackgroundJob) => {
+		if (!window.confirm(`删除任务 ${job.type} ${job.id.slice(0, 18)}？\n\n删除后不可恢复(仅删除任务记录, 不影响已保存的论文/PDF)。`)) {
+			return;
+		}
+		setActiveJobId(job.id);
+		setError("");
+		try {
+			await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setActiveJobId(undefined);
+		}
+	};
 	return (
 		<>
 			<PageHeading
@@ -1150,6 +1261,16 @@ function TasksPage() {
 												重试
 											</button>
 										)}
+										{["succeeded", "failed", "cancelled"].includes(job.status) && (
+											<button
+												className="danger-text"
+												type="button"
+												disabled={activeJobId === job.id}
+												onClick={() => void removeJob(job)}
+											>
+												删除
+											</button>
+										)}
 									</div>
 								</div>
 							);
@@ -1165,6 +1286,16 @@ function TasksPage() {
 
 function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [path, setPath] = useState("");
+	const [availablePdfs, setAvailablePdfs] = useState<
+		Array<{
+			paperId: string;
+			title: string;
+			sha256: string;
+			blobPath: string;
+			sourceUrl?: string;
+			hasPdf: boolean;
+		}>
+	>([]);
 	const [jobId, setJobId] = useState<string>();
 	const [mode, setMode] = useState<"analysis" | "artifacts" | "acquisition">("analysis");
 	const [selectedArtifacts, setSelectedArtifacts] = useState<Set<string>>(new Set());
@@ -1182,6 +1313,20 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 	const [personalNamespace, setPersonalNamespace] = useState("default");
 	const [personalNamespaces, setPersonalNamespaces] = useState<string[]>(["default"]);
 	const [personalPapers, setPersonalPapers] = useState<PaperRecord[]>([]);
+	useEffect(() => {
+		void api<{ pdfs: typeof availablePdfs }>("/api/library/pdfs")
+			.then((value) => setAvailablePdfs(value.pdfs))
+			.catch(() => setAvailablePdfs([]));
+	}, []);
+	const [pdfPickerOpen, setPdfPickerOpen] = useState(false);
+	const pdfPickerRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const close = (event: MouseEvent) => {
+			if (pdfPickerRef.current && !pdfPickerRef.current.contains(event.target as Node)) setPdfPickerOpen(false);
+		};
+		document.addEventListener("mousedown", close);
+		return () => document.removeEventListener("mousedown", close);
+	}, []);
 	const job = useJob(jobId);
 	useEffect(() => {
 		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
@@ -1204,6 +1349,32 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			})
 			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
 	}, [personalNamespace]);
+	const resolvePdfValue = useCallback(
+		(value: string): { pdfPath: string; pdf?: (typeof availablePdfs)[number] } => {
+			const trimmed = value.trim();
+			if (!trimmed) return { pdfPath: "" };
+			const byPath = availablePdfs.find((pdf) => pdf.hasPdf && pdf.blobPath === trimmed);
+			if (byPath) return { pdfPath: byPath.blobPath, pdf: byPath };
+			const byTitle = availablePdfs.find((pdf) => pdf.title === trimmed);
+			if (byTitle) return { pdfPath: byTitle.hasPdf ? byTitle.blobPath : "", pdf: byTitle };
+			const byId = availablePdfs.find((pdf) => pdf.paperId === trimmed);
+			if (byId) return { pdfPath: byId.hasPdf ? byId.blobPath : "", pdf: byId };
+			return { pdfPath: trimmed };
+		},
+		[availablePdfs],
+	);
+
+	const resolvePdfHint = useCallback(
+		(value: string): string => {
+			const { pdfPath, pdf } = resolvePdfValue(value);
+			if (pdf && !pdf.hasPdf) return "该论文尚未下载 PDF，请先到个人库下载后再分析。";
+			if (pdf && pdfPath) return `将使用个人库 PDF：${pdf.paperId}`;
+			if (pdfPath) return "将作为本地路径直接使用。";
+			return "";
+		},
+		[resolvePdfValue],
+	);
+
 	const run = async (kind: "analysis" | "artifacts") => {
 		setBusy(true);
 		setError("");
@@ -1216,9 +1387,14 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			setArtifactDetails(undefined);
 		}
 		try {
+			const resolved = resolvePdfValue(path);
+			if (!resolved.pdfPath) {
+				setError(resolved.pdf ? "该论文尚未下载 PDF，请先到个人库下载后再分析。" : "请输入本地 PDF 路径或选择论文");
+				return;
+			}
 			const created = await api<BackgroundJob>(
 				kind === "analysis" ? "/api/pdf/analyze" : "/api/artifacts/discover",
-				jsonBody(kind === "analysis" ? { pdfPath: path, refine: true } : { pdfPath: path }),
+				jsonBody(kind === "analysis" ? { pdfPath: resolved.pdfPath, refine: true } : { pdfPath: resolved.pdfPath }),
 			);
 			setJobId(created.id);
 			onTask(created);
@@ -1370,12 +1546,36 @@ function PdfWorkspacePage({ onTask }: { onTask: (job: BackgroundJob) => void }) 
 			/>
 			<section className="path-workbench">
 				<label>
-					<span>本地 PDF 路径</span>
-					<input
-						value={path}
-						onChange={(event) => setPath(event.target.value)}
-						placeholder="D:\papers\example.pdf"
-					/>
+					<span>本地 PDF 路径（可直接输入，或从个人库选择论文）</span>
+					<div className="pdf-combobox" ref={pdfPickerRef}>
+						<input
+							value={path}
+							onChange={(event) => setPath(event.target.value)}
+							onFocus={() => setPdfPickerOpen(true)}
+							placeholder="输入路径，或点击选择已入库论文…"
+						/>
+						{pdfPickerOpen && availablePdfs.length > 0 && (
+							<ul className="pdf-combobox-list">
+								{availablePdfs.map((pdf) => (
+									<li
+										key={pdf.paperId}
+										title={pdf.title}
+										onClick={() => {
+											setPath(pdf.hasPdf ? pdf.blobPath : "");
+											setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
+											setPdfPickerOpen(false);
+										}}
+									>
+										<span className="pdf-combobox-title">{pdf.title}</span>
+										<span className="pdf-combobox-meta">
+											{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+					{path && <small className="path-resolved-hint">{resolvePdfHint(path)}</small>}
 				</label>
 				<div className="button-row">
 					<button
@@ -2837,7 +3037,7 @@ function ResearchPage() {
 								</article>
 							))
 						) : (
-							<EmptyState title="暂无调研记录" text="在右侧创建第一张略读卡、比较矩阵或证据图。" />
+							<EmptyState title="暂无调研记录" text="在上面创建第一张略读卡、比较矩阵或证据图。" />
 						)}
 					</div>
 				</section>
@@ -3073,6 +3273,8 @@ function ResearchPage() {
 
 function SettingsPage({ status }: { status?: ApplicationStatus }) {
 	const [config, setConfig] = useState<PaperAgentConfigView>();
+	const [agentConfig, setAgentConfig] = useState<AgentConfigView>();
+	const [settingsModelKey, setSettingsModelKey] = useState("");
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [pendingConfig, setPendingConfig] = useState<unknown>();
 	const [pendingAction, setPendingAction] = useState<"save" | "probe">("save");
@@ -3095,6 +3297,32 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 			recipe(next);
 			return next;
 		});
+	};
+	useEffect(() => {
+		void api<AgentConfigView>("/api/agent/config")
+			.then((value) => {
+				setAgentConfig(value);
+				if (value.configuredModels.some((model) => model.key === `${value.providerId}/${value.modelId}`)) {
+					setSettingsModelKey(`${value.providerId}/${value.modelId}`);
+				}
+			})
+			.catch(() => setAgentConfig(undefined));
+	}, []);
+	const applySettingsModel = async () => {
+		if (!settingsModelKey) return;
+		setBusy(true);
+		setError("");
+		try {
+			setAgentConfig(await api<AgentConfigView>("/api/agent/config/apply", {
+				method: "POST",
+				body: JSON.stringify({ key: settingsModelKey }),
+			}));
+			setMessage(`已切换到模型: ${settingsModelKey}`);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
 	};
 	const updateModel = (recipe: (model: NonNullable<PaperAgentConfigView["model"]>) => void) =>
 		update((next) => {
@@ -3206,6 +3434,45 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 				/>
 			)}
 			<div className="settings-form">
+				<section className="panel form-panel">
+					<span className="eyebrow">Model access</span>
+					<h2>模型选择</h2>
+					<div className="agent-configured-models">
+						<label htmlFor="settings-model-select">
+							<span>从 config.json 选用已配置模型</span>
+						</label>
+						<div className="configured-model-row">
+							<select
+								id="settings-model-select"
+								value={agentConfig?.configuredModels?.some((m) => m.key === settingsModelKey) ? settingsModelKey : ""}
+								onChange={(event) => setSettingsModelKey(event.target.value)}
+							>
+								<option value="">-- 选择模型 --</option>
+								{(agentConfig?.configuredModels ?? []).map((model) => (
+									<option key={model.key} value={model.key}>
+										{model.providerId} / {model.modelId}
+										{model.credentialsAvailable ? " · 密钥可用" : " · 密钥缺失"}
+									</option>
+								))}
+							</select>
+							<button
+								className="button primary"
+								type="button"
+								disabled={busy || !settingsModelKey}
+								onClick={() => void applySettingsModel()}
+							>
+								应用模型
+							</button>
+						</div>
+						<small className="configured-model-hint">
+							当前模型：{agentConfig?.configured ? `${agentConfig.providerId}/${agentConfig.modelId}` : "未配置"}
+							{agentConfig && <span> · {credentialLabel(agentConfig)}</span>}
+						</small>
+					</div>
+					<small className="muted" style={{ display: "block", marginTop: 8 }}>
+						下方“模型端点”为高级配置；日常切换模型请用上面的选择器。
+					</small>
+				</section>
 				<section className="panel form-panel">
 					<span className="eyebrow">Local workspace</span>
 					<h2>界面与存储</h2>
@@ -3567,6 +3834,33 @@ function SettingsPage({ status }: { status?: ApplicationStatus }) {
 
 export default function App() {
 	const initialPdf = useMemo(() => launchPdfPath(), []);
+	const [sidebarWidth, setSidebarWidth] = useState(() => {
+		const saved = Number(window.localStorage.getItem("paper-agent-sidebar-width"));
+		return Number.isFinite(saved) && saved > 0 ? saved : 250;
+	});
+	const sidebarCollapsed = sidebarWidth < 40;
+	const resizeStart = useRef<{ x: number; width: number } | null>(null);
+	const onResizeStart = useCallback((event: React.MouseEvent) => {
+		event.preventDefault();
+		resizeStart.current = { x: event.clientX, width: sidebarWidth };
+		const onMove = (move: MouseEvent) => {
+			if (!resizeStart.current) return;
+			const delta = move.clientX - resizeStart.current.x;
+			const next = Math.max(0, Math.min(520, resizeStart.current.width + delta));
+			setSidebarWidth(next);
+		};
+		const onUp = () => {
+			resizeStart.current = null;
+			document.removeEventListener("mousemove", onMove);
+			document.removeEventListener("mouseup", onUp);
+			setSidebarWidth((current) => {
+				window.localStorage.setItem("paper-agent-sidebar-width", String(current));
+				return current;
+			});
+		};
+		document.addEventListener("mousemove", onMove);
+		document.addEventListener("mouseup", onUp);
+	}, [sidebarWidth]);
 	const [page, setPage] = useState<Page>(initialPdf ? "reader" : "dashboard");
 	const [status, setStatus] = useState<ApplicationStatus>();
 	const [reader, setReader] = useState<ReaderState | undefined>(() =>
@@ -3580,6 +3874,7 @@ export default function App() {
 	);
 	const [lastTask, setLastTask] = useState<BackgroundJob>();
 	const [error, setError] = useState("");
+	const [pendingAgentPrompt, setPendingAgentPrompt] = useState("");
 	const refreshStatus = useCallback(async () => {
 		try {
 			setStatus(await api<ApplicationStatus>("/api/status"));
@@ -3614,59 +3909,102 @@ export default function App() {
 	const title = useMemo(() => navigation.find((item) => item.id === page)?.label ?? "论文阅读器", [page]);
 	let lastSection = "";
 	return (
-		<div className="app-shell">
-			<aside className="sidebar">
-				<div className="brand">
-					<div className="brand-mark">P</div>
-					<div>
-						<strong>Paper Agent</strong>
-						<span>Evidence workspace</span>
-					</div>
-				</div>
-				<nav>
-					{navigation.map((item) => {
-						const section = item.section && item.section !== lastSection ? item.section : undefined;
-						if (item.section) lastSection = item.section;
-						return (
-							<div key={item.id}>
-								{section && <span className="nav-section">{section}</span>}
-								<button className={page === item.id ? "active" : ""} type="button" onClick={() => go(item.id)}>
-									<span>{item.icon}</span>
-									{item.label}
-								</button>
+		<div
+			className="app-shell"
+			style={{
+				gridTemplateColumns: sidebarCollapsed
+					? "24px 4px minmax(0, 1fr)"
+					: `${sidebarWidth}px 4px minmax(0, 1fr)`,
+			}}
+		>
+			<aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
+				{sidebarCollapsed ? (
+					<button
+						className="sidebar-rail-button"
+						type="button"
+						onClick={() => setSidebarWidth(250)}
+						aria-label="展开侧边栏"
+						title="展开侧边栏"
+					>
+						▶
+					</button>
+				) : (
+					<>
+						<div className="brand">
+							<div className="brand-mark">P</div>
+							<div>
+								<strong>Paper Agent</strong>
+								<span>Evidence workspace</span>
 							</div>
-						);
-					})}
-				</nav>
-				<div className="sidebar-footer">
-					<span className="health-dot" />
-					<div>
-						<strong>本地服务已连接</strong>
-						<small>{status?.defaultRecordCount ?? 0} 篇个人论文</small>
-					</div>
-				</div>
+						</div>
+						<nav>
+							{navigation.map((item) => {
+								const section = item.section && item.section !== lastSection ? item.section : undefined;
+								if (item.section) lastSection = item.section;
+								return (
+									<div key={item.id}>
+										{section && <span className="nav-section">{section}</span>}
+										<button
+											className={page === item.id ? "active" : ""}
+											type="button"
+											onClick={() => go(item.id)}
+										>
+											<span>{item.icon}</span>
+											{item.label}
+										</button>
+									</div>
+								);
+							})}
+						</nav>
+						<div className="sidebar-footer">
+							<span className="health-dot" />
+							<div>
+								<strong>本地服务已连接</strong>
+								<small>{status?.defaultRecordCount ?? 0} 篇个人论文</small>
+							</div>
+						</div>
+					</>
+				)}
 			</aside>
+			<div className="sidebar-resizer" onMouseDown={onResizeStart} />
 			<main className="main-area">
-				<div className="topbar">
-					<div>
-						<span className="breadcrumb">Paper Agent /</span> {title}
+				{page !== "agent" && (
+					<div className="topbar">
+						<div className="topbar-breadcrumb">
+							<span className="breadcrumb">Paper Agent /</span> {title}
+						</div>
+						<div className="topbar-actions">
+							{lastTask && (
+								<button type="button" onClick={() => go("tasks")}>
+									<StatusPill status={lastTask.status} />
+									{lastTask.type}
+								</button>
+							)}
+						</div>
 					</div>
-					<div className="topbar-actions">
-						{lastTask && (
-							<button type="button" onClick={() => go("tasks")}>
-								<StatusPill status={lastTask.status} />
-								{lastTask.type}
-							</button>
-						)}
-						<span className="local-badge">LOCAL FIRST</span>
-					</div>
-				</div>
-				<div className="page-content">
+				)}
+				<div className={`page-content${page === "agent" ? " page-content-full" : ""}`}>
 					{error && <div className="error-banner">{error}</div>}
 					{page === "dashboard" && <DashboardPage status={status} go={go} />}
 					{page === "search" && <SearchPage onTask={trackTask} />}
-					{page === "agent" && <AgentPage />}
-					{page === "library" && <LibraryPage onOpenReader={openReader} onTask={trackTask} />}
+					{page === "agent" && (
+						<AgentPage
+							initialPrompt={pendingAgentPrompt}
+							onPromptConsumed={() => setPendingAgentPrompt("")}
+						/>
+					)}
+					{page === "library" && (
+						<LibraryPage
+							onOpenReader={openReader}
+							onTask={trackTask}
+							onGenerateSkimCard={(paper) => {
+								setPendingAgentPrompt(
+									`为这篇论文生成略读卡：${paper.title}（论文 ID: ${paper.id}）。按 skim-card 技能的五问法（解决什么问题 / 现有方法为何不够 / 核心机制 / 哪个实验最直接支持 / 留下什么边界）回答，输出「问题 | research gap | 核心创新 | 关键证据 | 主要局限 | 精读/保留/排除」格式，并给出处置建议。先用 search_literature_corpus 找到该论文并读取其 PDF，gap 与创新点必须回到原文确认，标注证据位置；完成后再按规范把略读卡写入 research 记录。`,
+								);
+								go("agent");
+							}}
+						/>
+					)}
 					{page === "tasks" && <TasksPage />}
 					{page === "pdf" && <PdfWorkspacePage onTask={trackTask} />}
 					{page === "quality" && <ArtifactEvaluationPage />}

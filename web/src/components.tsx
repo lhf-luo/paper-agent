@@ -58,6 +58,7 @@ export function PaperCard({
 			</div>
 			{paper.abstract && <p className="paper-abstract">{paper.abstract}</p>}
 			<div className="paper-meta">
+				{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
 				<span>{paper.venue || paper.publicationType || "来源未标注"}</span>
 				{paper.identifiers.doi && <span>DOI {paper.identifiers.doi}</span>}
 				<span>{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</span>

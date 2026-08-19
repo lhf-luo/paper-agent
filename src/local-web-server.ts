@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -8,7 +8,7 @@ import {
 	type ArtifactReviewSubmissionInput,
 } from "./artifact-evaluation-review.ts";
 import type { BackgroundJobStatus } from "./job-queue.ts";
-import type { ScreeningStatus, SearchFilters } from "./literature-types.ts";
+import type { ScreeningStatus, SearchFilters, SearchRun } from "./literature-types.ts";
 import type { ConfirmationGrant } from "./operation-consent.ts";
 import type {
 	ArtifactAcquisitionPreparationInput,
@@ -54,6 +54,25 @@ class ApiError extends Error {
 	constructor(status: number, message: string) {
 		super(message);
 		this.status = status;
+	}
+}
+
+async function loadSearchRunJournal(path: string): Promise<Array<{ id: string; run: SearchRun }>> {
+	try {
+		const raw = await readFile(path, "utf8");
+		const entries: Array<{ id: string; run: SearchRun }> = [];
+		for (const line of raw.split(/\n/)) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line) as { id?: string; run?: unknown };
+				if (entry.id && entry.run) entries.push({ id: entry.id, run: entry.run as SearchRun });
+			} catch {
+				// 跳过损坏行。
+			}
+		}
+		return entries;
+	} catch {
+		return [];
 	}
 }
 
@@ -278,6 +297,10 @@ export async function startLocalWebServer(
 					json(response, 200, { sessions: await agentService.listSessions() });
 					return;
 				}
+				if (request.method === "GET" && url.pathname === "/api/agent/skills") {
+					json(response, 200, { skills: await agentService.listSkills() });
+					return;
+				}
 				if (request.method === "POST" && url.pathname === "/api/agent/sessions") {
 					const body = await readJson(request);
 					json(
@@ -288,6 +311,16 @@ export async function startLocalWebServer(
 							title: typeof body.title === "string" ? body.title : undefined,
 						}),
 					);
+					return;
+				}
+				const renameRoute = /^\/api\/agent\/sessions\/([^/]+)\/rename$/.exec(url.pathname);
+				if (request.method === "POST" && renameRoute) {
+					const id = decodeURIComponent(renameRoute[1]);
+					const body = await readJson(request);
+					if (typeof body.title !== "string" || !body.title.trim()) {
+						throw new ApiError(400, "title must be a non-empty string");
+					}
+					json(response, 200, await agentService.renameSession(id, body.title.trim()));
 					return;
 				}
 				const agentEventRoute = /^\/api\/agent\/sessions\/([^/]+)\/events$/.exec(url.pathname);
@@ -338,12 +371,44 @@ export async function startLocalWebServer(
 						json(response, 200, await agentService.abortSession(id));
 					} else {
 						const body = await readJson(request);
+						const attachments = Array.isArray(body.attachments)
+							? body.attachments
+									.filter(
+											(entry: unknown): entry is { path: string; name: string } =>
+												typeof entry === "object" &&
+												entry !== null &&
+												typeof (entry as { path?: unknown }).path === "string" &&
+												typeof (entry as { name?: unknown }).name === "string",
+										)
+									.slice(0, 10)
+							: undefined;
 						json(
 							response,
 							202,
-							await agentService.sendMessage(id, { message: typeof body.message === "string" ? body.message : "" }),
+							await agentService.sendMessage(id, {
+								message: typeof body.message === "string" ? body.message : "",
+								attachments,
+							}),
 						);
 					}
+					return;
+				}
+				const attachmentRoute = /^\/api\/agent\/sessions\/([^/]+)\/attachments$/.exec(url.pathname);
+				if (request.method === "POST" && attachmentRoute) {
+					const id = decodeURIComponent(attachmentRoute[1]);
+					const name =
+						typeof request.headers["x-filename"] === "string"
+							? (() => {
+									try {
+										return decodeURIComponent(request.headers["x-filename"] as string);
+									} catch {
+										return request.headers["x-filename"] as string;
+									}
+							})()
+							: "attachment";
+					const chunks: Buffer[] = [];
+					for await (const chunk of request) chunks.push(chunk as Buffer);
+					json(response, 201, await agentService.uploadAttachment(id, { name, data: new Uint8Array(Buffer.concat(chunks)) }));
 					return;
 				}
 				const agentSessionRoute = /^\/api\/agent\/sessions\/([^/]+)$/.exec(url.pathname);
@@ -436,6 +501,15 @@ export async function startLocalWebServer(
 			const jobRoute = /^\/api\/jobs\/([^/]+)(?:\/(cancel|pause|resume|retry))?$/.exec(url.pathname);
 			if (jobRoute) {
 				const id = decodeURIComponent(jobRoute[1]);
+				if (request.method === "DELETE" && !jobRoute[2]) {
+					const existing = application.jobs.get(id);
+					if (!existing) throw new ApiError(404, "Job not found");
+					if (["queued", "running", "paused"].includes(existing.status)) {
+						throw new ApiError(409, `Cannot delete a ${existing.status} job; cancel it first`);
+					}
+					json(response, 200, await application.deleteJob(id));
+					return;
+				}
 				if (request.method === "GET" && !jobRoute[2]) {
 					const job = application.jobs.get(id);
 					json(response, job ? 200 : 404, job ?? { error: "Job not found" });
@@ -486,6 +560,35 @@ export async function startLocalWebServer(
 				});
 				return;
 			}
+				if (request.method === "GET" && url.pathname === "/api/search/runs") {
+					const entries = await loadSearchRunJournal(join(application.projectRoot, ".paper-agent", "search-runs.jsonl"));
+					json(response, 200, {
+						runs: entries.map(({ run }) => ({
+							id: run.id,
+							queries: run.queries,
+							providers: run.providers,
+							startedAt: run.startedAt,
+							completedAt: run.completedAt,
+							resultCount: run.results.length,
+							deduplicatedCount: run.deduplicatedCount,
+							sourceCounts: run.sourceCounts,
+							failures: run.failures,
+							scope: run.scope,
+							mode: run.mode,
+							namespace: run.namespace,
+						})),
+					});
+					return;
+				}
+				const searchRunRoute = /^\/api\/search\/runs\/([^/]+)$/.exec(url.pathname);
+				if (request.method === "GET" && searchRunRoute) {
+					const id = decodeURIComponent(searchRunRoute[1]);
+					const entries = await loadSearchRunJournal(join(application.projectRoot, ".paper-agent", "search-runs.jsonl"));
+					const found = entries.find((entry) => entry.id === id);
+					if (!found) throw new ApiError(404, "search run not found");
+					json(response, 200, { run: found.run });
+					return;
+				}
 				if (request.method === "POST" && url.pathname === "/api/search") {
 					const body = await readJson(request);
 					if (typeof body.query !== "string" || !body.query.trim() || body.query.trim().length > 2_000)
@@ -511,6 +614,12 @@ export async function startLocalWebServer(
 						reuseCorpus: typeof body.reuseCorpus === "boolean" ? body.reuseCorpus : undefined,
 					};
 				json(response, 202, await application.enqueueLiteratureSearch(input));
+				return;
+			}
+			if (request.method === "GET" && url.pathname === "/api/library/pdfs") {
+				json(response, 200, {
+					pdfs: await application.listAvailablePdfs(url.searchParams.get("namespace") ?? undefined),
+				});
 				return;
 			}
 			if (request.method === "GET" && url.pathname === "/api/library") {
@@ -604,12 +713,15 @@ export async function startLocalWebServer(
 			}
 			if (request.method === "POST" && url.pathname === "/api/library/import/prepare") {
 				const body = await readJson(request);
-				if (typeof body.searchJobId !== "string") throw new ApiError(400, "searchJobId is required");
+				if (typeof body.searchJobId !== "string" && typeof body.searchRunId !== "string") {
+					throw new ApiError(400, "searchJobId or searchRunId is required");
+				}
 				json(
 					response,
 					200,
 					await application.prepareCorpusImport({
-						searchJobId: body.searchJobId,
+						searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
+						searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
 						paperIds: stringArray(body.paperIds),
 						namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 					}),
@@ -982,13 +1094,16 @@ export async function startLocalWebServer(
 			}
 			if (request.method === "POST" && url.pathname === "/api/library/import/execute") {
 				const body = await readJson(request);
-				if (typeof body.searchJobId !== "string") throw new ApiError(400, "searchJobId is required");
+				if (typeof body.searchJobId !== "string" && typeof body.searchRunId !== "string") {
+					throw new ApiError(400, "searchJobId or searchRunId is required");
+				}
 				json(
 					response,
 					202,
 					await application.enqueueAuthorizedCorpusImport(
 						{
-							searchJobId: body.searchJobId,
+							searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
+							searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
 							paperIds: stringArray(body.paperIds),
 							namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 						},

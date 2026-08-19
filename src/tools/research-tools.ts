@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { collectLiterature } from "./collection-tools.ts";
 import type { PaperRecord } from "../literature-types.ts";
 import { requestInteractiveOperationAuthorization } from "../interactive-operation-consent.ts";
+import { ResearchWorkspace, validateResearchRecord, type SourceLocator } from "../research-workspace.ts";
 import type { OperationPlan } from "../operation-consent.ts";
 import { runAuthorizedMutation } from "../literature-write.ts";
 import { fetchPublicUrl, htmlToText, readResponseBody } from "../network-security.ts";
@@ -46,6 +47,91 @@ function formatResult(result: PaperRecord, index: number): string {
 }
 
 export function registerResearchTools(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "save_skim_card",
+		label: "Save skim card",
+		description:
+			"Persist a structured skim card (five-question summary of a paper) into the personal research workspace. Records paperId, problem, method, findings, limitations, and source locators. Use after reading a paper with read_pdf/list_paper_assets.",
+		promptSnippet: "Save a skim card for a paper into the research workspace",
+		promptGuidelines: [
+			"Every finding must carry a source locator (page/section/quote) from the paper.",
+			"The card is AI-assisted: a human must review it before it counts as reviewed.",
+		],
+		parameters: Type.Object({
+			paperId: Type.String({ minLength: 1, maxLength: 128 }),
+			title: Type.String({ minLength: 1, maxLength: 300 }),
+			researchQuestion: Type.String({ minLength: 1, maxLength: 20_000 }),
+			problem: Type.String({ minLength: 1, maxLength: 20_000 }),
+			method: Type.String({ minLength: 1, maxLength: 20_000 }),
+			datasets: Type.String({ minLength: 1, maxLength: 20_000 }),
+			findings: Type.String({ minLength: 1, maxLength: 20_000 }),
+			limitations: Type.String({ minLength: 1, maxLength: 20_000 }),
+			unknowns: Type.String({ minLength: 1, maxLength: 20_000 }),
+			sources: Type.Array(
+				Type.Object({
+					paperId: Type.Optional(Type.String({ maxLength: 128 })),
+					page: Type.Optional(Type.Integer({ minimum: 1 })),
+				section: Type.Optional(Type.String({ maxLength: 200 })),
+				quote: Type.Optional(Type.String({ maxLength: 10_000 })),
+				url: Type.Optional(Type.String({ maxLength: 2_000 })),
+			}),
+		),
+			model: Type.Optional(Type.String({ maxLength: 200 })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const now = new Date().toISOString();
+			const author = params.model ? "paper-agent" : "human";
+			const record = validateResearchRecord(
+				{
+					id: `skim-card-${randomUUID()}`,
+					kind: "skim-card",
+					title: params.title,
+					authorship: {
+						type: params.model ? "ai-assisted" : "human",
+						author,
+						...(params.model ? { model: params.model } : {}),
+						humanReviewed: false,
+					},
+					createdAt: now,
+					updatedAt: now,
+					revision: 0,
+					paperId: params.paperId,
+					researchQuestion: params.researchQuestion,
+					problem: params.problem,
+					method: params.method,
+					datasets: params.datasets,
+					findings: params.findings,
+					limitations: params.limitations,
+					unknowns: params.unknowns,
+					sources: params.sources as SourceLocator[],
+				},
+			);
+			const plan: OperationPlan = {
+				kind: "research-memory-write",
+				summary: `Save skim card for ${params.paperId}`,
+				targets: [{ label: "research", value: join(ctx.cwd, ".paper-agent", "research"), risk: "low" }],
+				details: { recordKind: "skim-card", paperId: params.paperId },
+			};
+			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
+				title: "保存略读卡到研究工作区？",
+				unavailableMessage: "保存略读卡需要交互确认, 请使用 Web 界面。",
+				details: () => [
+					`论文: ${params.paperId}`,
+					`标题: ${params.title.slice(0, 80)}`,
+					`来源定位: ${params.sources.length} 条`,
+					`作者: ${author}${params.model ? ` (${params.model})` : ""}, 未人工复核`,
+				],
+			});
+			await authorization.manager.consume(authorization.grant, plan);
+			const workspace = new ResearchWorkspace(join(ctx.cwd, ".paper-agent", "research", "default"));
+			await workspace.initialize();
+			await workspace.save(record);
+			return {
+				content: [{ type: "text", text: `略读卡已保存: ${record.id} (未人工复核)` }],
+				details: { recordId: record.id, kind: "skim-card", paperId: params.paperId, saved: true },
+			};
+		},
+	});
 	pi.registerTool({
 		name: "search_literature",
 		label: "Search literature",

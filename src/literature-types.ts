@@ -7,7 +7,8 @@ export type LiteratureProvider =
 	| "pubmed"
 	| "core"
 	| "opencitations"
-	| "unpaywall";
+	| "unpaywall"
+	| "exa";
 export type ProvenanceProvider = LiteratureProvider | "local-pdf" | "bibtex-import" | "json-import";
 export type CorpusScope = "personal" | "team";
 export type PersistenceMode = "once" | "persistent";
@@ -108,6 +109,7 @@ export interface PaperRecord {
 	authors: string[];
 	year?: number;
 	venue?: string;
+	venueRank?: "A" | "B" | "C";
 	publicationType?: string;
 	identifiers: PaperIdentifiers;
 	links: PaperLink[];

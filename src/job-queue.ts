@@ -197,6 +197,21 @@ export class PersistentJobQueue {
 		return row ? this.fromRow(row) : undefined;
 	}
 
+	/** 从持久化队列中删除任务及其操作授权关联。调用方负责确认任务不在运行中。 */
+	delete(id: string): boolean {
+		const database = this.requireDatabase();
+		database.exec("BEGIN IMMEDIATE");
+		try {
+			database.prepare("DELETE FROM background_job_operation_claims WHERE job_id = ?").run(id);
+			const result = database.prepare("DELETE FROM background_jobs WHERE id = ?").run(id);
+			database.exec("COMMIT");
+			return Number(result.changes) > 0;
+		} catch (error) {
+			database.exec("ROLLBACK");
+			throw error;
+		}
+	}
+
 	list(options: { status?: BackgroundJobStatus; limit?: number } = {}): BackgroundJob[] {
 		const limit = Math.min(Math.max(options.limit ?? 100, 1), 1000);
 		const rows = options.status

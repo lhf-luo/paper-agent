@@ -265,7 +265,7 @@ export async function searchOpenAlexPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("search", options.query);
 	url.searchParams.set("per-page", String(options.limit));
 	url.searchParams.set("cursor", cursor);
-	const openAlexMailto = options.openAlexMailto ?? process.env.OPENALEX_MAILTO;
+	const openAlexMailto = options.openAlexMailto ?? providerCredentials.openAlexMailto ?? process.env.OPENALEX_MAILTO;
 	if (openAlexMailto) url.searchParams.set("mailto", openAlexMailto);
 	const filters: string[] = [];
 	if (options.filters?.yearFrom) filters.push("from_publication_date:" + options.filters.yearFrom + "-01-01");
@@ -330,7 +330,7 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("query.bibliographic", options.query);
 	url.searchParams.set("rows", String(options.limit));
 	url.searchParams.set("offset", String(offset));
-	const crossrefMailto = process.env.CROSSREF_POLITE_EMAIL;
+	const crossrefMailto = providerCredentials.crossrefPoliteEmail ?? process.env.CROSSREF_POLITE_EMAIL;
 	if (crossrefMailto) url.searchParams.set("mailto", crossrefMailto);
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
 		const from = options.filters.yearFrom ?? 1000;
@@ -472,7 +472,7 @@ export async function searchSemanticScholarPage(options: ProviderSearchOptions):
 		"paperId,title,abstract,authors,year,venue,publicationTypes,externalIds,url,openAccessPdf,citationCount",
 	);
 	const headers: Record<string, string> = { Accept: "application/json" };
-	const apiKey = options.semanticScholarApiKey ?? process.env.S2_API_KEY;
+	const apiKey = options.semanticScholarApiKey ?? providerCredentials.semanticScholarApiKey ?? process.env.S2_API_KEY;
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -528,7 +528,7 @@ export async function searchSemanticScholarCitations(
 		"paperId,title,abstract,authors,year,venue,publicationTypes,externalIds,url,openAccessPdf,citationCount",
 	);
 	const headers: Record<string, string> = { Accept: "application/json" };
-	const apiKey = options.semanticScholarApiKey ?? process.env.S2_API_KEY;
+	const apiKey = options.semanticScholarApiKey ?? providerCredentials.semanticScholarApiKey ?? process.env.S2_API_KEY;
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -671,8 +671,8 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 	searchUrl.searchParams.set("retmode", "json");
 	searchUrl.searchParams.set("retstart", String(offset));
 	searchUrl.searchParams.set("retmax", String(Math.min(options.limit, 200)));
-	const apiKey = options.pubmedApiKey ?? process.env.NCBI_API_KEY;
-	const email = options.pubmedEmail ?? process.env.NCBI_EMAIL;
+	const apiKey = options.pubmedApiKey ?? providerCredentials.pubmedApiKey ?? process.env.NCBI_API_KEY;
+	const email = options.pubmedEmail ?? providerCredentials.ncbiEmail ?? process.env.NCBI_EMAIL;
 	if (apiKey) searchUrl.searchParams.set("api_key", apiKey);
 	if (email) searchUrl.searchParams.set("email", email);
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
@@ -769,7 +769,7 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 }
 
 export async function searchCorePage(options: ProviderSearchOptions): Promise<ProviderPage> {
-	const apiKey = options.coreApiKey ?? process.env.CORE_API_KEY;
+	const apiKey = options.coreApiKey ?? providerCredentials.coreApiKey ?? process.env.CORE_API_KEY;
 	if (!apiKey) throw new Error("CORE_API_KEY is required for the CORE provider");
 	const offset = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid CORE cursor");
@@ -904,7 +904,7 @@ export async function searchOpenCitationsPage(options: ProviderSearchOptions): P
 export async function searchUnpaywallPage(options: ProviderSearchOptions): Promise<ProviderPage> {
 	if (options.cursor) throw new Error("Unpaywall DOI lookup does not support pagination");
 	const doi = doiOnlyQuery(options.query, "Unpaywall");
-	const email = options.unpaywallEmail ?? process.env.UNPAYWALL_EMAIL;
+	const email = options.unpaywallEmail ?? providerCredentials.unpaywallEmail ?? process.env.UNPAYWALL_EMAIL;
 	if (!email) throw new Error("UNPAYWALL_EMAIL is required for the Unpaywall provider");
 	const url = new URL(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}`);
 	url.searchParams.set("email", email);
@@ -1038,11 +1038,171 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		requiresEnvironmentVariable: "UNPAYWALL_EMAIL",
 		search: searchUnpaywallPage,
 	},
+	{
+		id: "exa",
+		label: "Exa",
+		description: "Neural web and academic search via Exa MCP (no API key)",
+		queryMode: "search",
+		search: searchExaPage,
+	},
 ] as const;
 
 const literatureProviderRegistry = new Map(
 	literatureProviderDefinitions.map((definition) => [definition.id, definition]),
 );
+
+const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
+
+/** 来自 config.json 的 provider 凭据; 优先级: 调用参数 > 配置文件 > 环境变量 */
+let providerCredentials: {
+	semanticScholarApiKey?: string;
+	pubmedApiKey?: string;
+	coreApiKey?: string;
+	exaApiKey?: string;
+	unpaywallEmail?: string;
+	openAlexMailto?: string;
+	crossrefPoliteEmail?: string;
+	ncbiEmail?: string;
+} = {};
+
+export function setProviderCredentials(credentials: typeof providerCredentials): void {
+	providerCredentials = credentials ?? {};
+}
+
+async function exaMCPCall(
+	method: string,
+	params: unknown,
+	signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+	const response = await fetch(EXA_MCP_URL, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+			// 可选: 设置 EXA_API_KEY 环境变量走自有配额; 未设置则匿名(配额较低)
+			...(providerCredentials.exaApiKey ?? process.env.EXA_API_KEY ? { "x-api-key": providerCredentials.exaApiKey ?? process.env.EXA_API_KEY } : {}),
+		},
+		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+		signal,
+	});
+	if (!response.ok) throw new LiteratureProviderHttpError("Exa", response);
+	const raw = await response.text();
+	for (const line of raw.split(/\r?\n/)) {
+		if (!line.startsWith("data: ")) continue;
+		try {
+			const payload = JSON.parse(line.slice(6)) as {
+				result?: Record<string, unknown>;
+				error?: { message?: string };
+			};
+			if (payload.error) throw new Error(`Exa MCP error: ${payload.error.message ?? JSON.stringify(payload.error)}`);
+			if (payload.result !== undefined) return payload.result;
+		} catch (error) {
+			if (error instanceof SyntaxError) continue; // 跳过非 JSON 的 SSE 行
+			throw error;
+		}
+	}
+	throw new Error("Exa MCP returned no result");
+}
+
+function parseExaResults(text: string): Array<{ title: string; url: string; published?: string; author?: string; highlights?: string }> {
+	const chunks = text.split(/\r?\n(?=Title: )/);
+	const results: Array<{ title: string; url: string; published?: string; author?: string; highlights?: string }> = [];
+	for (const chunk of chunks) {
+		const title = /^Title: (.*)$/m.exec(chunk)?.[1]?.trim();
+		const url = /^URL: (.*)$/m.exec(chunk)?.[1]?.trim();
+		if (!title || !url) continue;
+		if (!/^https?:\/\//i.test(url)) continue;
+		const published = /^Published: (.*)$/m.exec(chunk)?.[1]?.trim();
+		const author = /^Author: (.*)$/m.exec(chunk)?.[1]?.trim();
+		const highlights = chunk.split(/^Highlights:/m)[1]?.trim().slice(0, 2_000);
+		results.push({
+			title,
+			url,
+			...(published && published !== "N/A" ? { published } : {}),
+			...(author && author !== "N/A" ? { author } : {}),
+			...(highlights ? { highlights } : {}),
+		});
+	}
+	return results;
+}
+
+export async function searchExaPage(options: ProviderSearchOptions): Promise<ProviderPage> {
+	try {
+		await exaMCPCall(
+			"initialize",
+			{
+				protocolVersion: "2024-11-05",
+				capabilities: {},
+				clientInfo: { name: "paper-agent", version: "0.2" },
+			},
+			options.signal,
+		);
+	} catch {
+		// 部分部署无需 initialize; 失败忽略, 后续 tools/call 会暴露真实错误。
+	}
+	const numResults = Math.min(Math.max(options.limit, 1), 10);
+	const result = await exaMCPCall(
+		"tools/call",
+		{
+			name: "web_search_exa",
+			arguments: { query: options.query, numResults },
+		},
+		options.signal,
+	);
+	const content = result.content;
+	const text = Array.isArray(content)
+		? content.map((entry) => (entry && typeof entry === "object" ? String((entry as { text?: unknown }).text ?? "") : "")).join("\n")
+		: "";
+	const retrievedAt = new Date().toISOString();
+	const records = parseExaResults(text)
+		.map((entry) => {
+			const year = entry.published ? Number.parseInt(entry.published.slice(0, 4), 10) : undefined;
+			const links: PaperLink[] = [{ url: entry.url, kind: "landing" }];
+			// arXiv URL(abs/html/pdf) → 生成可下载的 pdf 链接(kind: pdf), 让下载流程可用
+			const arxivMatch =
+				/(?:arxiv\.org\/(?:abs|html|pdf)\/|export\.arxiv\.org\/pdf\/)(\d{4}\.\d{4,5}(?:v\d+)?)/i.exec(
+					entry.url,
+				);
+			if (arxivMatch) {
+				links[0].openAccess = true;
+				links.push({
+					url: `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`,
+					kind: "pdf",
+					openAccess: true,
+				});
+			} else if (entry.url.endsWith(".pdf") || entry.url.includes(".pdf?")) {
+				links[0].openAccess = true;
+				links.push({ url: entry.url, kind: "pdf", openAccess: true });
+			}
+			return withId({
+				title: entry.title,
+				...(entry.highlights ? { abstract: entry.highlights } : {}),
+				authors: entry.author ? [entry.author] : [],
+				...(Number.isInteger(year) && year ? { year } : {}),
+				publicationType: "unknown",
+				identifiers: {},
+				links,
+				provenance: [
+					{
+						provider: "exa",
+						query: options.query,
+						retrievedAt,
+						providerRecordId: entry.url,
+						rawUrl: entry.url,
+					},
+				],
+				mergedFrom: [],
+			});
+		})
+		.filter((record) => passesFilters(record, options.filters));
+	return {
+		provider: "exa",
+		query: options.query,
+		records,
+		nextCursor: undefined,
+		requestUrl: EXA_MCP_URL,
+	};
+}
 
 export function searchProviderPage(
 	provider: LiteratureProvider,

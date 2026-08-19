@@ -322,10 +322,17 @@ export class TeamCorpusClient {
 }
 
 function environmentClient(): TeamCorpusClient {
-	const value = process.env.PAPER_AGENT_TEAM_SERVER_URL;
-	const token = process.env.PAPER_AGENT_TEAM_TOKEN;
+	const value = configuredTeamConnection?.baseUrl ?? process.env.PAPER_AGENT_TEAM_SERVER_URL;
+	const token = configuredTeamConnection?.token ?? process.env.PAPER_AGENT_TEAM_TOKEN;
 	if (!value || !token) throw new Error("PAPER_AGENT_TEAM_SERVER_URL and PAPER_AGENT_TEAM_TOKEN are required");
 	return new TeamCorpusClient({ baseUrl: value, token });
+}
+
+let configuredTeamConnection: TeamCorpusConnection | undefined;
+
+/** 从 config.json 的 team 段设置连接; 优先级: 配置 > 环境变量 */
+export function setTeamConnection(connection: TeamCorpusConnection | undefined): void {
+	configuredTeamConnection = connection;
 }
 
 export async function searchRemoteTeamCorpus(input: Parameters<TeamCorpusClient["search"]>[0]) {
