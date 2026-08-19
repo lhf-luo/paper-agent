@@ -4076,3 +4076,95 @@ span.chip.active {
 	color: #77968a;
 	font-size: 11px;
 }
+
+/* 搜索结果表格视图 */
+.search-result-table-wrap {
+	overflow-x: auto;
+	margin-top: 14px;
+	border: 1px solid #dfe6e2;
+	border-radius: 10px;
+	background: #fff;
+}
+
+.search-result-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.search-result-table th {
+	position: sticky;
+	top: 0;
+	background: #f4f8f6;
+	color: #4d6a5e;
+	text-align: left;
+	padding: 9px 12px;
+	font-weight: 700;
+	white-space: nowrap;
+	border-bottom: 1px solid #dfe6e2;
+}
+
+.search-result-table td {
+	padding: 8px 12px;
+	border-bottom: 1px solid #eef2f0;
+	vertical-align: top;
+	color: #3a4a42;
+}
+
+.search-result-table tbody tr:hover {
+	background: #f7fbf9;
+}
+
+.search-result-table .col-select {
+	width: 32px;
+}
+
+.search-result-table .col-title {
+	min-width: 320px;
+	max-width: 460px;
+}
+
+.search-result-table .col-title a {
+	color: #1f6b52;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.search-result-table .col-title a:hover {
+	text-decoration: underline;
+}
+
+.search-result-table .col-identifier {
+	white-space: nowrap;
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.search-table-authors {
+	display: block;
+	margin-top: 3px;
+	color: #7a8b83;
+	font-size: 11px;
+}
+
+.abstract-link {
+	border: 1px solid #c9d5d0;
+	border-radius: 6px;
+	background: #fff;
+	color: #2d6c58;
+	font-size: 11px;
+	padding: 3px 10px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.abstract-link:hover:not(:disabled) {
+	background: #eef5f1;
+	border-color: #8db5a6;
+}
+
+.abstract-link:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}

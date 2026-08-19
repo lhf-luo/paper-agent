@@ -1422,6 +1422,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		promptSnippet: "Collect and deduplicate literature into a personal or team corpus",
 		promptGuidelines: [
 			"Review the deterministic acronym/hyphenation expansions, add explicit author/title or adjacent-term variants when useful, and preserve every executed query in the run manifest.",
+			"Provider credentials are read from config.json automatically; CORE works when coreApiKey is set there (no environment variable needed). Prefer 2-4 focused query variants over many expansions to keep collection fast.",
 			"Use once mode for exploratory searches and persistent mode when the results should be reused.",
 			"Search metadata is discovery evidence only; verify substantive claims in primary sources.",
 		],

@@ -134,6 +134,92 @@ export function PaperDetailDrawer({
 	);
 }
 
+function primaryPaperUrl(paper: PaperRecord): string | undefined {
+	return paper.links.find((link) => link.kind === "pdf" || link.kind === "landing" || link.kind === "doi")?.url;
+}
+
+function paperPrimaryIdentifier(paper: PaperRecord): string {
+	if (paper.identifiers.doi) return `DOI ${paper.identifiers.doi}`;
+	if (paper.identifiers.arxivId) return `arXiv ${paper.identifiers.arxivId}`;
+	if (paper.identifiers.semanticScholarId) return `S2 ${paper.identifiers.semanticScholarId}`;
+	if (paper.identifiers.openAlexId) return `OpenAlex ${paper.identifiers.openAlexId}`;
+	return "—";
+}
+
+export function SearchResultTable({
+	papers,
+	selected,
+	onSelect,
+	onOpenAbstract,
+}: {
+	papers: PaperRecord[];
+	selected: Set<string>;
+	onSelect: (id: string, checked: boolean) => void;
+	onOpenAbstract: (paper: PaperRecord) => void;
+}) {
+	return (
+		<div className="search-result-table-wrap">
+			<table className="search-result-table">
+				<thead>
+					<tr>
+						<th className="col-select" />
+						<th>标题</th>
+						<th>年份</th>
+						<th>Venue</th>
+						<th>标识</th>
+						<th>来源</th>
+						<th>摘要</th>
+					</tr>
+				</thead>
+				<tbody>
+					{papers.map((paper) => {
+						const url = primaryPaperUrl(paper);
+						return (
+							<tr key={paper.id}>
+								<td className="col-select">
+									<input
+										aria-label={`选择 ${paper.title}`}
+										type="checkbox"
+										checked={selected.has(paper.id)}
+										onChange={(event) => onSelect(paper.id, event.target.checked)}
+									/>
+								</td>
+								<td className="col-title">
+									{url ? (
+										<a href={url} target="_blank" rel="noreferrer">
+											{paper.title}
+										</a>
+									) : (
+										<span className="paper-detail-title-inline">{paper.title}</span>
+									)}
+									{paper.authors.length > 0 && <span className="search-table-authors">{paper.authors.slice(0, 4).join(", ")}</span>}
+								</td>
+								<td>{paper.year ?? "—"}</td>
+								<td>
+									{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}{" "}
+									<span>{paper.venue || paper.publicationType || "—"}</span>
+								</td>
+								<td className="col-identifier">{paperPrimaryIdentifier(paper)}</td>
+								<td>{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</td>
+								<td className="col-abstract">
+									<button
+										type="button"
+										className="abstract-link"
+										disabled={!paper.abstract}
+										onClick={() => onOpenAbstract(paper)}
+									>
+										摘要
+									</button>
+								</td>
+							</tr>
+						);
+					})}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
 export function ConsentCard({
 	operation,
 	onConfirm,

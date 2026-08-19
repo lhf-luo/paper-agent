@@ -11,6 +11,7 @@ import {
 	PaperCard,
 	PaperDetailDrawer,
 	PdfViewer,
+	SearchResultTable,
 	StatusPill,
 	useJob,
 } from "./components";
@@ -260,6 +261,7 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 	const [selectedRunId, setSelectedRunId] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [detailPaper, setDetailPaper] = useState<PaperRecord | undefined>();
+	const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
@@ -625,6 +627,20 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 						</div>
 						<div className="button-row">
 							<button
+								className={`button ${viewMode === "table" ? "primary" : "secondary"}`}
+								type="button"
+								onClick={() => setViewMode("table")}
+							>
+								表格视图
+							</button>
+							<button
+								className={`button ${viewMode === "cards" ? "primary" : "secondary"}`}
+								type="button"
+								onClick={() => setViewMode("cards")}
+							>
+								卡片视图
+							</button>
+							<button
 								className="button secondary"
 								type="button"
 								onClick={() => setSelected(new Set(results.map((paper) => paper.id)))}
@@ -641,25 +657,41 @@ function SearchPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
 							</button>
 						</div>
 					</div>
-					<div className="paper-list">
-						{results.map((paper) => (
-							<PaperCard
-								key={paper.id}
-								paper={paper}
-								selected={selected.has(paper.id)}
-								truncateAbstract
-								onSelect={(checked) =>
-									setSelected((current) => {
-										const next = new Set(current);
-										if (checked) next.add(paper.id);
-										else next.delete(paper.id);
-										return next;
-									})
-								}
-								onOpen={() => setDetailPaper(paper)}
-							/>
-						))}
-					</div>
+					{viewMode === "table" ? (
+						<SearchResultTable
+							papers={results}
+							selected={selected}
+							onSelect={(id, checked) =>
+								setSelected((current) => {
+									const next = new Set(current);
+									if (checked) next.add(id);
+									else next.delete(id);
+									return next;
+								})
+							}
+							onOpenAbstract={(paper) => setDetailPaper(paper)}
+						/>
+					) : (
+						<div className="paper-list">
+							{results.map((paper) => (
+								<PaperCard
+									key={paper.id}
+									paper={paper}
+									selected={selected.has(paper.id)}
+									truncateAbstract
+									onSelect={(checked) =>
+										setSelected((current) => {
+											const next = new Set(current);
+											if (checked) next.add(paper.id);
+											else next.delete(paper.id);
+											return next;
+										})
+									}
+									onOpen={() => setDetailPaper(paper)}
+								/>
+							))}
+						</div>
+					)}
 				</section>
 			)}
 			{detailPaper && (
