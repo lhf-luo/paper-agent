@@ -1416,12 +1416,12 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		name: "update_literature_sidebar",
 		label: "Update literature sidebar",
 		description:
-			"Save the curated literature list you already produced in this reply into a markdown document and expose a link for the web UI. Pass the exact curated content (grouped headings plus markdown tables, titles may include [text](url) links) as the content parameter; it is written to a temp file and opened in the right-side panel when the user clicks the link. Call this after filtering/screening instead of printing literature tables in the chat.",
+			"Save the curated literature list (one combined markdown table with a focus column) into a markdown document and expose it for the web UI sidebar. Pass the exact table as the content parameter; it is written to a temp file and shown in the right-side panel. The chat reply must contain ONLY a short summary — the table itself lives in the sidebar.",
 		promptSnippet: "Send screened literature to the sidebar panel",
 		promptGuidelines: [
-			"Call this when the user wants to see the screened literature; pass the curated groups/tables exactly as you would print them, with titles as [title](url) links when a paper URL is known.",
-			"The content parameter should contain only the curated paper list (headings + tables), not the whole conversation.",
-			"The sidebar document replaces chat tables: do not emit markdown literature tables in the reply text.",
+			"Call this when the user wants to see the screened literature; pass ONE combined table with a focus column (标题|年份/venue|标识|focus), titles as [title](url) links when a paper URL is known.",
+			"The content parameter should contain only the table, not the whole conversation.",
+			"Do NOT print any markdown table in the chat reply; reply with a short summary (counts, focus distribution, highlights, next steps) and let the sidebar show the list.",
 		],
 		parameters: Type.Object({
 			content: Type.String({

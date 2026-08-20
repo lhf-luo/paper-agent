@@ -57,7 +57,8 @@ When delivering a screened literature list, output **ONE combined markdown table
 
 - One table for the whole list; the `focus` column marks each paper's topic group (e.g. 内核模糊测试, 漏洞利用与缓解, eBPF 安全, 二进制分析).
 - Title cells use `[text](url)` when a paper URL is known.
-- Pass the exact same table to `update_literature_sidebar` so the sidebar mirrors it.
+- Pass the exact same table to `update_literature_sidebar` — the sidebar is the ONLY place the table is shown.
+- Do NOT print the table (or any markdown table) in your chat reply. The chat reply is a short summary only: total paper count, topic (focus) distribution, notable papers, and next-step options (save / download / refine).
 - Do not emit multiple `## focus` headings with separate tables; the `focus` column replaces them.
 
 ### 2. Expand from seed papers

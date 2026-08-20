@@ -4185,6 +4185,25 @@ span.chip.active {
 	overflow: hidden;
 	background: #fafcfb;
 	border-left: 1px solid #dfe6e2;
+	position: relative;
+}
+
+.agent-result-resizer {
+	position: absolute;
+	top: 0;
+	left: -3px;
+	bottom: 0;
+	width: 6px;
+	z-index: 30;
+	border: 0;
+	background: transparent;
+	cursor: col-resize;
+	padding: 0;
+}
+
+.agent-result-resizer:hover,
+.agent-result-resizer:active {
+	background: rgba(79, 124, 95, 0.35);
 }
 
 .agent-result-sidebar {
@@ -4373,7 +4392,12 @@ span.chip.active {
 
 /* 侧边栏分组表格(6.png 风格) */
 .agent-result-table-scroll {
-	overflow-x: auto;
+	overflow: auto;
+	max-height: calc(100vh - 200px);
+}
+
+.agent-result-table {
+	min-width: 620px;
 }
 
 .agent-result-table {

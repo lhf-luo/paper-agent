@@ -312,6 +312,24 @@ export function AgentPage({
 	const [sidebarTables, setSidebarTables] = useState<ParsedLiteratureTable[]>([]);
 	const [sidebarLoading, setSidebarLoading] = useState(false);
 	const [resultPanelOpen, setResultPanelOpen] = useState(false);
+	const [resultPanelWidth, setResultPanelWidth] = useState(380);
+	const resultResizeRef = useRef<{ x: number; width: number } | null>(null);
+	const startResultResize = useCallback((event: React.MouseEvent) => {
+		event.preventDefault();
+		resultResizeRef.current = { x: event.clientX, width: resultPanelWidth };
+		const onMove = (move: MouseEvent) => {
+			if (!resultResizeRef.current) return;
+			const delta = resultResizeRef.current.x - move.clientX;
+			setResultPanelWidth(Math.max(280, Math.min(640, resultResizeRef.current.width + delta)));
+		};
+		const onUp = () => {
+			resultResizeRef.current = null;
+			document.removeEventListener("mousemove", onMove);
+			document.removeEventListener("mouseup", onUp);
+		};
+		document.addEventListener("mousemove", onMove);
+		document.addEventListener("mouseup", onUp);
+	}, [resultPanelWidth]);
 	const [sidebarAvailable, setSidebarAvailable] = useState(false);
 
 
@@ -742,10 +760,10 @@ export function AgentPage({
 					{
 						gridTemplateColumns: sidebarOpen
 							? resultPanelOpen
-								? "250px minmax(0, 1fr) minmax(300px, 380px)"
+								? `250px minmax(0, 1fr) ${resultPanelWidth}px`
 								: "250px minmax(0, 1fr)"
 							: resultPanelOpen
-								? "0px minmax(0, 1fr) minmax(300px, 380px)"
+								? `0px minmax(0, 1fr) ${resultPanelWidth}px`
 								: "0px minmax(0, 1fr)",
 					} as React.CSSProperties
 				}
@@ -1014,6 +1032,12 @@ export function AgentPage({
 
 				{resultPanelOpen && (
 					<aside className="panel agent-result-panel">
+						<button
+							type="button"
+							className="agent-result-resizer"
+							aria-label="调整论文清单宽度"
+							onMouseDown={startResultResize}
+						/>
 						<AgentResultSidebar
 							tables={sidebarTables}
 							loading={sidebarLoading}
