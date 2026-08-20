@@ -4170,12 +4170,24 @@ span.chip.active {
 }
 
 /* Agent 右侧结果侧边栏 */
-.agent-result-panel {
+.agent-workspace {
+	position: relative;
+}
+
+.agent-result-overlay {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: min(430px, 40vw);
+	z-index: 60;
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
 	background: #fafcfb;
 	border-left: 1px solid #dfe6e2;
+	box-shadow: -6px 0 22px rgba(30, 59, 50, 0.1);
+	animation: paper-drawer-in 0.18s ease-out;
 }
 
 .agent-result-sidebar {
