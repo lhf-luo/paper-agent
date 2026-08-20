@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiEventStream } from "./api";
+import type { ParsedLiteratureTable } from "./literature-markdown";
+import { parseLiteratureTables } from "./literature-markdown";
 import type {
 	AgentConfigView,
 	AgentEvent,
@@ -48,6 +50,37 @@ const taskTemplates = [
 function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummary {
 	const { messages: _messages, tools: _tools, uiRequests: _uiRequests, ...summary } = snapshot;
 	return summary;
+}
+
+function LiteratureTableCard({ table }: { table: ParsedLiteratureTable }) {
+	return (
+		<section className="literature-table-card">
+			<header className="literature-table-head">
+				<span className="focus-badge">focus</span>
+				<strong>{table.focus || "未分类"}</strong>
+			</header>
+			<div className="literature-table-scroll">
+				<table className="literature-table">
+					<thead>
+						<tr>
+							{table.headers.map((header) => (
+								<th key={header}>{header}</th>
+							))}
+						</tr>
+					</thead>
+					<tbody>
+						{table.rows.map((row) => (
+							<tr key={row[0] ?? ""}>
+								{row.map((cell) => (
+									<td key={cell}>{cell}</td>
+								))}
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	);
 }
 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
@@ -703,6 +736,19 @@ export function AgentPage({
 								<div className="agent-message-text">
 									{message.content || (message.status === "streaming" ? "正在思考并调用研究工具…" : "本轮主要执行了工具调用。")}
 								</div>
+								{message.role === "assistant" && message.status === "complete" && message.content
+									? (() => {
+											const parsed = parseLiteratureTables(message.content);
+											if (!parsed) return null;
+											return (
+												<div className="literature-table-group">
+													{parsed.tables.map((table) => (
+														<LiteratureTableCard key={table.focus || table.headers.join("-")} table={table} />
+													))}
+												</div>
+											);
+										})()
+									: null}
 								{message.thinking ? (
 									<ThinkingBlock thinking={message.thinking} streaming={message.status === "streaming"} />
 								) : message.status === "streaming" ? (
