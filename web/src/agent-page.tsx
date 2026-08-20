@@ -282,7 +282,7 @@ export function AgentPage({
 	const [resultPanelOpen, setResultPanelOpen] = useState(false);
 	const [sidebarAvailable, setSidebarAvailable] = useState(false);
 
-	const openSidebarDocument = async (url?: string) => {
+	const openSidebarDocument = useCallback(async (url?: string) => {
 		const target = url ?? sidebarDocUrl;
 		if (!target) return;
 		setResultPanelOpen(true);
@@ -295,7 +295,7 @@ export function AgentPage({
 		} finally {
 			setSidebarLoading(false);
 		}
-	};
+	}, [sidebarDocUrl]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [uploading, setUploading] = useState(false);
 
@@ -488,6 +488,7 @@ export function AgentPage({
 						if (output.details?.mdUrl) {
 							setSidebarDocUrl(output.details.mdUrl);
 							setSidebarAvailable(true);
+							void openSidebarDocument(output.details.mdUrl);
 						}
 					} catch {
 						// 忽略不可解析的工具输出
@@ -549,7 +550,7 @@ export function AgentPage({
 			}
 		})();
 		return () => controller.abort();
-	}, [activeId]);
+	}, [activeId, openSidebarDocument]);
 
 		useEffect(() => {
 			if (!active) return;

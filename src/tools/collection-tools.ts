@@ -1434,7 +1434,9 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 			if (content.length > 200_000) throw new Error("content too large (max 200KB)");
 			const resultsDir = join(ctx.cwd, ".paper-agent", "web-agent-memory", "results");
 			await mkdir(resultsDir, { recursive: true });
-			const fileName = `${randomUUID().slice(0, 8)}-${Date.now().toString(36)}.md`;
+			const sessionId = ctx.sessionManager?.getSessionId?.() ?? "unspecified";
+			const safeSessionId = sessionId.replace(/[^A-Za-z0-9-]/g, "_");
+			const fileName = `${safeSessionId}-${Date.now().toString(36)}.md`;
 			const filePath = join(resultsDir, fileName);
 			await writeFile(filePath, content, { encoding: "utf8" });
 			const mdUrl = `/api/agent/results/${encodeURIComponent(fileName)}`;

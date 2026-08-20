@@ -1221,6 +1221,23 @@ export class WebAgentService implements WebAgentServiceApi {
 		await rm(join(this.sessionViewDir, `${id}.json`), { force: true }).catch(() => undefined);
 		const piFile = await this.findPiSessionFile(id);
 		if (piFile) await rm(piFile, { force: true }).catch(() => undefined);
+		await this.removeSessionResultDocuments(id);
+	}
+
+	/** 删除该会话生成的临时论文清单文档(results/ 目录, 文件名以 <sessionId>- 开头)。 */
+	private async removeSessionResultDocuments(sessionId: string): Promise<void> {
+		const resultsDir = join(this.projectRoot, ".paper-agent", "web-agent-memory", "results");
+		const safeSessionId = sessionId.replace(/[^A-Za-z0-9-]/g, "_");
+		try {
+			const files = await readdir(resultsDir);
+			await Promise.all(
+				files
+					.filter((name) => name.startsWith(`${safeSessionId}-`) && name.endsWith(".md"))
+					.map((name) => rm(join(resultsDir, name), { force: true }).catch(() => undefined)),
+			);
+		} catch {
+			// 目录不存在或不可读时忽略
+		}
 	}
 
 	private async destroyAllSessions(): Promise<void> {
