@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiEventStream } from "./api";
+import type { ParsedLiteratureTable } from "./literature-markdown";
+import { parseLiteratureTables } from "./literature-markdown";
 import type {
 	AgentConfigView,
 	AgentEvent,
@@ -45,31 +47,15 @@ const taskTemplates = [
 	},
 ];
 
-export interface AgentSidebarPaper {
-	id: string;
-	title: string;
-	year?: number;
-	venue?: string;
-	venueRank?: "A" | "B" | "C";
-	identifier?: string;
-	url?: string;
-	abstract?: string;
-}
-
-export interface AgentSidebarGroup {
-	focus: string;
-	papers: AgentSidebarPaper[];
-	missing?: string[];
-}
-
 function AgentResultSidebar({
-	groups,
+	tables,
+	loading,
 	onClose,
 }: {
-	groups: AgentSidebarGroup[];
+	tables: ParsedLiteratureTable[];
+	loading: boolean;
 	onClose: () => void;
 }) {
-	const [openAbstract, setOpenAbstract] = useState<string | undefined>();
 	return (
 		<div className="agent-result-sidebar">
 			<header className="agent-result-head">
@@ -78,59 +64,44 @@ function AgentResultSidebar({
 					×
 				</button>
 			</header>
-			{groups.length === 0 ? (
-				<div className="agent-result-empty">Agent 筛选完成后，论文将按分组显示在这里。</div>
+			{loading ? (
+				<div className="agent-result-empty">加载中…</div>
+			) : tables.length === 0 ? (
+				<div className="agent-result-empty">
+					点击对话中的「📄 查看论文清单」链接，在此显示 Agent 生成的论文清单文档。
+				</div>
 			) : (
 				<div className="agent-result-groups">
-					{groups.map((group) => (
-						<section className="agent-result-group" key={group.focus}>
+					{tables.map((table) => (
+						<section className="agent-result-group" key={table.focus}>
 							<header className="agent-result-focus">
 								<span className="focus-badge">focus</span>
-								<strong>{group.focus || "未分类"}</strong>
-								<span className="agent-result-count">{group.papers.length}</span>
+								<strong>{table.focus || "未分类"}</strong>
+								<span className="agent-result-count">{table.rows.length}</span>
 							</header>
 							<div className="agent-result-table-scroll">
 								<table className="agent-result-table">
 									<thead>
 										<tr>
-											<th>标题</th>
-											<th>年份/venue</th>
-											<th>标识</th>
-											<th />
+											{table.headers.map((header) => (
+												<th key={header}>{header}</th>
+											))}
 										</tr>
 									</thead>
 									<tbody>
-										{group.papers.map((paper) => (
-											<tr key={paper.id}>
-												<td className="agent-result-table-title">
-													{paper.url ? (
-														<a href={paper.url} target="_blank" rel="noreferrer">
-															{paper.title}
-														</a>
-													) : (
-														<span>{paper.title}</span>
-													)}
-												</td>
-												<td className="agent-result-table-venue">
-													{paper.year ? <span>{paper.year}</span> : null}
-													{paper.venue ? <span>{paper.venue}</span> : null}
-													{paper.venueRank ? (
-														<span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>
-													) : null}
-												</td>
-												<td className="agent-result-table-id">{paper.identifier ?? "—"}</td>
-												<td className="agent-result-table-action">
-													{paper.abstract ? (
-														<details
-															className="agent-result-abstract"
-															open={openAbstract === paper.id}
-															onToggle={(event) => setOpenAbstract(event.currentTarget.open ? paper.id : undefined)}
-														>
-															<summary>摘要</summary>
-															<p>{paper.abstract}</p>
-														</details>
-													) : null}
-												</td>
+										{table.rows.map((row) => (
+											<tr key={row[0]?.text ?? ""}>
+												{row.map((cell, index) => (
+													<td key={`${cell.text}-${index}`}>
+														{index === 0 && cell.url ? (
+															<a className="agent-result-table-title" href={cell.url} target="_blank" rel="noreferrer">
+																{cell.text}
+															</a>
+														) : (
+															<span>{cell.text}</span>
+														)}
+													</td>
+												))}
 											</tr>
 										))}
 									</tbody>
@@ -286,9 +257,25 @@ export function AgentPage({
 		Array<{ name: string; description: string; disableModelInvocation: boolean }>
 	>([]);
 	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
-	const [sidebarGroups, setSidebarGroups] = useState<AgentSidebarGroup[]>([]);
-	const [resultPanelOpen, setResultPanelOpen] = useState(true);
+	const [sidebarDocUrl, setSidebarDocUrl] = useState<string | undefined>();
+	const [sidebarTables, setSidebarTables] = useState<ParsedLiteratureTable[]>([]);
+	const [sidebarLoading, setSidebarLoading] = useState(false);
+	const [resultPanelOpen, setResultPanelOpen] = useState(false);
 	const [sidebarAvailable, setSidebarAvailable] = useState(false);
+
+	const openSidebarDocument = async () => {
+		if (!sidebarDocUrl) return;
+		setResultPanelOpen(true);
+		setSidebarLoading(true);
+		try {
+			const text = await api<string>(sidebarDocUrl);
+			setSidebarTables(parseLiteratureTables(text)?.tables ?? []);
+		} catch {
+			setSidebarTables([]);
+		} finally {
+			setSidebarLoading(false);
+		}
+	};
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [uploading, setUploading] = useState(false);
 
@@ -477,11 +464,10 @@ export function AgentPage({
 				);
 				if (event.tool.name === "update_literature_sidebar" && event.tool.status === "succeeded" && event.tool.output) {
 					try {
-						const output = JSON.parse(event.tool.output) as { details?: { groups?: AgentSidebarGroup[] } };
-						if (output.details?.groups) {
-							setSidebarGroups(output.details.groups);
+						const output = JSON.parse(event.tool.output) as { details?: { mdUrl?: string } };
+						if (output.details?.mdUrl) {
+							setSidebarDocUrl(output.details.mdUrl);
 							setSidebarAvailable(true);
-							setResultPanelOpen(true);
 						}
 					} catch {
 						// 忽略不可解析的工具输出
@@ -857,8 +843,8 @@ export function AgentPage({
 						)}
 						{sidebarAvailable && active?.messages.some((message) => message.role === "assistant") && (
 							<div className="agent-results-entry">
-								<button type="button" onClick={() => setResultPanelOpen(true)}>
-									📄 查看论文清单（{sidebarGroups.reduce((sum, group) => sum + group.papers.length, 0)} 篇，{sidebarGroups.length} 组）
+								<button type="button" onClick={() => void openSidebarDocument()}>
+									📄 查看论文清单
 								</button>
 							</div>
 						)}
@@ -959,7 +945,11 @@ export function AgentPage({
 
 				{resultPanelOpen && (
 					<aside className="panel agent-result-panel">
-						<AgentResultSidebar groups={sidebarGroups} onClose={() => setResultPanelOpen(false)} />
+						<AgentResultSidebar
+							tables={sidebarTables}
+							loading={sidebarLoading}
+							onClose={() => setResultPanelOpen(false)}
+						/>
 					</aside>
 				)}
 			</div>

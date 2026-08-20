@@ -151,6 +151,7 @@ export interface WebAgentAttachment extends WebAgentAttachmentRef {
 }
 
 export interface WebAgentServiceApi {
+	projectRoot: string;
 	getConfig(): WebAgentConfigView | Promise<WebAgentConfigView>;
 	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }>;
 	updateConfig(input: WebAgentConfigUpdate): WebAgentConfigView | Promise<WebAgentConfigView>;
@@ -268,7 +269,7 @@ function cloneUIRequest(request: WebAgentUIRequestView): WebAgentUIRequestView {
 }
 
 export class WebAgentService implements WebAgentServiceApi {
-	private readonly projectRoot: string;
+	readonly projectRoot: string;
 	private readonly uiRequestTimeoutMs: number;
 	private readonly extensionFactory: ExtensionFactory;
 	private readonly systemPrompt: string;

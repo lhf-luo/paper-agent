@@ -301,6 +301,27 @@ export async function startLocalWebServer(
 					json(response, 200, { skills: await agentService.listSkills() });
 					return;
 				}
+				const resultDocRoute = /^\/api\/agent\/results\/([^/]+)$/.exec(url.pathname);
+				if (request.method === "GET" && resultDocRoute) {
+					const fileName = decodeURIComponent(resultDocRoute[1]);
+					if (!/^[a-zA-Z0-9._-]+\.md$/.test(fileName)) {
+						json(response, 400, { error: "Invalid result document name" });
+						return;
+					}
+					const resultsDir = join(agentService.projectRoot, ".paper-agent", "web-agent-memory", "results");
+					try {
+						const content = await readFile(join(resultsDir, fileName), "utf8");
+						response.writeHead(200, {
+							"content-type": "text/markdown; charset=utf-8",
+							"content-length": Buffer.byteLength(content),
+						});
+						response.end(content);
+						return;
+					} catch {
+						json(response, 404, { error: "Result document not found" });
+						return;
+					}
+				}
 				if (request.method === "POST" && url.pathname === "/api/agent/sessions") {
 					const body = await readJson(request);
 					json(

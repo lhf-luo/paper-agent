@@ -1416,12 +1416,12 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		name: "update_literature_sidebar",
 		label: "Update literature sidebar",
 		description:
-			"Push screened literature results into the right-side sidebar panel of the web UI, grouped by topic focus. Reads paper metadata (title, year, venue, DOI/arXiv, primary URL, abstract) from a persisted search run by paper id, so the sidebar shows accurate records without re-searching. Call this after filtering/screening instead of printing literature tables in the chat.",
+			"Generate a markdown literature list document from a persisted search run (grouped by topic focus) and expose a link for the web UI. The link opens the document in the right-side panel; call this after filtering/screening instead of printing literature tables in the chat.",
 		promptSnippet: "Send screened literature to the sidebar panel",
 		promptGuidelines: [
 			"Call this when the user wants to see the screened literature; group papers by topic (focus).",
 			"Use paper ids from the current filter/collect run; do not invent metadata.",
-			"The sidebar replaces chat tables: do not emit markdown literature tables in the reply.",
+			"The sidebar document replaces chat tables: do not emit markdown literature tables in the reply.",
 		],
 		parameters: Type.Object({
 			search_run_id: Type.String({ description: "Persisted search run containing the paper records" }),
@@ -1444,34 +1444,47 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 			const run = await store.getSearchRun(params.search_run_id);
 			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
 			const byId = new Map(run.results.map((record) => [record.id, record]));
-			const groups = params.groups.map((group) => {
+			const lines: string[] = [];
+			const groups: Array<Record<string, unknown>> = [];
+			for (const group of params.groups) {
 				const papers = group.paper_ids
 					.map((id) => byId.get(id))
-					.filter((record): record is PaperRecord => Boolean(record))
-					.map((record) => ({
-						id: record.id,
-						title: record.title,
-						year: record.year,
-						venue: record.venue ?? record.publicationType ?? undefined,
-						venueRank: record.venueRank,
-						identifier: primaryIdentifier(record),
-						url: record.links.find((link) => link.kind === "pdf" || link.kind === "landing" || link.kind === "doi")
-							?.url,
-						abstract: record.abstract,
-					}));
+					.filter((record): record is PaperRecord => Boolean(record));
 				const missing = group.paper_ids.filter((id) => !byId.has(id));
-				return { focus: group.focus, papers, missing };
-			});
-			const total = groups.reduce((sum, group) => sum + group.papers.length, 0);
-			const missingTotal = groups.reduce((sum, group) => sum + group.missing.length, 0);
+				lines.push(`## ${group.focus}`, "", "| 标题 | 年份/venue | 标识 |", "| --- | --- | --- |");
+				for (const record of papers) {
+					const url = record.links.find(
+						(link) => link.kind === "pdf" || link.kind === "landing" || link.kind === "doi",
+					)?.url;
+					const titleCell = url ? `[${record.title.replaceAll("|", "\\|")}](${url})` : record.title.replaceAll("|", "\\|");
+					const venueCell = [record.year, record.venue ?? record.publicationType].filter(Boolean).join(" · ");
+					lines.push(`| ${titleCell} | ${venueCell || "—"} | ${primaryIdentifier(record)} |`);
+				}
+				lines.push("");
+				groups.push({
+					focus: group.focus,
+					count: papers.length,
+					missing,
+				});
+			}
+			const resultsDir = join(ctx.cwd, ".paper-agent", "web-agent-memory", "results");
+			await mkdir(resultsDir, { recursive: true });
+			const fileName = `${run.id.replace(/^search-/, "")}-${Date.now().toString(36)}.md`;
+			const filePath = join(resultsDir, fileName);
+			await writeFile(filePath, lines.join("\n"), { encoding: "utf8" });
+			const mdUrl = `/api/agent/results/${encodeURIComponent(fileName)}`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Sidebar updated: ${groups.length} group(s), ${total} paper(s).${missingTotal ? ` ${missingTotal} id(s) not found in run.` : ""}`,
+						text: `论文清单已生成(${groups.length} 组)。网页端点击对话中的链接即可在右侧打开: ${mdUrl}`,
 					},
 				],
-				details: { groups },
+				details: {
+					mdPath: filePath,
+					mdUrl,
+					groups,
+				},
 			};
 		},
 	});

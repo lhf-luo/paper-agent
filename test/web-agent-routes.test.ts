@@ -49,6 +49,7 @@ describe("local Web Agent routes", () => {
 		let closed = false;
 		const listeners = new Set<(event: WebAgentEvent) => void>();
 		const agentService: WebAgentServiceApi = {
+			projectRoot: "/tmp/paper-agent-mock",
 			getConfig: () => config,
 			listSkills: () => [],
 			uploadAttachment: async () => ({ path: "/tmp/mock.bin", name: "mock.bin", size: 0 }),
