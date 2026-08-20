@@ -36,7 +36,6 @@ if (config.network?.proxyEnabled && config.network.proxyUrl) {
 	process.env.NO_PROXY ??= [
 		"export.arxiv.org",
 		"arxiv.org",
-		"api.openalex.org",
 		"api.deepseek.com",
 		"127.0.0.1",
 		"localhost",
