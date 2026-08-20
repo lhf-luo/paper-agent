@@ -1,8 +1,0 @@
-技能
-
-(/           :          _
-
-skill:           hice                         literature-survey            skim-card
-2                corpus-manager
-
-称 )
