@@ -728,8 +728,15 @@ export function AgentPage({
 				className="agent-workspace"
 				style={
 					{
-						gridTemplateColumns: sidebarOpen ? "250px minmax(0, 1fr)" : "0px minmax(0, 1fr)",
+						gridTemplateColumns: sidebarOpen
+							? resultPanelOpen
+								? "250px minmax(0, 1fr) minmax(340px, 420px)"
+								: "250px minmax(0, 1fr)"
+							: resultPanelOpen
+								? "0px minmax(0, 1fr) minmax(340px, 420px)"
+								: "0px minmax(0, 1fr)",
 						"--agent-sb-w": sidebarOpen ? "250px" : "0px",
+						"--agent-rp-w": resultPanelOpen ? "420px" : "0px",
 					} as React.CSSProperties
 				}
 			>
@@ -994,7 +1001,7 @@ export function AgentPage({
 				</section>
 
 				{resultPanelOpen && (
-					<aside className="agent-result-overlay">
+					<aside className="panel agent-result-panel">
 						<AgentResultSidebar
 							tables={sidebarTables}
 							loading={sidebarLoading}

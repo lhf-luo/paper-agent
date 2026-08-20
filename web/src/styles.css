@@ -4170,24 +4170,12 @@ span.chip.active {
 }
 
 /* Agent 右侧结果侧边栏 */
-.agent-workspace {
-	position: relative;
-}
-
-.agent-result-overlay {
-	position: absolute;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	width: min(430px, 40vw);
-	z-index: 60;
+.agent-result-panel {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
 	background: #fafcfb;
 	border-left: 1px solid #dfe6e2;
-	box-shadow: -6px 0 22px rgba(30, 59, 50, 0.1);
-	animation: paper-drawer-in 0.18s ease-out;
 }
 
 .agent-result-sidebar {
@@ -4572,8 +4560,8 @@ span.chip.active {
 	text-decoration-color: #b8cfc6;
 }
 
-/* 聊天内容(消息+输入框)相对视口居中: 修正左侧会话栏造成的偏移 */
+/* 聊天内容(消息+输入框)相对视口居中: 偏移 = (结果面板宽 - 会话栏宽)/2, 面板开/关/会话栏开/关 四态自适应 */
 .agent-transcript,
 .agent-composer {
-	transform: translateX(calc(-1 * var(--agent-sb-w, 0px) / 2));
+	transform: translateX(calc((var(--agent-rp-w, 0px) - var(--agent-sb-w, 0px)) / 2));
 }
