@@ -371,7 +371,7 @@ export function expandLiteratureQueries(primary: string, explicit: string[] = []
 		else if (acronymPattern.test(normalizedPrimary))
 			generated.push(normalizedPrimary.replace(acronymPattern, phrase));
 	}
-	return uniqueQueries(generated).slice(0, 12);
+	return uniqueQueries(generated).slice(0, 6);
 }
 
 function uniqueTerms(values: Array<string | undefined>): string[] {
@@ -1299,8 +1299,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 							`Domain terms: ${plan.keywordGroups.domain.join(", ") || "none"}`,
 							`Problem terms: ${plan.keywordGroups.problem.join(", ") || "none"}`,
 							`Method terms: ${plan.keywordGroups.method.join(", ") || "none"}`,
-							"Query variants:",
-							...plan.queryVariants.map((query) => `- ${query}`),
+							"Query variants (use at most 6; prefer 2-4 focused ones for speed):",
+							...plan.queryVariants.slice(0, 6).map((query) => `- ${query}`),
 							"Unsupported providers:",
 							...(plan.unsupportedProviders ?? []).map(
 								(item) =>

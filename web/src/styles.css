@@ -4190,7 +4190,8 @@ span.chip.active {
 .agent-result-sidebar {
 	display: flex;
 	flex-direction: column;
-	height: 100%;
+	flex: 1;
+	min-height: 0;
 }
 
 .agent-result-head {
@@ -4250,9 +4251,9 @@ span.chip.active {
 
 .agent-result-focus {
 	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 9px 12px;
+	align-items: baseline;
+	gap: 6px;
+	padding: 8px 12px;
 	border-bottom: 1px solid #e8edea;
 	background: #f7faf8;
 }
@@ -4260,7 +4261,11 @@ span.chip.active {
 .agent-result-focus strong {
 	flex: 1;
 	font-size: 12px;
+	font-weight: 600;
 	color: #2d3b32;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .agent-result-count {
