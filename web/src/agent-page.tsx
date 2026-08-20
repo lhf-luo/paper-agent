@@ -120,6 +120,25 @@ function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummar
 	return summary;
 }
 
+const RESULT_LINK_PATTERN = /(\/api\/agent\/results\/[A-Za-z0-9._-]+\.md)/g;
+const RESULT_LINK_CHECK = /^\/api\/agent\/results\/[A-Za-z0-9._-]+\.md$/;
+
+/** 把消息文本中的论文清单链接渲染成可点击按钮(点击打开右侧面板)。 */
+function renderResultLinks(text: string, onOpen: (url: string) => void): React.ReactNode {
+	const parts = text.split(RESULT_LINK_PATTERN);
+	let key = 0;
+	return parts.map((part) => {
+		if (part && RESULT_LINK_CHECK.test(part)) {
+			return (
+				<button key={key++} type="button" className="agent-result-link" onClick={() => onOpen(part)}>
+					📄 查看论文清单
+				</button>
+			);
+		}
+		return part ? <span key={key++}>{part}</span> : null;
+	});
+}
+
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
 	const [open, setOpen] = useState(true);
 	return (
@@ -263,12 +282,13 @@ export function AgentPage({
 	const [resultPanelOpen, setResultPanelOpen] = useState(false);
 	const [sidebarAvailable, setSidebarAvailable] = useState(false);
 
-	const openSidebarDocument = async () => {
-		if (!sidebarDocUrl) return;
+	const openSidebarDocument = async (url?: string) => {
+		const target = url ?? sidebarDocUrl;
+		if (!target) return;
 		setResultPanelOpen(true);
 		setSidebarLoading(true);
 		try {
-			const text = await api<string>(sidebarDocUrl);
+			const text = await api<string>(target);
 			setSidebarTables(parseLiteratureTables(text)?.tables ?? []);
 		} catch {
 			setSidebarTables([]);
@@ -807,7 +827,13 @@ export function AgentPage({
 									<span>{timeLabel(message.createdAt)}</span>
 								</header>
 								<div className="agent-message-text">
-									{message.content || (message.status === "streaming" ? "正在思考并调用研究工具…" : "本轮主要执行了工具调用。")}
+									{message.content ? (
+										renderResultLinks(message.content, (url) => void openSidebarDocument(url))
+									) : message.status === "streaming" ? (
+										"正在思考并调用研究工具…"
+									) : (
+										"本轮主要执行了工具调用。"
+									)}
 								</div>
 
 								{message.thinking ? (

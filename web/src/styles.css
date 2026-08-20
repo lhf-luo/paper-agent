@@ -4441,3 +4441,23 @@ span.chip.active {
 	line-height: 1.65;
 	white-space: normal;
 }
+
+/* 对话里的论文清单链接按钮 */
+.agent-result-link {
+	display: inline-block;
+	margin: 2px 4px;
+	padding: 5px 14px;
+	border: 1px solid #c9d5d0;
+	border-radius: 999px;
+	background: #f2f8f5;
+	color: #2d6c58;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.agent-result-link:hover {
+	background: #e2f0e9;
+	border-color: #8db5a6;
+}

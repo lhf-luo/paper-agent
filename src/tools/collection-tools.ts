@@ -1416,75 +1416,36 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		name: "update_literature_sidebar",
 		label: "Update literature sidebar",
 		description:
-			"Generate a markdown literature list document from a persisted search run (grouped by topic focus) and expose a link for the web UI. The link opens the document in the right-side panel; call this after filtering/screening instead of printing literature tables in the chat.",
+			"Save the curated literature list you already produced in this reply into a markdown document and expose a link for the web UI. Pass the exact curated content (grouped headings plus markdown tables, titles may include [text](url) links) as the content parameter; it is written to a temp file and opened in the right-side panel when the user clicks the link. Call this after filtering/screening instead of printing literature tables in the chat.",
 		promptSnippet: "Send screened literature to the sidebar panel",
 		promptGuidelines: [
-			"Call this when the user wants to see the screened literature; group papers by topic (focus).",
-			"Use paper ids from the current filter/collect run; do not invent metadata.",
-			"The sidebar document replaces chat tables: do not emit markdown literature tables in the reply.",
+			"Call this when the user wants to see the screened literature; pass the curated groups/tables exactly as you would print them, with titles as [title](url) links when a paper URL is known.",
+			"The content parameter should contain only the curated paper list (headings + tables), not the whole conversation.",
+			"The sidebar document replaces chat tables: do not emit markdown literature tables in the reply text.",
 		],
 		parameters: Type.Object({
-			search_run_id: Type.String({ description: "Persisted search run containing the paper records" }),
-			groups: Type.Array(
-				Type.Object({
-					focus: Type.String({ description: "Topic label for this group, e.g. kernel fuzzing" }),
-					paper_ids: Type.Array(Type.String(), { minItems: 1, maxItems: 200 }),
-				}),
-				{ minItems: 1, maxItems: 12, description: "One group per topic focus" },
-			),
-			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
-			corpus_root: Type.Optional(Type.String()),
+			content: Type.String({
+				description: "Curated literature list markdown: ## focus headings plus | 标题 | 年份/venue | 标识 | tables",
+			}),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", params.namespace ?? "default", params.corpus_root),
-				"personal",
-				params.namespace ?? "default",
-			);
-			const run = await store.getSearchRun(params.search_run_id);
-			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
-			const byId = new Map(run.results.map((record) => [record.id, record]));
-			const lines: string[] = [];
-			const groups: Array<Record<string, unknown>> = [];
-			for (const group of params.groups) {
-				const papers = group.paper_ids
-					.map((id) => byId.get(id))
-					.filter((record): record is PaperRecord => Boolean(record));
-				const missing = group.paper_ids.filter((id) => !byId.has(id));
-				lines.push(`## ${group.focus}`, "", "| 标题 | 年份/venue | 标识 |", "| --- | --- | --- |");
-				for (const record of papers) {
-					const url = record.links.find(
-						(link) => link.kind === "pdf" || link.kind === "landing" || link.kind === "doi",
-					)?.url;
-					const titleCell = url ? `[${record.title.replaceAll("|", "\\|")}](${url})` : record.title.replaceAll("|", "\\|");
-					const venueCell = [record.year, record.venue ?? record.publicationType].filter(Boolean).join(" · ");
-					lines.push(`| ${titleCell} | ${venueCell || "—"} | ${primaryIdentifier(record)} |`);
-				}
-				lines.push("");
-				groups.push({
-					focus: group.focus,
-					count: papers.length,
-					missing,
-				});
-			}
+			const content = params.content?.trim();
+			if (!content) throw new Error("content is required");
+			if (content.length > 200_000) throw new Error("content too large (max 200KB)");
 			const resultsDir = join(ctx.cwd, ".paper-agent", "web-agent-memory", "results");
 			await mkdir(resultsDir, { recursive: true });
-			const fileName = `${run.id.replace(/^search-/, "")}-${Date.now().toString(36)}.md`;
+			const fileName = `${randomUUID().slice(0, 8)}-${Date.now().toString(36)}.md`;
 			const filePath = join(resultsDir, fileName);
-			await writeFile(filePath, lines.join("\n"), { encoding: "utf8" });
+			await writeFile(filePath, content, { encoding: "utf8" });
 			const mdUrl = `/api/agent/results/${encodeURIComponent(fileName)}`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `论文清单已生成(${groups.length} 组)。网页端点击对话中的链接即可在右侧打开: ${mdUrl}`,
+						text: `论文清单已生成，点击对话中的链接在右侧打开: ${mdUrl}`,
 					},
 				],
-				details: {
-					mdPath: filePath,
-					mdUrl,
-					groups,
-				},
+				details: { mdPath: filePath, mdUrl },
 			};
 		},
 	});
