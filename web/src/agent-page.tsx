@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, apiEventStream } from "./api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { api, apiEventStream, apiText } from "./api";
 import type { ParsedLiteratureTable } from "./literature-markdown";
 import { parseLiteratureTables } from "./literature-markdown";
 import type {
@@ -120,23 +122,43 @@ function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummar
 	return summary;
 }
 
-const RESULT_LINK_PATTERN = /(\/api\/agent\/results\/[A-Za-z0-9._-]+\.md)/g;
-const RESULT_LINK_CHECK = /^\/api\/agent\/results\/[A-Za-z0-9._-]+\.md$/;
+const RESULT_LINK_PATTERN = /\/api\/agent\/results\/[A-Za-z0-9._-]+\.md/g;
 
-/** 把消息文本中的论文清单链接渲染成可点击按钮(点击打开右侧面板)。 */
-function renderResultLinks(text: string, onOpen: (url: string) => void): React.ReactNode {
-	const parts = text.split(RESULT_LINK_PATTERN);
-	let key = 0;
-	return parts.map((part) => {
-		if (part && RESULT_LINK_CHECK.test(part)) {
-			return (
-				<button key={key++} type="button" className="agent-result-link" onClick={() => onOpen(part)}>
-					📄 查看论文清单
-				</button>
-			);
-		}
-		return part ? <span key={key++}>{part}</span> : null;
-	});
+/** 把消息文本中的论文清单链接替换为 markdown 链接, 交给 ReactMarkdown 渲染成可点击按钮。 */
+function linkifyResultLinks(text: string): string {
+	return text.replace(RESULT_LINK_PATTERN, "[📄 查看论文清单]($1)");
+}
+
+function AgentMarkdown({
+	content,
+	onOpenResult,
+}: {
+	content: string;
+	onOpenResult: (url: string) => void;
+}) {
+	return (
+		<ReactMarkdown
+			remarkPlugins={[remarkGfm]}
+			components={{
+				a: ({ href, children }) => {
+					if (href?.startsWith("/api/agent/results/")) {
+						return (
+							<button type="button" className="agent-result-link" onClick={() => onOpenResult(href)}>
+								{children}
+							</button>
+						);
+					}
+					return (
+						<a href={href} target="_blank" rel="noreferrer">
+							{children}
+						</a>
+					);
+				},
+			}}
+		>
+			{linkifyResultLinks(content)}
+		</ReactMarkdown>
+	);
 }
 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
@@ -288,7 +310,7 @@ export function AgentPage({
 		setResultPanelOpen(true);
 		setSidebarLoading(true);
 		try {
-			const text = await api<string>(target);
+			const text = await apiText(target);
 			setSidebarTables(parseLiteratureTables(text)?.tables ?? []);
 		} catch {
 			setSidebarTables([]);
@@ -829,7 +851,11 @@ export function AgentPage({
 								</header>
 								<div className="agent-message-text">
 									{message.content ? (
-										renderResultLinks(message.content, (url) => void openSidebarDocument(url))
+										message.role === "assistant" ? (
+											<AgentMarkdown content={message.content} onOpenResult={(url) => void openSidebarDocument(url)} />
+										) : (
+											<span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
+										)
 									) : message.status === "streaming" ? (
 										"正在思考并调用研究工具…"
 									) : (

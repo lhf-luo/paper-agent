@@ -4461,3 +4461,101 @@ span.chip.active {
 	background: #e2f0e9;
 	border-color: #8db5a6;
 }
+
+/* 对话内 markdown 渲染(DeepSeek 风格) */
+.agent-message-text .markdown-body,
+.agent-message-text > div > * {
+	margin-top: 0;
+}
+
+.agent-message-text h1,
+.agent-message-text h2,
+.agent-message-text h3,
+.agent-message-text h4 {
+	margin: 14px 0 6px;
+	color: #2d3b32;
+	font-weight: 700;
+	line-height: 1.4;
+}
+
+.agent-message-text h1 { font-size: 16px; }
+.agent-message-text h2 { font-size: 15px; }
+.agent-message-text h3 { font-size: 14px; }
+.agent-message-text h4 { font-size: 13px; }
+
+.agent-message-text p {
+	margin: 6px 0;
+	line-height: 1.7;
+}
+
+.agent-message-text ul,
+.agent-message-text ol {
+	margin: 6px 0;
+	padding-left: 22px;
+}
+
+.agent-message-text li {
+	margin: 3px 0;
+	line-height: 1.65;
+}
+
+.agent-message-text strong {
+	font-weight: 700;
+	color: #1f3d33;
+}
+
+.agent-message-text code {
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: #eef3f0;
+	color: #c0392b;
+	font-size: 12px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.agent-message-text pre {
+	margin: 8px 0;
+	padding: 10px 12px;
+	border-radius: 8px;
+	background: #1f2d28;
+	overflow-x: auto;
+}
+
+.agent-message-text pre code {
+	background: transparent;
+	color: #e8f0ec;
+	padding: 0;
+}
+
+.agent-message-text table {
+	border-collapse: collapse;
+	margin: 8px 0;
+	font-size: 12px;
+	width: 100%;
+}
+
+.agent-message-text th,
+.agent-message-text td {
+	border: 1px solid #dfe6e2;
+	padding: 5px 9px;
+	text-align: left;
+}
+
+.agent-message-text th {
+	background: #f4f8f6;
+	color: #4d6a5e;
+	font-weight: 700;
+}
+
+.agent-message-text blockquote {
+	margin: 8px 0;
+	padding: 4px 12px;
+	border-left: 3px solid #c9d5d0;
+	color: #6d7a84;
+}
+
+.agent-message-text a {
+	color: #2d6c58;
+	text-decoration: underline;
+	text-decoration-color: #b8cfc6;
+}

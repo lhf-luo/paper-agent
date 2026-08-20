@@ -40,6 +40,21 @@ export async function apiBytes(path: string): Promise<Uint8Array> {
 	return new Uint8Array(await response.arrayBuffer());
 }
 
+export async function apiText(path: string): Promise<string> {
+	const response = await fetch(path, { headers: { authorization: `Bearer ${sessionToken}` } });
+	if (!response.ok) {
+		let message = `${response.status} ${response.statusText}`;
+		try {
+			const body = (await response.json()) as { error?: string };
+			if (body.error) message = body.error;
+		} catch {
+			// Preserve the HTTP status when the response is not JSON.
+		}
+		throw new Error(message);
+	}
+	return await response.text();
+}
+
 export interface ApiServerSentEvent {
 	event: string;
 	data: unknown;
