@@ -2770,6 +2770,17 @@ span.chip.active {
 	overflow: hidden;
 }
 
+/* 消息与输入框的统一容器: 两者共享同一条居中轴线 */
+.agent-chat-column {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	max-width: 820px;
+	margin: 0 auto;
+}
+
 .agent-chat-heading {
 	display: flex;
 	align-items: center;
@@ -2833,9 +2844,9 @@ span.chip.active {
 }
 
 .agent-message {
-	width: min(86%, 780px);
+	width: 100%;
 	padding: 13px 15px;
-	margin: 0 auto 13px;
+	margin-bottom: 13px;
 	border: 1px solid #dde5e1;
 	border-radius: 4px 14px 14px 14px;
 	background: #fff;
@@ -3043,12 +3054,7 @@ span.chip.active {
 	background: #fff;
 }
 
-.agent-composer > div,
-.agent-composer textarea {
-	max-width: 780px;
-	margin-left: auto;
-	margin-right: auto;
-}
+
 
 .agent-composer textarea {
 	width: 100%;
@@ -4561,8 +4567,4 @@ span.chip.active {
 	text-decoration-color: #b8cfc6;
 }
 
-/* 聊天内容(消息+输入框)视口居中偏移: JS 计算 --agent-shift, 窄屏为 0 避免溢出被面板遮住 */
-.agent-transcript,
-.agent-composer {
-	transform: translateX(var(--agent-shift, 0px));
-}
+
