@@ -30,8 +30,16 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const config = await loadPaperAgentConfig(projectRoot);
 if (config.network?.proxyEnabled && config.network.proxyUrl) {
+	process.env.HTTP_PROXY ??= config.network.proxyUrl;
+	process.env.HTTPS_PROXY ??= config.network.proxyUrl;
 	setProxyUrl(config.network.proxyUrl);
-	console.log(`HTTP proxy enabled: ${config.network.proxyUrl}`);
+	try {
+		const { EnvHttpProxyAgent, setGlobalDispatcher } = await import("undici");
+		setGlobalDispatcher(new EnvHttpProxyAgent());
+		console.log(`HTTP proxy enabled (Node fetch + python): ${config.network.proxyUrl}`);
+	} catch {
+		console.log(`HTTP proxy enabled (python only): ${config.network.proxyUrl}`);
+	}
 } else {
 	console.log("HTTP proxy: disabled (config.json network.proxyEnabled)");
 }
