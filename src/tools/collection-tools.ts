@@ -176,30 +176,87 @@ interface CorpusAnnotationInput {
 	screeningReason?: string;
 }
 
-export function filterSearchRunResults(
-	run: SearchRun,
-	options: {
-		includeTerms?: string[];
-		excludeTerms?: string[];
-		yearFrom?: number;
-		yearTo?: number;
-		venueRank?: "A" | "B" | "C";
-		limit?: number;
-	},
-): { matched: PaperRecord[]; total: number } {
+export interface FilterGroupOptions {
+	includeTerms?: string[];
+	excludeTerms?: string[];
+	excludeScope?: "title" | "title+abstract";
+	yearFrom?: number;
+	yearTo?: number;
+	venueRank?: "A" | "B" | "C";
+	limit?: number;
+}
+
+export interface FilteredRecord {
+	record: PaperRecord;
+	matchedTerms: string[];
+}
+
+export function filterGroup(run: SearchRun, options: FilterGroupOptions): { matched: FilteredRecord[]; total: number } {
 	const include = (options.includeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
 	const exclude = (options.excludeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
-	const matched = run.results.filter((record) => {
-		const haystack = `${record.title}\n${record.abstract ?? ""}`.toLowerCase();
-		if (include.length > 0 && !include.some((term) => haystack.includes(term))) return false;
-		if (exclude.some((term) => haystack.includes(term))) return false;
-		if (options.yearFrom && (record.year ?? 0) < options.yearFrom) return false;
-		if (options.yearTo && (record.year ?? 9999) > options.yearTo) return false;
-		if (options.venueRank && record.venueRank !== options.venueRank) return false;
-		return true;
+	const excludeTitleOnly = options.excludeScope === "title";
+	const matched: FilteredRecord[] = [];
+	for (const record of run.results) {
+		const title = record.title.toLowerCase();
+		const abstract = (record.abstract ?? "").toLowerCase();
+		const haystack = `${title}\n${abstract}`;
+		if (include.length > 0 && !include.some((term) => haystack.includes(term))) continue;
+		const excludeHaystack = excludeTitleOnly ? title : haystack;
+		if (exclude.some((term) => excludeHaystack.includes(term))) continue;
+		if (options.yearFrom && (record.year ?? 0) < options.yearFrom) continue;
+		if (options.yearTo && (record.year ?? 9999) > options.yearTo) continue;
+		if (options.venueRank && record.venueRank !== options.venueRank) continue;
+		matched.push({
+			record,
+			matchedTerms: include.filter((term) => haystack.includes(term)),
+		});
+	}
+	matched.sort((left, right) => (right.record.citationCount ?? 0) - (left.record.citationCount ?? 0));
+	return { matched, total: matched.length };
+}
+
+/** include_terms 任一命中即保留(OR); exclude_terms 任一命中即排除。 */
+export function filterSearchRunResults(
+	run: SearchRun,
+	options: FilterGroupOptions,
+): { matched: PaperRecord[]; total: number; matchedTerms: Map<string, string[]> } {
+	const { matched, total } = filterGroup(run, options);
+	return {
+		matched: matched.map((entry) => entry.record),
+		total,
+		matchedTerms: new Map(matched.map((entry) => [entry.record.id, entry.matchedTerms])),
+	};
+}
+
+function filterTableLines(
+	entries: FilteredRecord[],
+	options: FilterGroupOptions,
+): string[] {
+	const rows = entries.slice(0, options.limit ?? 60);
+	const header = "标题(命中词) | 作者 | 年份 | venue | DOI/arXiv | 来源";
+	const separator = "--- | --- | --- | --- | --- | ---";
+	const body = rows.map((entry) => {
+		const record = entry.record;
+		const providers = new Set<ProvenanceProvider>(record.provenance.map((item) => item.provider));
+		const titleMark =
+			entry.matchedTerms.length > 0 ? `${record.title} [${entry.matchedTerms.join(", ")}]` : record.title;
+		return [
+			titleMark.replaceAll("|", "\\|"),
+			record.authors.slice(0, 4).join(", ") || "unavailable",
+			record.year === undefined ? "unknown" : String(record.year),
+			record.venue || record.publicationType || "unknown",
+			primaryIdentifier(record),
+			[...providers].join(", ") || "unknown",
+		]
+			.map((cell) => cell.replace(/\s+/g, " ").trim())
+			.join(" | ");
 	});
-	const ordered = [...matched].sort((left, right) => (right.citationCount ?? 0) - (left.citationCount ?? 0));
-	return { matched: ordered, total: matched.length };
+	return [
+		header,
+		separator,
+		...body,
+		entries.length > rows.length ? `(${entries.length - rows.length} more filtered rows not shown)` : "",
+	].filter(Boolean);
 }
 
 export function corpusAnnotationPlan(
@@ -1359,21 +1416,44 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		name: "filter_search_run_results",
 		label: "Filter search run results",
 		description:
-			"Filter an existing persisted search run's results by title/abstract terms, year range, or CCF venue rank without re-searching. Returns a re-ranked candidate table (citation count first) with the total match count, so you can narrow a noisy result set and reach papers beyond the original display limit.",
+			"Filter an existing persisted search run's results by title/abstract terms, year range, or CCF venue rank without re-searching. include_terms keep a paper when ANY term appears in its title or abstract (OR semantics); exclude_terms drop a paper when ANY term appears. Supports multiple independent groups in one call, and returns each row's matched terms so you can judge relevance. Rows are re-ranked by citation count and can reach papers beyond the original display limit.",
 		promptSnippet: "Filter collected literature results in place",
 		promptGuidelines: [
 			"Use after collect_literature when the candidate table is noisy or truncated; prefer this over re-searching.",
-			"Use include_terms as broad topical terms (any match keeps the paper); use exclude_terms to drop off-topic domains.",
+			"include_terms is OR (any term in title/abstract keeps the paper); exclude_terms is OR too (any term removes it). When a term is too generic (e.g. heap), set exclude_scope=title so exclusion only checks the title and cannot false-positive on abstracts.",
+			"Use groups to run several topical filters (e.g. kernel vs binary) in one call; each group is reported separately.",
 			"Filtering does not change the stored search run; it only narrows what is returned.",
 		],
 		parameters: Type.Object({
 			search_run_id: Type.String(),
 			include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 			exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			exclude_scope: Type.Optional(
+				Type.Union([Type.Literal("title"), Type.Literal("title+abstract")], {
+					description: "Where exclude_terms are checked; default: title+abstract",
+				}),
+			),
 			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
 			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, description: "Default: 60" })),
+			groups: Type.Optional(
+				Type.Array(
+					Type.Object({
+						label: Type.Optional(Type.String()),
+						include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+						exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+						exclude_scope: Type.Optional(
+							Type.Union([Type.Literal("title"), Type.Literal("title+abstract")]),
+						),
+						year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+						year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+						venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
+						limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
+					}),
+					{ maxItems: 8, description: "Independent topical filters run in one call" },
+				),
+			),
 			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
 			corpus_root: Type.Optional(Type.String()),
 		}),
@@ -1385,31 +1465,43 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 			);
 			const run = await store.getSearchRun(params.search_run_id);
 			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
-			const { matched, total } = filterSearchRunResults(run, {
-				includeTerms: params.include_terms,
-				excludeTerms: params.exclude_terms,
-				yearFrom: params.year_from,
-				yearTo: params.year_to,
-				venueRank: params.venue_rank,
-				limit: params.limit,
-			});
-			const rows = buildCandidatePaperTable(matched).slice(0, params.limit ?? 60);
+			const lines: string[] = [`Search run ${run.id}: ${run.results.length} results total.`];
+			const details: Array<Record<string, unknown>> = [];
+			const groups: Array<{ label?: string } & FilterGroupOptions> = (params.groups ?? []).map((group) => ({
+				label: group.label,
+				includeTerms: group.include_terms,
+				excludeTerms: group.exclude_terms,
+				excludeScope: group.exclude_scope,
+				yearFrom: group.year_from,
+				yearTo: group.year_to,
+				venueRank: group.venue_rank,
+				limit: group.limit,
+			}));
+			if (groups.length === 0) {
+				groups.push({
+					includeTerms: params.include_terms,
+					excludeTerms: params.exclude_terms,
+					excludeScope: params.exclude_scope,
+					yearFrom: params.year_from,
+					yearTo: params.year_to,
+					venueRank: params.venue_rank,
+					limit: params.limit,
+				});
+			}
+			for (const group of groups) {
+				const { matched, total } = filterGroup(run, group);
+				const label = group.label ? ` (${group.label})` : "";
+				lines.push(`\nFilter group${label}: ${total} matched / ${run.results.length} total.`);
+				lines.push(...filterTableLines(matched, group));
+				details.push({
+					label: group.label,
+					matched: total,
+					paperIds: matched.slice(0, group.limit ?? 60).map((entry) => entry.record.id),
+				});
+			}
 			return {
-				content: [
-					{
-						type: "text",
-						text: [
-							`Search run ${run.id}: ${run.results.length} results total, ${total} matched the filter.`,
-							...formatCandidateTable(rows, rows.length),
-						].join("\n"),
-					},
-				],
-				details: {
-					totalResults: run.results.length,
-					matched,
-					shown: rows.length,
-					paperIds: rows.map((row) => row.paperId),
-				},
+				content: [{ type: "text", text: lines.join("\n") }],
+				details: { totalResults: run.results.length, groups: details },
 			};
 		},
 	});
