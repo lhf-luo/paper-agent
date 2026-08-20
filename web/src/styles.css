@@ -4560,8 +4560,8 @@ span.chip.active {
 	text-decoration-color: #b8cfc6;
 }
 
-/* 聊天内容(消息+输入框)相对视口居中: 偏移 = (结果面板宽 - 会话栏宽)/2, 面板开/关/会话栏开/关 四态自适应 */
+/* 聊天内容(消息+输入框)视口居中偏移: JS 计算 --agent-shift, 窄屏为 0 避免溢出被面板遮住 */
 .agent-transcript,
 .agent-composer {
-	transform: translateX(calc((var(--agent-rp-w, 0px) - var(--agent-sb-w, 0px)) / 2));
+	transform: translateX(var(--agent-shift, 0px));
 }

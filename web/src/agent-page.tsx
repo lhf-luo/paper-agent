@@ -304,6 +304,7 @@ export function AgentPage({
 	const [resultPanelOpen, setResultPanelOpen] = useState(false);
 	const [sidebarAvailable, setSidebarAvailable] = useState(false);
 
+
 	const openSidebarDocument = useCallback(async (url?: string) => {
 		const target = url ?? sidebarDocUrl;
 		if (!target) return;
@@ -381,6 +382,23 @@ export function AgentPage({
 	const [sidebarOpen, setSidebarOpen] = useState(
 		() => window.localStorage.getItem("paper-agent-sidebar-open") !== "closed",
 	);
+
+	const [chatShift, setChatShift] = useState(0);
+	useEffect(() => {
+		const update = () => {
+			const viewport = window.innerWidth;
+			const sbw = sidebarOpen ? 250 : 0;
+			const rpw = resultPanelOpen ? 380 : 0;
+			const chatWidth = viewport - sbw - rpw;
+			const ideal = (rpw - sbw) / 2;
+			// 只在聊天区宽度 ≥ 780(内容不被压缩)时允许偏移, 否则保持 0 避免溢出被面板遮住
+			const maxShift = chatWidth > 780 ? (chatWidth - 780) / 2 : 0;
+			setChatShift(Math.max(-maxShift, Math.min(maxShift, ideal)));
+		};
+		update();
+		window.addEventListener("resize", update);
+		return () => window.removeEventListener("resize", update);
+	}, [sidebarOpen, resultPanelOpen]);
 	const transcriptEnd = useRef<HTMLDivElement>(null);
 
 	const applyConfig = useCallback((next: AgentConfigView) => {
@@ -730,13 +748,12 @@ export function AgentPage({
 					{
 						gridTemplateColumns: sidebarOpen
 							? resultPanelOpen
-								? "250px minmax(0, 1fr) minmax(340px, 420px)"
+								? "250px minmax(0, 1fr) minmax(300px, 380px)"
 								: "250px minmax(0, 1fr)"
 							: resultPanelOpen
-								? "0px minmax(0, 1fr) minmax(340px, 420px)"
+								? "0px minmax(0, 1fr) minmax(300px, 380px)"
 								: "0px minmax(0, 1fr)",
-						"--agent-sb-w": sidebarOpen ? "250px" : "0px",
-						"--agent-rp-w": resultPanelOpen ? "420px" : "0px",
+						"--agent-shift": `${chatShift}px`,
 					} as React.CSSProperties
 				}
 			>
