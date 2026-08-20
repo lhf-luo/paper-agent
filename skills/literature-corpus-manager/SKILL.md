@@ -44,6 +44,22 @@ Use this when the user asks for a literature review, related work, reading list,
 7. Use once mode for exploration. Use persistent mode only when the user wants reusable search results and accepts the confirmation prompt.
 8. State unsupported sources. Do not claim Google Scholar was searched because this project has no Google Scholar provider.
 
+### 1.1 Output format: one combined table with a `focus` column
+
+When delivering a screened literature list, output **ONE combined markdown table** with a `focus` column — do not split into multiple per-topic sections:
+
+```markdown
+| 标题 | 年份/venue | 标识 | focus |
+| --- | --- | --- | --- |
+| [KernelGPT: Enhanced Kernel Fuzzing via LLMs](https://doi.org/10.1145/3676641.3716022) | ASPLOS 2025 | DOI 10.1145/3676641.3716022 | 内核模糊测试 |
+| [SLUBStick: Arbitrary Memory Writes](https://arxiv.org/abs/2310.13151) | USENIX Sec 2024 | arXiv 2310.13151 | 漏洞利用与缓解 |
+```
+
+- One table for the whole list; the `focus` column marks each paper's topic group (e.g. 内核模糊测试, 漏洞利用与缓解, eBPF 安全, 二进制分析).
+- Title cells use `[text](url)` when a paper URL is known.
+- Pass the exact same table to `update_literature_sidebar` so the sidebar mirrors it.
+- Do not emit multiple `## focus` headings with separate tables; the `focus` column replaces them.
+
 ### 2. Expand from seed papers
 
 1. Use `expand_citation_network` only after the seed papers are relevant and already in a personal corpus.

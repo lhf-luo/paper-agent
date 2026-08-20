@@ -92,8 +92,17 @@ function AgentResultSidebar({
 									</thead>
 									<tbody>
 										{table.rows.map((row) => (
-											<tr key={row[0]?.text ?? ""}>
-												{row.map((cell, index) => (
+										<tr key={row[0]?.text ?? ""}>
+											{row.map((cell, index) => {
+												const isFocusColumn = (table.headers[index] ?? "").toLowerCase().includes("focus");
+												if (isFocusColumn) {
+													return (
+														<td key={`${cell.text}-${index}`}>
+															<span className="focus-badge">{cell.text || "未分类"}</span>
+														</td>
+													);
+												}
+												return (
 													<td key={`${cell.text}-${index}`}>
 														{index === 0 && cell.url ? (
 															<a className="agent-result-table-title" href={cell.url} target="_blank" rel="noreferrer">
@@ -103,9 +112,10 @@ function AgentResultSidebar({
 															<span>{cell.text}</span>
 														)}
 													</td>
-												))}
-											</tr>
-										))}
+												);
+											})}
+										</tr>
+									))}
 									</tbody>
 								</table>
 							</div>
