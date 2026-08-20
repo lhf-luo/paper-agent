@@ -4332,3 +4332,112 @@ span.chip.active {
 	font-size: 12px;
 	line-height: 1.65;
 }
+
+/* 对话内"查看论文清单"入口 */
+.agent-results-entry {
+	margin: 10px auto 0;
+	max-width: 780px;
+	text-align: center;
+}
+
+.agent-results-entry button {
+	padding: 8px 18px;
+	border: 1px solid #c9d5d0;
+	border-radius: 999px;
+	background: #f2f8f5;
+	color: #2d6c58;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.agent-results-entry button:hover {
+	background: #e2f0e9;
+	border-color: #8db5a6;
+}
+
+/* 侧边栏分组表格(6.png 风格) */
+.agent-result-table-scroll {
+	overflow-x: auto;
+}
+
+.agent-result-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.agent-result-table th {
+	text-align: left;
+	padding: 8px 10px;
+	background: #fbfdfc;
+	color: #4d6a5e;
+	font-weight: 700;
+	white-space: nowrap;
+	border-bottom: 1px solid #e3eae6;
+	font-size: 11px;
+}
+
+.agent-result-table td {
+	padding: 8px 10px;
+	border-bottom: 1px solid #f0f4f2;
+	vertical-align: top;
+	color: #3a4a42;
+}
+
+.agent-result-table tbody tr:hover {
+	background: #f7fbf9;
+}
+
+.agent-result-table-title {
+	min-width: 240px;
+	max-width: 280px;
+}
+
+.agent-result-table-title a {
+	color: #1f6b52;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.agent-result-table-title a:hover {
+	text-decoration: underline;
+}
+
+.agent-result-table-venue {
+	white-space: nowrap;
+	display: flex;
+	gap: 4px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.agent-result-table-id {
+	max-width: 120px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+	color: #7a8b83;
+}
+
+.agent-result-table-action {
+	width: 52px;
+}
+
+.agent-result-abstract summary {
+	color: #2d6c58;
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.agent-result-abstract p {
+	margin: 6px 0 0;
+	color: #54625c;
+	font-size: 12px;
+	line-height: 1.65;
+	white-space: normal;
+}
