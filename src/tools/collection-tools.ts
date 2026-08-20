@@ -1490,8 +1490,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			search_run_id: Type.String(),
-			include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
-			exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+			include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
+			exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
 			exclude_scope: Type.Optional(
 				Type.Union([Type.Literal("title"), Type.Literal("title+abstract")], {
 					description: "Where exclude_terms are checked; default: title+abstract",
@@ -1505,8 +1505,8 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 				Type.Array(
 					Type.Object({
 						label: Type.Optional(Type.String()),
-						include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
-						exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
+						include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
+						exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
 						exclude_scope: Type.Optional(
 							Type.Union([Type.Literal("title"), Type.Literal("title+abstract")]),
 						),
