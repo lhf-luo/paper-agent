@@ -32,11 +32,24 @@ const config = await loadPaperAgentConfig(projectRoot);
 if (config.network?.proxyEnabled && config.network.proxyUrl) {
 	process.env.HTTP_PROXY ??= config.network.proxyUrl;
 	process.env.HTTPS_PROXY ??= config.network.proxyUrl;
+	// 以下域名在中国网络可直连且更稳定, 走 NO_PROXY 豁免代理(保持直连)
+	process.env.NO_PROXY ??= [
+		"export.arxiv.org",
+		"arxiv.org",
+		"api.openalex.org",
+		"api.crossref.org",
+		"dblp.org",
+		"api.deepseek.com",
+		"127.0.0.1",
+		"localhost",
+	].join(",");
 	setProxyUrl(config.network.proxyUrl);
 	try {
 		const { EnvHttpProxyAgent, setGlobalDispatcher } = await import("undici");
 		setGlobalDispatcher(new EnvHttpProxyAgent());
-		console.log(`HTTP proxy enabled (Node fetch + python): ${config.network.proxyUrl}`);
+		console.log(
+			`HTTP proxy enabled (Node fetch + python): ${config.network.proxyUrl}; direct: ${process.env.NO_PROXY}`,
+		);
 	} catch {
 		console.log(`HTTP proxy enabled (python only): ${config.network.proxyUrl}`);
 	}

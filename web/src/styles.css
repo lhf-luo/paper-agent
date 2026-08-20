@@ -4571,3 +4571,9 @@ span.chip.active {
 	text-decoration: underline;
 	text-decoration-color: #b8cfc6;
 }
+
+/* 聊天内容(消息+输入框)相对视口居中: 修正左侧会话栏造成的偏移 */
+.agent-transcript,
+.agent-composer {
+	transform: translateX(calc(-1 * var(--agent-sb-w, 0px) / 2));
+}

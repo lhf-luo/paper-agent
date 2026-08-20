@@ -726,9 +726,12 @@ export function AgentPage({
 
 			<div
 				className="agent-workspace"
-				style={{
-					gridTemplateColumns: sidebarOpen ? "minmax(200px, 260px) minmax(0, 1fr)" : "0px minmax(0, 1fr)",
-				}}
+				style={
+					{
+						gridTemplateColumns: sidebarOpen ? "250px minmax(0, 1fr)" : "0px minmax(0, 1fr)",
+						"--agent-sb-w": sidebarOpen ? "250px" : "0px",
+					} as React.CSSProperties
+				}
 			>
 				<aside className="panel agent-session-panel">
 					<button

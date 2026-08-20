@@ -123,7 +123,7 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 	url.searchParams.set("sortBy", "relevance");
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		fetcher: options.fetcher,
 	});
 	if (!response.ok) throw new LiteratureProviderHttpError("arXiv", response);
@@ -273,7 +273,8 @@ export async function searchOpenAlexPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("filter", filters.join(","));
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
+		maxRetries: 1,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -338,7 +339,7 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 	}
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -475,7 +476,7 @@ export async function searchSemanticScholarPage(options: ProviderSearchOptions):
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers },
 		fetcher: options.fetcher,
 		baseDelayMs: 1_000,
@@ -531,7 +532,7 @@ export async function searchSemanticScholarCitations(
 	if (apiKey) headers["x-api-key"] = apiKey;
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers },
 		fetcher: options.fetcher,
 		baseDelayMs: 1_000,
@@ -596,7 +597,7 @@ export async function searchDblpPage(options: ProviderSearchOptions): Promise<Pr
 	url.searchParams.set("format", "json");
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json", "User-Agent": "paper-agent/0.1 literature research" } },
 		fetcher: options.fetcher,
 	});
@@ -681,7 +682,7 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 	}
 	const searchResponse = await fetchWithRetry(searchUrl, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -705,7 +706,7 @@ export async function searchPubmedPage(options: ProviderSearchOptions): Promise<
 	if (email) summaryUrl.searchParams.set("email", email);
 	const summaryResponse = await fetchWithRetry(summaryUrl, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -858,7 +859,7 @@ export async function searchOpenCitationsPage(options: ProviderSearchOptions): P
 	const url = new URL(`https://api.opencitations.net/meta/api/v1/metadata/doi:${encodeURIComponent(doi)}`);
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -909,7 +910,7 @@ export async function searchUnpaywallPage(options: ProviderSearchOptions): Promi
 	url.searchParams.set("email", email);
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
@@ -1238,7 +1239,7 @@ export async function fetchOpenAlexWorks(
 		if (options.openAlexMailto) url.searchParams.set("mailto", options.openAlexMailto);
 		const response = await fetchWithRetry(url, {
 			signal: options.signal,
-			timeoutMs: 20_000,
+			timeoutMs: 10_000,
 			init: { headers: { Accept: "application/json" } },
 			fetcher: options.fetcher,
 		});
@@ -1274,7 +1275,7 @@ export async function searchOpenAlexCitations(
 	if (options.openAlexMailto) url.searchParams.set("mailto", options.openAlexMailto);
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
-		timeoutMs: 20_000,
+		timeoutMs: 10_000,
 		init: { headers: { Accept: "application/json" } },
 		fetcher: options.fetcher,
 	});
