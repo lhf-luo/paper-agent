@@ -37,8 +37,6 @@ if (config.network?.proxyEnabled && config.network.proxyUrl) {
 		"export.arxiv.org",
 		"arxiv.org",
 		"api.openalex.org",
-		"api.crossref.org",
-		"dblp.org",
 		"api.deepseek.com",
 		"127.0.0.1",
 		"localhost",
