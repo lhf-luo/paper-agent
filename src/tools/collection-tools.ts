@@ -1413,6 +1413,70 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "update_literature_sidebar",
+		label: "Update literature sidebar",
+		description:
+			"Push screened literature results into the right-side sidebar panel of the web UI, grouped by topic focus. Reads paper metadata (title, year, venue, DOI/arXiv, primary URL, abstract) from a persisted search run by paper id, so the sidebar shows accurate records without re-searching. Call this after filtering/screening instead of printing literature tables in the chat.",
+		promptSnippet: "Send screened literature to the sidebar panel",
+		promptGuidelines: [
+			"Call this when the user wants to see the screened literature; group papers by topic (focus).",
+			"Use paper ids from the current filter/collect run; do not invent metadata.",
+			"The sidebar replaces chat tables: do not emit markdown literature tables in the reply.",
+		],
+		parameters: Type.Object({
+			search_run_id: Type.String({ description: "Persisted search run containing the paper records" }),
+			groups: Type.Array(
+				Type.Object({
+					focus: Type.String({ description: "Topic label for this group, e.g. kernel fuzzing" }),
+					paper_ids: Type.Array(Type.String(), { minItems: 1, maxItems: 200 }),
+				}),
+				{ minItems: 1, maxItems: 12, description: "One group per topic focus" },
+			),
+			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
+			corpus_root: Type.Optional(Type.String()),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const store = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", params.namespace ?? "default", params.corpus_root),
+				"personal",
+				params.namespace ?? "default",
+			);
+			const run = await store.getSearchRun(params.search_run_id);
+			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
+			const byId = new Map(run.results.map((record) => [record.id, record]));
+			const groups = params.groups.map((group) => {
+				const papers = group.paper_ids
+					.map((id) => byId.get(id))
+					.filter((record): record is PaperRecord => Boolean(record))
+					.map((record) => ({
+						id: record.id,
+						title: record.title,
+						year: record.year,
+						venue: record.venue ?? record.publicationType ?? undefined,
+						venueRank: record.venueRank,
+						identifier: primaryIdentifier(record),
+						url: record.links.find((link) => link.kind === "pdf" || link.kind === "landing" || link.kind === "doi")
+							?.url,
+						abstract: record.abstract,
+					}));
+				const missing = group.paper_ids.filter((id) => !byId.has(id));
+				return { focus: group.focus, papers, missing };
+			});
+			const total = groups.reduce((sum, group) => sum + group.papers.length, 0);
+			const missingTotal = groups.reduce((sum, group) => sum + group.missing.length, 0);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Sidebar updated: ${groups.length} group(s), ${total} paper(s).${missingTotal ? ` ${missingTotal} id(s) not found in run.` : ""}`,
+					},
+				],
+				details: { groups },
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "filter_search_run_results",
 		label: "Filter search run results",
 		description:

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiEventStream } from "./api";
-import type { ParsedLiteratureTable } from "./literature-markdown";
-import { parseLiteratureTables } from "./literature-markdown";
 import type {
 	AgentConfigView,
 	AgentEvent,
@@ -47,40 +45,90 @@ const taskTemplates = [
 	},
 ];
 
+export interface AgentSidebarPaper {
+	id: string;
+	title: string;
+	year?: number;
+	venue?: string;
+	venueRank?: "A" | "B" | "C";
+	identifier?: string;
+	url?: string;
+	abstract?: string;
+}
+
+export interface AgentSidebarGroup {
+	focus: string;
+	papers: AgentSidebarPaper[];
+	missing?: string[];
+}
+
+function AgentResultSidebar({
+	groups,
+	onClose,
+}: {
+	groups: AgentSidebarGroup[];
+	onClose: () => void;
+}) {
+	const [openAbstract, setOpenAbstract] = useState<string | undefined>();
+	return (
+		<div className="agent-result-sidebar">
+			<header className="agent-result-head">
+				<strong>筛选结果</strong>
+				<button type="button" className="agent-result-close" aria-label="关闭结果侧边栏" onClick={onClose}>
+					×
+				</button>
+			</header>
+			{groups.length === 0 ? (
+				<div className="agent-result-empty">Agent 筛选完成后，论文将按分组显示在这里。</div>
+			) : (
+				<div className="agent-result-groups">
+					{groups.map((group) => (
+						<section className="agent-result-group" key={group.focus}>
+							<header className="agent-result-focus">
+								<span className="focus-badge">focus</span>
+								<strong>{group.focus || "未分类"}</strong>
+								<span className="agent-result-count">{group.papers.length}</span>
+							</header>
+							<ul className="agent-result-papers">
+								{group.papers.map((paper) => (
+									<li key={paper.id} className="agent-result-paper">
+										{paper.url ? (
+											<a className="agent-result-title" href={paper.url} target="_blank" rel="noreferrer">
+												{paper.title}
+											</a>
+										) : (
+											<span className="agent-result-title">{paper.title}</span>
+										)}
+										<div className="agent-result-meta">
+											{paper.year && <span>{paper.year}</span>}
+											{paper.venue && <span>{paper.venue}</span>}
+											{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
+											{paper.identifier && <span className="agent-result-id">{paper.identifier}</span>}
+										</div>
+										{paper.abstract ? (
+											<details
+													className="agent-result-abstract"
+													open={openAbstract === paper.id}
+													onToggle={(event) => setOpenAbstract(event.currentTarget.open ? paper.id : undefined)}
+												>
+													<summary>摘要</summary>
+													<p>{paper.abstract}</p>
+												</details>
+										) : null}
+									</li>
+								))}
+							</ul>
+						</section>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
 function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummary {
 	const { messages: _messages, tools: _tools, uiRequests: _uiRequests, ...summary } = snapshot;
 	return summary;
-}
-
-function LiteratureTableCard({ table }: { table: ParsedLiteratureTable }) {
-	return (
-		<section className="literature-table-card">
-			<header className="literature-table-head">
-				<span className="focus-badge">focus</span>
-				<strong>{table.focus || "未分类"}</strong>
-			</header>
-			<div className="literature-table-scroll">
-				<table className="literature-table">
-					<thead>
-						<tr>
-							{table.headers.map((header) => (
-								<th key={header}>{header}</th>
-							))}
-						</tr>
-					</thead>
-					<tbody>
-						{table.rows.map((row) => (
-							<tr key={row[0] ?? ""}>
-								{row.map((cell) => (
-									<td key={cell}>{cell}</td>
-								))}
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</div>
-		</section>
-	);
 }
 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
@@ -220,6 +268,8 @@ export function AgentPage({
 		Array<{ name: string; description: string; disableModelInvocation: boolean }>
 	>([]);
 	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
+	const [sidebarGroups, setSidebarGroups] = useState<AgentSidebarGroup[]>([]);
+	const [resultPanelOpen, setResultPanelOpen] = useState(true);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [uploading, setUploading] = useState(false);
 
@@ -406,6 +456,17 @@ export function AgentPage({
 				setActive((current) =>
 					current?.id === event.sessionId ? { ...current, tools: upsert(current.tools, event.tool) } : current,
 				);
+				if (event.tool.name === "update_literature_sidebar" && event.tool.status === "succeeded" && event.tool.output) {
+					try {
+						const output = JSON.parse(event.tool.output) as { details?: { groups?: AgentSidebarGroup[] } };
+						if (output.details?.groups) {
+							setSidebarGroups(output.details.groups);
+							setResultPanelOpen(true);
+						}
+					} catch {
+						// 忽略不可解析的工具输出
+					}
+				}
 				return;
 			}
 			if (event.type === "ui_request") {
@@ -617,7 +678,13 @@ export function AgentPage({
 			<div
 				className="agent-workspace"
 				style={{
-					gridTemplateColumns: sidebarOpen ? "minmax(200px, 260px) minmax(0, 1fr)" : "0px minmax(0, 1fr)",
+					gridTemplateColumns: sidebarOpen
+						? resultPanelOpen
+							? "minmax(200px, 260px) minmax(0, 1fr) minmax(340px, 420px)"
+							: "minmax(200px, 260px) minmax(0, 1fr)"
+						: resultPanelOpen
+							? "0px minmax(0, 1fr) minmax(340px, 420px)"
+							: "0px minmax(0, 1fr)",
 				}}
 			>
 				<aside className="panel agent-session-panel">
@@ -736,19 +803,7 @@ export function AgentPage({
 								<div className="agent-message-text">
 									{message.content || (message.status === "streaming" ? "正在思考并调用研究工具…" : "本轮主要执行了工具调用。")}
 								</div>
-								{message.role === "assistant" && message.status === "complete" && message.content
-									? (() => {
-											const parsed = parseLiteratureTables(message.content);
-											if (!parsed) return null;
-											return (
-												<div className="literature-table-group">
-													{parsed.tables.map((table) => (
-														<LiteratureTableCard key={table.focus || table.headers.join("-")} table={table} />
-													))}
-												</div>
-											);
-										})()
-									: null}
+
 								{message.thinking ? (
 									<ThinkingBlock thinking={message.thinking} streaming={message.status === "streaming"} />
 								) : message.status === "streaming" ? (
@@ -874,6 +929,12 @@ export function AgentPage({
 						</div>
 					</div>
 				</section>
+
+				{resultPanelOpen && (
+					<aside className="panel agent-result-panel">
+						<AgentResultSidebar groups={sidebarGroups} onClose={() => setResultPanelOpen(false)} />
+					</aside>
+				)}
 			</div>
 		</>
 	);
