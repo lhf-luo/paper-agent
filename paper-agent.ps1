@@ -4,8 +4,8 @@
 # 【系统依赖(首次使用前需安装)】
 #   1. Node.js 24.x  (官方安装包: https://nodejs.org)   —— 必需, 低于 24 无法直接执行 TypeScript
 #        winget install OpenJS.NodeJS.LTS
-#   2. Python 3.10+  (下载 arXiv/PDF 需要; pip 可选)
-#        winget install Python.Python.3.12
+#   2. Python 3.10+  (下载 arXiv/PDF 需要; 已有则设 PAPER_AGENT_PYTHON_BIN 指向 python.exe)
+#        检查: python --version
 #   3. Poppler      (pdftotext / pdfinfo / pdftoppm, 读取 PDF 必需)
 #        winget install oschwartz.116.11  (或 choco install poppler)
 #        装完后把 Poppler 的 bin 目录加入系统 PATH
