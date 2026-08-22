@@ -1,3 +1,25 @@
+# ==============================================================================
+# Paper Agent — Windows 启动器
+#
+# 【系统依赖(首次使用前需安装)】
+#   1. Node.js 24.x  (官方安装包: https://nodejs.org)   —— 必需, 低于 24 无法直接执行 TypeScript
+#        winget install OpenJS.NodeJS.LTS
+#   2. Python 3.10+  (下载 arXiv/PDF 需要; pip 可选)
+#        winget install Python.Python.3.12
+#   3. Poppler      (pdftotext / pdfinfo / pdftoppm, 读取 PDF 必需)
+#        winget install oschwartz.116.11  (或 choco install poppler)
+#        装完后把 Poppler 的 bin 目录加入系统 PATH
+#   4. Tesseract OCR (图片表格/手写 OCR, 可选)
+#        winget install UB-Mannheim.TesseractOCR
+#        并安装中文语言包 chi_sim (安装器勾选)
+#
+# 【项目 npm 依赖】 由本脚本自动执行 `npm ci` 安装(无需手动):
+#   @earendil-works/pi-coding-agent, typebox, react, react-dom, react-markdown,
+#   remark-gfm, vite, undici 等 —— 全部来自 package.json / package-lock.json
+#
+# 【首次配置】 安装后运行 `paper-agent --init` 向导; 或手动编辑:
+#   .paper-agent/config.json   (模板: config.example.json)
+# ==============================================================================
 [CmdletBinding()]
 param(
 	[Parameter(Position = 0)]
@@ -59,7 +81,7 @@ function Resolve-SetupNode {
 	if (Test-Path -LiteralPath $bundled -PathType Leaf) { return $bundled }
 	$system = Get-Command node -ErrorAction SilentlyContinue
 	if ($system) { return $system.Source }
-	throw "Node.js was not found. Install Node.js 22.19 or newer and rerun setup."
+	throw "Node.js was not found. Install Node.js 24 or newer (https://nodejs.org) and rerun setup."
 }
 
 function Test-ProjectDependencies {
@@ -67,7 +89,9 @@ function Test-ProjectDependencies {
 		"node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
 			"node_modules\typebox\package.json",
 			"node_modules\vite\bin\vite.js",
-			"node_modules\react\package.json"
+			"node_modules\react\package.json",
+			"node_modules\undici\package.json",
+			"node_modules\react-markdown\package.json"
 	)
 	if ($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ProjectRoot $_) -PathType Leaf) }) {
 		return $false
@@ -120,9 +144,8 @@ function Invoke-Setup {
 	$node = Resolve-SetupNode
 	$version = & $node --version
 	if ($version -notmatch '^v(?<major>\d+)\.(?<minor>\d+)\.' -or
-		[int]$Matches.major -lt 22 -or
-		([int]$Matches.major -eq 22 -and [int]$Matches.minor -lt 19)) {
-		throw "Node.js 22.19 or newer is required; found $version at $node"
+		[int]$Matches.major -lt 24) {
+		throw "Node.js 24 or newer is required (needed to run TypeScript directly); found $version at $node"
 	}
 
 	$npmBesideNode = Join-Path (Split-Path -Parent $node) "npm.cmd"
@@ -214,6 +237,13 @@ function Invoke-Install {
 		if ($LASTEXITCODE -ne 0) { throw "Web build failed with exit code $LASTEXITCODE" }
 	}
 	Install-CommandShim
+	$configPath = Join-Path $ProjectRoot ".paper-agent\config.json"
+	if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+		Write-Host ""
+		Write-Host "config.json 未找到。首次配置:" -ForegroundColor Yellow
+		Write-Host "  1) 复制模板:  Copy-Item config.example.json .paper-agent\config.json" -ForegroundColor Cyan
+		Write-Host "  2) 填入模型 API Key / 团队配置, 或运行: paper-agent --init" -ForegroundColor Cyan
+	}
 	Write-Host "Next: paper-agent --doctor" -ForegroundColor Cyan
 }
 

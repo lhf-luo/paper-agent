@@ -1,0 +1,50 @@
+{
+	"version": 1,
+	"interface": {
+		"port": 0,
+		"openBrowser": true
+	},
+	"storage": {
+		"defaultNamespace": "default"
+	},
+	"search": {
+		"providers": ["arxiv", "openalex", "crossref", "semanticscholar", "dblp"],
+		"maxResultsPerProvider": 20,
+		"pagesPerProvider": 1,
+		"queryExpansions": [],
+		"reuseCorpus": true
+	},
+	"model": {
+		"providerId": "deepseek",
+		"modelId": "deepseek-v4-flash",
+		"api": "openai-completions",
+		"baseUrl": "https://api.deepseek.com/v1",
+		"apiKey": "在此填入你的模型 API Key"
+	},
+	"models": [
+		{
+			"providerId": "deepseek",
+			"modelId": "deepseek-v4-flash",
+			"api": "openai-completions",
+			"baseUrl": "https://api.deepseek.com/v1",
+			"apiKey": "在此填入你的模型 API Key"
+		}
+	],
+	"network": {
+		"proxyEnabled": false,
+		"proxyUrl": "http://127.0.0.1:7890"
+	},
+	"credentials": {
+		"semanticScholarApiKey": "",
+		"coreApiKey": "",
+		"exaApiKey": "",
+		"openAlexMailto": "",
+		"crossrefPoliteEmail": ""
+	},
+	"team": {
+		"serverUrl": "",
+		"namespace": "lab",
+		"tokenEnvironmentVariable": "PAPER_AGENT_TEAM_TOKEN",
+		"token": ""
+	}
+}
