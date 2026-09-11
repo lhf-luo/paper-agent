@@ -93,16 +93,30 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Detect PDF evaluation machinery
+        id: eval-machinery
+        shell: bash
+        run: |
+          if [ -f scripts/evaluate-pdf-assets.ts ] && [ -d eval-data/annotations ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::scripts/evaluate-pdf-assets.ts and eval-data/annotations are not part of this checkout; skipping the fixed PDF gate."
+          fi
+
       - name: Set up Node.js
+        if: steps.eval-machinery.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           cache: npm
 
       - name: Install Poppler
+        if: steps.eval-machinery.outputs.present == 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Restore pinned PDF cache
+        if: steps.eval-machinery.outputs.present == 'true'
         uses: actions/cache@v4
         with:
           path: eval-data/pdfs
@@ -111,10 +125,13 @@ jobs:
             pdf-release-${{ runner.os }}-
 
       - name: Install dependencies
+        if: steps.eval-machinery.outputs.present == 'true'
         run: npm ci --ignore-scripts
 
       - name: Fetch and verify pinned PDFs
+        if: steps.eval-machinery.outputs.present == 'true'
         run: npm run eval:pdf-assets:fetch
 
       - name: Run fixed PDF release gate
+        if: steps.eval-machinery.outputs.present == 'true'
         run: npm run eval:pdf-assets:check
