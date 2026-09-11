@@ -3964,6 +3964,17 @@ function TeamPage() {
 	const [teamSearchResults, setTeamSearchResults] = useState<PaperRecord[]>([]);
 	const [teamSearchCursor, setTeamSearchCursor] = useState<string>();
 	const [teamSearchLoading, setTeamSearchLoading] = useState(false);
+	const [pullSelection, setPullSelection] = useState<Set<string>>(new Set());
+	const [includePdf, setIncludePdf] = useState(false);
+	const [pullResult, setPullResult] = useState<any>();
+	const [sharedPapers, setSharedPapers] = useState<PaperRecord[]>([]);
+	const [sharedCursor, setSharedCursor] = useState<string>();
+	const [personalDerived, setPersonalDerived] = useState<
+		Array<{ key: string; operation: string; paperId: string; createdAt: string }>
+	>([]);
+	const [derivedSelection, setDerivedSelection] = useState<Set<string>>(new Set());
+	const [reviewSelection, setReviewSelection] = useState<Record<string, Set<string>>>({});
+	const [reviewReason, setReviewReason] = useState("");
 	const load = useCallback(async () => {
 		setError("");
 		try {
@@ -4014,18 +4025,40 @@ function TeamPage() {
 			const result = await api<any>(pendingRequest.path, jsonBody({ ...pendingRequest.payload, grant }));
 			if (typeof result.invite === "string") setOneTimeToken(result.invite);
 			if (typeof result.backupPath === "string") setBackupPath(result.backupPath);
+			if (typeof result.pulled === "number" && Array.isArray(result.pdfs)) setPullResult(result);
+			const failedPdfs: any[] = Array.isArray(result.pdfs)
+				? result.pdfs.filter((entry: any) => entry.status === "failed")
+				: [];
 			setMessage(
 				result.invite
 					? "团队接入串仅显示这一次，请立即复制并交给对应成员。"
-					: result.validated
-						? `恢复演练通过：${result.stats.recordCount} 篇论文、${result.stats.derivedCount} 条派生记忆、${result.stats.artifactCount} 份 artifact、${result.stats.blobCount} 个 blob。`
-						: result.backupPath
-							? `团队备份已创建：${result.backupPath}`
-							: "团队操作已完成并写入审计记录。",
+					: typeof result.pulled === "number"
+						? `已拉取 ${result.pulled} 篇团队论文到个人库：新建 ${result.created?.length ?? 0}、更新 ${
+								result.updated?.length ?? 0
+							}、未变化 ${result.unchanged?.length ?? 0}${
+								failedPdfs.length
+									? `；${failedPdfs.length} 篇 PDF 失败：${failedPdfs
+											.map((entry) => `${entry.paperId}（${entry.reason}）`)
+											.join("、")}`
+									: includePdf
+										? "；PDF 已写入个人库。"
+										: "。"
+							}`
+						: typeof result.withdrawn !== "undefined"
+							? `已撤回 ${result.withdrawn.length} 条待审提案。`
+							: result.validated
+								? `恢复演练通过：${result.stats.recordCount} 篇论文、${result.stats.derivedCount} 条派生记忆、${result.stats.artifactCount} 份 artifact、${result.stats.blobCount} 个 blob。`
+								: result.backupPath
+									? `团队备份已创建：${result.backupPath}`
+									: "团队操作已完成并写入审计记录。",
 			);
 			setPending(undefined);
 			setPendingRequest(undefined);
 			setSelected(new Set());
+			setPullSelection(new Set());
+			setDerivedSelection(new Set());
+			setReviewSelection({});
+			setReviewReason("");
 			await load();
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -4082,7 +4115,74 @@ function TeamPage() {
 		resource: "papers" | "derived" | "artifacts",
 		ids: string[],
 		decision: "team-approved" | "team-rejected",
-	) => prepare("/api/team/reviews/prepare", "/api/team/reviews/execute", { resource, ids, decision });
+		reason?: string,
+	) => prepare("/api/team/reviews/prepare", "/api/team/reviews/execute", { resource, ids, decision, reason });
+	const toggleReview = (resource: string, id: string, checked: boolean) =>
+		setReviewSelection((current) => {
+			const next = new Set(current[resource] ?? []);
+			if (checked) next.add(id);
+			else next.delete(id);
+			return { ...current, [resource]: next };
+		});
+	const selectAllReview = (resource: string, ids: string[]) =>
+		setReviewSelection((current) => ({ ...current, [resource]: new Set(ids) }));
+	const reviewBatch = (resource: "papers" | "derived" | "artifacts", decision: "team-approved" | "team-rejected") => {
+		const ids = [...(reviewSelection[resource] ?? [])];
+		if (!ids.length) {
+			setError("请先勾选要批量审核的条目。");
+			return;
+		}
+		void review(resource, ids, decision, reviewReason.trim() || undefined);
+	};
+	const pullPapers = (ids: string[]) => {
+		if (!ids.length) {
+			setError("请先勾选要拉取到个人库的团队论文。");
+			return;
+		}
+		void prepare("/api/team/pull/prepare", "/api/team/pull/execute", {
+			paperIds: ids,
+			personalNamespace,
+			includePdf,
+		});
+	};
+	const loadMoreShared = async () => {
+		setTeamSearchLoading(true);
+		setError("");
+		try {
+			const params = new URLSearchParams({ limit: "50" });
+			if (sharedCursor) params.set("cursor", sharedCursor);
+			const result = await api<{ hits: Array<{ record: PaperRecord }>; nextCursor?: string }>(
+				`/api/team/search?${params.toString()}`,
+			);
+			setSharedPapers((current) => [...current, ...result.hits.map((hit) => hit.record)]);
+			setSharedCursor(result.nextCursor);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setTeamSearchLoading(false);
+		}
+	};
+	const loadPersonalDerived = useCallback(async () => {
+		try {
+			const result = await api<{
+				entries: Array<{ key: string; operation: string; paperId: string; createdAt: string }>;
+			}>(`/api/team/derived/personal?namespace=${encodeURIComponent(personalNamespace)}`);
+			setPersonalDerived(result.entries);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		}
+	}, [personalNamespace]);
+	useEffect(() => {
+		void loadPersonalDerived();
+	}, [loadPersonalDerived]);
+	useEffect(() => {
+		const papers: PaperRecord[] = overview?.papers ?? [];
+		setSharedPapers(papers);
+		// The overview carries the first page only; infer the next cursor so "加载更多" can append.
+		setSharedCursor(papers.length >= 50 ? "50" : undefined);
+		setPullSelection(new Set());
+		setDerivedSelection(new Set());
+	}, [overview]);
 	const roles: string[] = overview?.identity?.roles ?? [];
 	const capabilities = overview?.capabilities ?? {
 		canRead: roles.includes("admin") || roles.includes("reader"),
@@ -4289,20 +4389,64 @@ function TeamPage() {
 						</button>
 					</div>
 					{teamSearchResults.length ? (
-						<div className="shared-record-list">
-							{teamSearchResults.map((paper) => (
-								<article key={paper.id}>
-									<div>
-										<strong>{paper.title}</strong>
-										<small>
-											{paper.authors.slice(0, 3).join(", ")} · {paper.year ?? "年份未知"} ·{" "}
-											{paper.venue ?? "venue 未知"}
-										</small>
-									</div>
-									<StatusPill status={paper.curation?.teamReview?.status ?? "team-approved"} />
-								</article>
-							))}
-						</div>
+						<>
+							<div className="button-row">
+								<label>
+									<input
+										type="checkbox"
+										checked={teamSearchResults.every((paper) => pullSelection.has(paper.id))}
+										onChange={(event) =>
+											setPullSelection(
+												event.target.checked ? new Set(teamSearchResults.map((paper) => paper.id)) : new Set(),
+											)
+										}
+									/>{" "}
+									全选
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={includePdf}
+										onChange={(event) => setIncludePdf(event.target.checked)}
+									/>{" "}
+									含 PDF
+								</label>
+								<button
+									className="button primary"
+									type="button"
+									disabled={!pullSelection.size || busy}
+									onClick={() => pullPapers([...pullSelection])}
+								>
+									拉取到个人库（{pullSelection.size}）
+								</button>
+							</div>
+							<div className="shared-record-list">
+								{teamSearchResults.map((paper) => (
+									<article key={paper.id}>
+										<input
+											type="checkbox"
+											checked={pullSelection.has(paper.id)}
+											onChange={(event) =>
+												setPullSelection((current) => {
+													const next = new Set(current);
+													if (event.target.checked) next.add(paper.id);
+													else next.delete(paper.id);
+													return next;
+												})
+											}
+										/>
+										<div>
+											<strong>{paper.title}</strong>
+											<small>
+												{paper.authors.slice(0, 3).join(", ")} · {paper.year ?? "年份未知"} ·{" "}
+												{paper.venue ?? "venue 未知"}
+											</small>
+										</div>
+										<StatusPill status={paper.curation?.teamReview?.status ?? "team-approved"} />
+									</article>
+								))}
+							</div>
+						</>
 					) : (
 						<p className="muted">输入条件后检索；团队检索不会修改个人库。</p>
 					)}
@@ -4431,6 +4575,56 @@ function TeamPage() {
 								))}
 							</div>
 						</div>
+						<div className="blob-uploader">
+							<h3>提交派生记录</h3>
+							<p className="muted">
+								派生记忆来自个人库；提交前请确认 paperId 属于个人库。结果中若含绝对路径会被保留，但会在确认清单中提示。
+							</p>
+							{personalDerived.length ? (
+								<>
+									<div className="button-row">
+										<button
+											className="button primary"
+											type="button"
+											disabled={!derivedSelection.size || busy}
+											onClick={() =>
+												void prepare("/api/team/derived/prepare", "/api/team/derived/execute", {
+													keys: [...derivedSelection],
+													personalNamespace,
+												})
+											}
+										>
+											预览并提交派生记录（{derivedSelection.size}）
+										</button>
+									</div>
+									<div className="selection-list">
+										{personalDerived.map((entry) => (
+											<label key={entry.key}>
+												<input
+													type="checkbox"
+													checked={derivedSelection.has(entry.key)}
+													onChange={(event) =>
+														setDerivedSelection((current) => {
+															const next = new Set(current);
+															if (event.target.checked) next.add(entry.key);
+															else next.delete(entry.key);
+															return next;
+														})
+													}
+												/>
+												<div>
+													<strong>{entry.operation}</strong>
+													<small>{entry.paperId}</small>
+													<code>{entry.key}</code>
+												</div>
+											</label>
+										))}
+									</div>
+								</>
+							) : (
+								<p className="muted">个人库（{personalNamespace}）还没有派生记录，暂无可提交内容。</p>
+							)}
+						</div>
 					</section>
 				) : (
 					<section className="panel">
@@ -4442,11 +4636,39 @@ function TeamPage() {
 				<section className="panel">
 					<span className="eyebrow">Shared papers</span>
 					<h2>已共享论文</h2>
+					{canRead && sharedPapers.length > 0 && (
+						<div className="button-row">
+							<label>
+								<input type="checkbox" checked={includePdf} onChange={(event) => setIncludePdf(event.target.checked)} />{" "}
+								含 PDF
+							</label>
+							<button
+								className="button primary"
+								type="button"
+								disabled={!pullSelection.size || busy}
+								onClick={() => pullPapers([...pullSelection])}
+							>
+								拉取到个人库（{pullSelection.size}）
+							</button>
+						</div>
+					)}
 					<div className="shared-record-list">
 						{canRead ? (
-							overview.papers?.length ? (
-								overview.papers.slice(0, 50).map((paper: PaperRecord) => (
+							sharedPapers.length ? (
+								sharedPapers.map((paper: PaperRecord) => (
 									<article key={paper.id}>
+										<input
+											type="checkbox"
+											checked={pullSelection.has(paper.id)}
+											onChange={(event) =>
+												setPullSelection((current) => {
+													const next = new Set(current);
+													if (event.target.checked) next.add(paper.id);
+													else next.delete(paper.id);
+													return next;
+												})
+											}
+										/>
 										<div>
 											<strong>{paper.title}</strong>
 											<small>
@@ -4473,8 +4695,82 @@ function TeamPage() {
 							/>
 						)}
 					</div>
+					{sharedCursor && (
+						<button
+							className="button secondary"
+							type="button"
+							disabled={teamSearchLoading}
+							onClick={() => void loadMoreShared()}
+						>
+							{teamSearchLoading ? "加载中…" : "加载更多"}
+						</button>
+					)}
 				</section>
 			</div>
+			{pullResult && (
+				<section className="panel">
+					<span className="eyebrow">Team → Personal</span>
+					<h2>最近一次拉取结果</h2>
+					<p>
+						已拉取 {pullResult.pulled} 篇：新建 {pullResult.created.length}、更新 {pullResult.updated.length}、未变化{" "}
+						{pullResult.unchanged.length}
+					</p>
+					{pullResult.pdfs?.length ? (
+						<div className="shared-record-list">
+							{pullResult.pdfs.map((entry: any) => (
+								<article key={`${entry.paperId}-${entry.sha256}`}>
+									<div>
+										<strong>{entry.paperId}</strong>
+										<small>
+											{entry.sha256 ? entry.sha256.slice(0, 16) : "无 sha256"} · {entry.status}
+											{entry.reason ? ` · ${entry.reason}` : ""}
+										</small>
+									</div>
+									<StatusPill status={entry.status === "failed" ? "team-rejected" : "team-approved"} />
+								</article>
+							))}
+						</div>
+					) : null}
+				</section>
+			)}
+			{contributor && !reviewer && (
+				<section className="panel">
+					<span className="eyebrow">My pending proposals</span>
+					<h2>我的待审提案</h2>
+					<p className="muted">
+						这些提案尚未被审核，你可以随时撤回。撤回新论文会从团队库删除该记录；撤回对已批准记录的修订只丢弃修订，原记录不受影响。
+					</p>
+					<div className="shared-record-list">
+						{overview.myProposals?.length ? (
+							overview.myProposals.map((paper: PaperRecord) => (
+								<article key={paper.id}>
+									<div>
+										<strong>{paper.title}</strong>
+										<small>{paper.curation?.teamReview?.proposedAt ?? "提交时间未知"}</small>
+										{paper.curation?.teamReview?.revision ? <small>修订已批准记录</small> : null}
+									</div>
+									<button
+										className="button secondary"
+										type="button"
+										disabled={busy}
+										onClick={() =>
+											void prepare(
+												"/api/team/proposals/withdraw/prepare",
+												"/api/team/proposals/withdraw/execute",
+												{ paperIds: [paper.id] },
+											)
+										}
+									>
+										撤回
+									</button>
+								</article>
+							))
+						) : (
+							<p className="muted">没有待审提案。</p>
+						)}
+					</div>
+				</section>
+			)}
 			{canRead && (
 				<div className="team-grid knowledge-detail-grid">
 					<section className="panel">
@@ -4547,19 +4843,74 @@ function TeamPage() {
 							<span className="eyebrow">Review queue</span>
 							<h2>待审核内容</h2>
 						</div>
+						<div className="button-row">
+							<input
+								value={reviewReason}
+								onChange={(event) => setReviewReason(event.target.value)}
+								placeholder="审核理由（可选）"
+							/>
+						</div>
 					</div>
 					<div className="review-columns">
 						<div>
 							<h3>论文 ({overview.pendingPapers?.length ?? 0})</h3>
+							<div className="button-row">
+								<button
+									className="button secondary"
+									type="button"
+									onClick={() =>
+										selectAllReview(
+											"papers",
+											(overview.pendingPapers ?? []).map((paper: PaperRecord) => paper.id),
+										)
+									}
+								>
+									全选
+								</button>
+								<button
+									className="button primary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("papers", "team-approved")}
+								>
+									批量批准（{reviewSelection.papers?.size ?? 0}）
+								</button>
+								<button
+									className="button secondary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("papers", "team-rejected")}
+								>
+									批量拒绝
+								</button>
+							</div>
 							{overview.pendingPapers?.map((paper: PaperRecord) => (
 								<article key={paper.id}>
+									<input
+										type="checkbox"
+										checked={reviewSelection.papers?.has(paper.id) ?? false}
+										onChange={(event) => toggleReview("papers", paper.id, event.target.checked)}
+									/>
 									<strong>{paper.title}</strong>
 									<small>{paper.curation?.teamReview?.proposedBy}</small>
+									{paper.curation?.teamReview?.revision ? (
+										<small>修订：批准后替换现有已批准记录，拒绝则丢弃修订</small>
+									) : null}
 									<div className="row-actions">
-										<button type="button" onClick={() => void review("papers", [paper.id], "team-approved")}>
+										<button
+											type="button"
+											onClick={() =>
+												void review("papers", [paper.id], "team-approved", reviewReason.trim() || undefined)
+											}
+										>
 											批准
 										</button>
-										<button type="button" onClick={() => void review("papers", [paper.id], "team-rejected")}>
+										<button
+											type="button"
+											onClick={() =>
+												void review("papers", [paper.id], "team-rejected", reviewReason.trim() || undefined)
+											}
+										>
 											拒绝
 										</button>
 									</div>
@@ -4571,22 +4922,73 @@ function TeamPage() {
 								派生记忆 (
 								{overview.derived?.filter((entry: any) => entry.review.status === "team-proposed").length ?? 0})
 							</h3>
+							<div className="button-row">
+								<button
+									className="button secondary"
+									type="button"
+									onClick={() =>
+										selectAllReview(
+											"derived",
+											(overview.derived ?? [])
+												.filter((entry: any) => entry.review.status === "team-proposed")
+												.map((entry: any) => entry.record.key),
+										)
+									}
+								>
+									全选
+								</button>
+								<button
+									className="button primary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("derived", "team-approved")}
+								>
+									批量批准（{reviewSelection.derived?.size ?? 0}）
+								</button>
+								<button
+									className="button secondary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("derived", "team-rejected")}
+								>
+									批量拒绝
+								</button>
+							</div>
 							{overview.derived
 								?.filter((entry: any) => entry.review.status === "team-proposed")
 								.map((entry: any) => (
 									<article key={entry.record.key}>
+										<input
+											type="checkbox"
+											checked={reviewSelection.derived?.has(entry.record.key) ?? false}
+											onChange={(event) => toggleReview("derived", entry.record.key, event.target.checked)}
+										/>
 										<strong>{entry.record.operation}</strong>
 										<code>{entry.record.key}</code>
 										<div className="row-actions">
 											<button
 												type="button"
-												onClick={() => void review("derived", [entry.record.key], "team-approved")}
+												onClick={() =>
+													void review(
+														"derived",
+														[entry.record.key],
+														"team-approved",
+														reviewReason.trim() || undefined,
+													)
+												}
 											>
 												批准
 											</button>
 											<button
 												type="button"
-												onClick={() => void review("derived", [entry.record.key], "team-rejected")}
+												onClick={() =>
+													void review(
+														"derived",
+														[entry.record.key],
+														"team-rejected",
+														reviewReason.trim() || undefined,
+													)
+												}
 											>
 												拒绝
 											</button>
@@ -4601,10 +5003,47 @@ function TeamPage() {
 									0}
 								)
 							</h3>
+							<div className="button-row">
+								<button
+									className="button secondary"
+									type="button"
+									onClick={() =>
+										selectAllReview(
+											"artifacts",
+											(overview.artifacts ?? [])
+												.filter((entry: any) => entry.review.status === "team-proposed")
+												.map((entry: any) => entry.paperId),
+										)
+									}
+								>
+									全选
+								</button>
+								<button
+									className="button primary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("artifacts", "team-approved")}
+								>
+									批量批准（{reviewSelection.artifacts?.size ?? 0}）
+								</button>
+								<button
+									className="button secondary"
+									type="button"
+									disabled={busy}
+									onClick={() => reviewBatch("artifacts", "team-rejected")}
+								>
+									批量拒绝
+								</button>
+							</div>
 							{overview.artifacts
 								?.filter((entry: any) => entry.review.status === "team-proposed")
 								.map((entry: any) => (
 									<article key={entry.paperId}>
+										<input
+											type="checkbox"
+											checked={reviewSelection.artifacts?.has(entry.paperId) ?? false}
+											onChange={(event) => toggleReview("artifacts", entry.paperId, event.target.checked)}
+										/>
 										<strong>{entry.paperId}</strong>
 										<small>
 											{entry.manifest.candidates.length} candidates · {entry.manifest.acquisitions.length}{" "}
@@ -4613,13 +5052,27 @@ function TeamPage() {
 										<div className="row-actions">
 											<button
 												type="button"
-												onClick={() => void review("artifacts", [entry.paperId], "team-approved")}
+												onClick={() =>
+													void review(
+														"artifacts",
+														[entry.paperId],
+														"team-approved",
+														reviewReason.trim() || undefined,
+													)
+												}
 											>
 												批准
 											</button>
 											<button
 												type="button"
-												onClick={() => void review("artifacts", [entry.paperId], "team-rejected")}
+												onClick={() =>
+													void review(
+														"artifacts",
+														[entry.paperId],
+														"team-rejected",
+														reviewReason.trim() || undefined,
+													)
+												}
 											>
 												拒绝
 											</button>

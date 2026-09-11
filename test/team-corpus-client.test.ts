@@ -120,13 +120,28 @@ describe("team corpus client", () => {
 				},
 			);
 			expect(confirmations).toBe(1);
-			const result = await searchRemoteTeamCorpus({ namespace: "security", query: "binary" });
+			// Pending proposals are invisible to a default (reader-style) search...
+			expect((await searchRemoteTeamCorpus({ namespace: "security", query: "binary" })).hits).toEqual([]);
+			// ...and reviewers must ask for them explicitly, either through the client or the Pi tool.
+			const result = await searchRemoteTeamCorpus({
+				namespace: "security",
+				query: "binary",
+				statuses: ["team-proposed"],
+			});
 			expect(result.hits).toHaveLength(1);
 			expect(result.hits[0].record.curation?.userNotes).toEqual([]);
 			expect(result.hits[0].record.curation?.teamReview).toMatchObject({
 				status: "team-proposed",
 				proposedBy: "admin",
 			});
+			const toolSearch = await tool.execute(
+				"call-search",
+				{ action: "search", namespace: "security", query: "binary", review_statuses: ["team-proposed"] },
+				undefined,
+				undefined,
+				{ cwd: root },
+			);
+			expect(toolSearch.details.hits).toHaveLength(1);
 			await expect(
 				tool.execute(
 					"call-no-ui",

@@ -31,3 +31,8 @@ export interface TeamAuditEvent {
 	target?: string;
 	details?: Record<string, unknown>;
 }
+
+export interface TeamActor {
+	id: string;
+	name: string;
+}

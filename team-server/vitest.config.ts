@@ -8,5 +8,7 @@ export default defineConfig({
 	test: {
 		include: ["test/**/*.test.ts"],
 		testTimeout: 30_000,
+		// The server writes a JSON access log per request; keep test output readable.
+		env: { PAPER_AGENT_TEAM_ACCESS_LOG: "off" },
 	},
 });

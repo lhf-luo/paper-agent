@@ -117,6 +117,7 @@ health 例外
 | `403` | Token 有效，但 role 或 namespace 权限不足 |
 | `404` | 资源不存在 |
 | `405` | 路由存在，但 HTTP 方法不允许 |
+| `409` | 提案复用了已存在的团队论文 id，但 identifiers 表明它是另一篇论文 |
 | `413` | 请求体或 blob 超过限制 |
 | `500` | 未预期的服务端错误 |
 
@@ -235,11 +236,13 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| `GET` | `/search` | `reader` | 分页搜索团队论文 |
-| `GET` | `/papers/{paperId}` | `reader` | 读取一篇团队论文 |
-| `GET` | `/proposals` | `reviewer` | 查看待审核论文 |
+| `GET` | `/search` | `reader` | 分页搜索团队论文（默认只返回 `team-approved`） |
+| `GET` | `/papers/{paperId}` | `reader` | 读取一篇团队论文；非 `team-approved` 且调用方不是 `reviewer`/`admin` 时返回 404 |
+| `GET` | `/papers/{paperId}/versions` | `reader` | 列出该论文的 PDF 版本（含 `sha256`），可见性与单篇读取一致 |
+| `GET` | `/proposals` | `reviewer`（`mine=true` 时为 `contributor`） | 查看待审核论文，包括对已批准记录的待审修订（`curation.teamReview.revision: true`）；`mine=true` 只返回当前身份提交的提案，优先按成员 id 匹配 |
 | `POST` | `/proposals` | `contributor` | 提交论文提案 |
-| `POST` | `/reviews` | `reviewer` | 审核论文 |
+| `POST` | `/proposals/withdraw` | `contributor` | 撤回自己尚未被审核的提案，body `{ paperIds }`；任一条不满足整批 400 |
+| `POST` | `/reviews` | `reviewer` | 审核论文；目标存在待审修订时，批准=用修订替换已批准记录，拒绝=丢弃修订、原记录不变 |
 | `GET` | `/derived` | `reader` 或 `reviewer` | 查看派生记录 |
 | `POST` | `/derived` | `contributor` | 提交派生记录 |
 | `POST` | `/derived/reviews` | `reviewer` | 审核派生记录 |
@@ -248,13 +251,17 @@ Authorization: Bearer <token>
 | `POST` | `/artifacts/reviews` | `reviewer` | 审核 Artifact manifest |
 | `PUT` | `/blobs/{sha256}` | `contributor` | 上传经 SHA-256 校验的 blob |
 | `GET` | `/blobs/{sha256}` | `reader` | 下载 blob |
-| `GET` | `/events` | `reviewer` | 读取 namespace 审计事件 |
+| `GET` | `/events` | `reviewer` | 读取 namespace 审计事件，倒序分页 |
 | `GET` | `/stats` | `reader` | 读取统计 |
 | `GET` | `/audit` | `reviewer` | 审计记录、provenance 和待审核状态 |
 | `POST` | `/backups` | `admin` | 创建备份 |
 | `POST` | `/backups/drill` | `admin` | 验证备份并执行恢复演练 |
 
-搜索支持 `q`、`yearFrom`、`yearTo`、`author`、`venue`、`type`、`openAccess`、`cursor` 和 `limit`。当前 `cursor` 实际是数字 offset 的字符串。
+搜索支持 `q`、`yearFrom`、`yearTo`、`author`、`venue`、`type`、`openAccess`、`status`、`cursor` 和 `limit`。当前 `cursor` 实际是数字 offset 的字符串。`author`、`venue`、`type` 和 `status` 可重复或逗号分隔。
+
+`status` 取值 `team-proposed`、`team-approved`、`team-rejected`。**未传时默认只返回 `team-approved`**；传入任何非 `team-approved` 值需要 `reviewer` 或 `admin`，否则返回 403。因此普通 `reader` 无法通过搜索发现待审核或被拒绝的记录。
+
+`GET /papers/{paperId}` 与 `/papers/{paperId}/versions` 对不可见的记录一律返回 **404 而不是 403**，以避免泄露记录是否存在。
 
 ## 8. 磁盘数据
 
@@ -262,11 +269,14 @@ Authorization: Bearer <token>
 
 ```text
 {PAPER_AGENT_TEAM_ROOT}/
+  .team-server.pid
   _security/
     identities.json
     token-audit.jsonl
   {namespace}/
     records/
+      {paperId}.json
+    revisions/
       {paperId}.json
     paper-versions/
       {paperId}.json
@@ -289,6 +299,7 @@ Authorization: Bearer <token>
 ### 文件含义
 
 - `records/{paperId}.json`：规范化的 `PaperRecord`。
+- `revisions/{paperId}.json`：对已批准记录的待审修订（同 id 的完整 `PaperRecord`，`teamReview.revision: true`）。批准后替换 `records/` 中的同名文件，拒绝或撤回后直接删除。
 - `paper-versions/{paperId}.json`：该论文的 `PaperVersion[]`。
 - `blobs/sha256/...`：按内容寻址的 PDF 或其他二进制。
 - `knowledge/derived/{key}.json`：派生记录和审核状态。
@@ -304,7 +315,25 @@ JSON 写入应先写临时文件，再原子 `rename`。论文存储还会使用
 
 备份由 `backup-manifest.json`、`namespace/`、`_security/identities.json` 和 `_security/token-audit.jsonl` 组成。manifest 记录每个文件的路径、字节数和 SHA-256。
 
-恢复演练只验证备份和复制到临时目录，不会覆盖当前生产数据。真正的恢复需要由运维人员按部署文档执行。
+恢复演练只验证备份和复制到临时目录，不会覆盖当前生产数据。真正的恢复由 `team-server/src/restore.ts` 执行：
+
+```bash
+npm --prefix team-server run restore -- --backup <bundlePath> --root <dataRoot> [--with-identities] [--force]
+```
+
+- 先 `validateTeamBackupBundle()` 校验；再读取 `{root}/.team-server.pid`（服务启动时写入、正常退出时删除），其中的进程仍存活则拒绝运行；`{root}/{namespace}/.write.lock` 存在时同样拒绝。两者都意味着必须先停服务。
+- 目标已存在且未传 `--force` 时拒绝；传 `--force` 时先把现有目录重命名为 `{namespace}.replaced-<timestamp>`（同名冲突时追加 `-1`、`-2`），再复制 `namespace/`。
+- `--with-identities` 对 `_security/identities.json` 使用同样的替换规则。
+
+保留策略由 `team-server/src/prune-backups.ts` 执行：
+
+```bash
+npm --prefix team-server run prune-backups -- --root <backupRoot> --keep <N>
+```
+
+按目录名中的 `team-<namespace>-<yyyymmddHHMMSS>-<id>` 时间戳倒序排序，保留最新 `N` 个；其余目录在删除前先用 `validateTeamBackupBundle()` 校验，不合法的目录只警告不删除。
+
+部署侧提供 `team-server/deployment/paper-agent-team-backup.service` 与 `.timer`（每日一次，`Persistent=true`），通过 `curl --cacert` 调用 `POST /v1/namespaces/{ns}/backups`，Token 文件路径由 `EnvironmentFile` 提供。
 
 ## 9. 状态和不变量
 
@@ -317,15 +346,27 @@ team-proposed -> team-approved
               -> team-rejected
 ```
 
-再次提交完全相同的内容时，已经审核过的状态会保留；只有内容指纹发生变化时才重新进入 `team-proposed`。
+**论文的可见性由状态决定**：只有 `team-approved` 的记录会出现在搜索、单篇读取和 PDF 版本列表中。`reviewer`/`admin` 可以显式请求其它状态，普通 `reader` 看不到也不感知它们的存在。
+
+**论文内容变化不会打断读者，而是进入待审修订**：再次提案时，服务端用 `reviewableContent()` 计算指纹。指纹只覆盖审核真正背书的内容：规范化标题、规范化摘要、年份、规范化 identifiers（DOI、arXiv、OpenAlex、Semantic Scholar），以及 `pdf`/`artifact` 类型的下载链接。
+
+- 指纹相同 → 保留原有 `team-approved` / `team-rejected`，其余字段照常合并；
+- 指纹不同且原状态是 `team-approved` → 已批准记录**原样保留**并继续对读者可见，合并后的新内容写入 `revisions/{paperId}.json`，以 `teamReview.revision: true` 出现在 `GET /proposals`。审核批准则用修订替换记录，拒绝则删除修订、原记录不变；提案人也可以撤回自己的修订。修订待审期间的后续提案会合并进该修订；
+- 指纹不同且原状态是 `team-rejected` → 该记录本来对读者不可见，直接原地重置为 `team-proposed`。
+
+作者列表、venue、类型、引用数、`provenance`、`discoveryPaths`、`materialHashes`、landing/doi 链接以及合并簿记字段（`mergedFrom`、重算的 id）都**不**进入指纹：第二个成员从另一次检索重复提案同一篇论文时，这些字段几乎必然不同，如果把它们算作"内容变化"，每一次重复提案都会产生一个无意义的修订。代价是这些软字段的合并（例如更长的作者列表）不经审核直接生效，只能靠 `paper.propose` 审计事件追溯。派生记录和 Artifact 直接使用 `stableFingerprint` 判断变化。
+
+**复用 id 必须是同一篇论文**：提案的 id 命中已有记录时，服务端用 `samePaperIdentity()` 核对 DOI、arXiv、OpenAlex、Semantic Scholar、materialHashes、providerRecordId 和 PDF 链接；两边都没有任何标识信号的记录只按规范化标题匹配。核对失败返回 `409`，且整批提案在写入任何记录之前被拒绝。没有这个守卫，贡献者只要从搜索结果里抄一个 id，就能把外来标题和下载链接合并进已批准记录。
 
 ### 数据脱敏
 
 论文提案在客户端和服务端都有防护：
 
-- 客户端 `sanitizePaperRecordForTeamProposal()` 清空个人 `userNotes`；
-- 服务端再次清空 `userNotes`，不使用客户端传入的个人备注；
+- 客户端 `sanitizePaperRecordForTeamProposal()` 只保留 `tags`，个人 `userNotes` 与 `screening` 决策都不会随提案上行；
+- 服务端再次清空 `userNotes` 与 `screening`，不使用客户端传入的个人备注；
 - Artifact manifest 会移除本地绝对路径、保留元数据文件名和有限长度的来源上下文。
+
+下行方向同样脱敏：把团队论文拉回个人库时，`curation.userNotes` 置空、`screening` 置 `undefined`，只保留 `tags`、`reading` 和作为来源标记的 `teamReview`。
 
 不要为了“方便调试”把个人路径、Token、提示词或私人笔记写入团队文件。
 
@@ -415,6 +456,10 @@ curl http://127.0.0.1:14713/health
 | `PAPER_AGENT_TEAM_TLS_KEY_FILE` | 无 | TLS 私钥 |
 | `PAPER_AGENT_TEAM_HOST` | TLS 时为 `0.0.0.0` | 监听地址 |
 | `PAPER_AGENT_TEAM_PORT` | `14713` | 监听端口 |
+| `PAPER_AGENT_TEAM_ACCESS_LOG` | 开启 | 设为 `off` 可关闭 stdout 脱敏访问日志 |
+| `PAPER_AGENT_TEAM_PUBLIC_URL` | 无 | **只被 `src/invite.ts` 读取**，服务本身不使用 |
+
+访问日志每个请求写一行 JSON：`{ at, method, path, status, ms, identityId?, namespace? }`。`path` 只保留 pathname，不含 query；**绝不**记录 headers、body、Token 或接入串。同一 `remoteAddress` 在 60 秒内累计 20 次 401 后，该 IP 后续**未通过认证**的请求在窗口内返回 429 `{ error: "too many authentication failures" }`；携带有效 Token 的请求和 `/health` 不受影响，因此共用一个出口 IP 的实验室不会因为一台配置错误的机器被整体锁出。
 
 ## 11. 修改指南
 
@@ -428,11 +473,14 @@ curl http://127.0.0.1:14713/health
 
 ### 新增 API
 
-1. 先在 `protocol/` 定义请求和响应类型。
+1. 先在 `protocol/` 定义请求和响应类型（同时改 `src/team/domain/` 的同名副本）。
 2. 在 `presentation/` 添加 route、role 和 namespace 检查。
-3. 在 application 或 store 中实现业务操作。
+3. 在 application 或 store 中实现业务操作；需要审计的写操作在 `TeamKnowledgeStore` 里追加 `appendAudit`。
 4. 增加服务端独立测试。
-5. 如果客户端也需要调用，同步更新主项目 `src/team/`，并增加兼容性测试。
+5. 如果客户端也要调用，依次补 `src/team/application/team-corpus-client.ts`、`src/app/application/paper-agent-contracts.ts`、`src/app/application/paper-agent-team-operations.ts` 的 plan/prepare/execute 三件套、`src/app/presentation/team-routes.ts` 的 `/api/team/*`、Pi 工具 action、`web/src/App.tsx` 的 `TeamPage`，然后重跑 `npm run docs:tools`。
+6. 最后更新本文档第 7 节速查表。
+
+写操作必须走 prepare/execute 两步确认：plan 的 `kind` 只能取 `src/shared/domain/operation-confirmation.ts` 里 `MutatingOperationKind` 已有的值，`consume()` 要在真正执行前调用。
 
 ### 修改磁盘格式
 
@@ -455,18 +503,22 @@ curl http://127.0.0.1:14713/health
 
 不要只改服务端再假定旧客户端仍能工作。
 
+`literature-types.ts`、`team-corpus-types.ts`、`team-access.ts` 和 `team-identity.ts` 在两处是**逐行相同的副本**，仅 `import` 行允许不同；`test/team-protocol-drift.test.ts` 会强制这一点，改了一侧而忘记另一侧会直接让测试失败。服务端的 `domain/team-identity.ts` 只是 `protocol/team-identity.ts` 的 `export *` 再导出。
+
 ## 12. 当前已知风险
 
 接手后建议优先确认以下事项：
 
-1. `searchPapers()` 当前没有按 `curation.teamReview.status` 过滤。产品说明期望读者主要看到已批准内容，但代码会搜索到待审核或已拒绝的论文记录。若该行为不是有意设计，应修复并增加测试。
-2. `GET /papers/{paperId}` 同样没有审核状态过滤。
-3. 团队搜索是逐个读取 JSON 后在内存中打分，不是数据库查询。记录数增长后需要索引或分页优化。
-4. JSON 和 blob 请求会完整读入内存。当前限制分别是默认 8 MiB 和 200 MiB。
-5. 业务写入和审计追加不是同一个事务，审计失败可能留下已写入业务数据。
-6. 当前没有数据库迁移框架，依赖 schema version、备份和兼容读取。
-7. 服务设计为单实例写入。不要在没有重新设计锁、审计和备份的情况下部署多个写实例。
-8. 团队服务器可以直接复制运行，但协议兼容性仍由服务端和主项目两边共同维护。
+1. `team-server/src/infrastructure/team-knowledge-store.ts` 的 `listAuditEvents()` 从文件尾部按 64 KiB 分块倒序读取，只读到当前页需要的行数；但翻到很深的页（大 `cursor`）仍需扫过前面所有较新的事件，超过十万级后应引入轮转或索引。
+2. 团队搜索在内存索引上打分，已不做重复磁盘读取；但排序仍是 O(n log n) 全量打分，没有倒排索引或字段级索引，超大数据集需要引入真正的检索层。
+3. JSON 和 blob 请求会完整读入内存。当前限制分别是默认 8 MiB 和 200 MiB。
+4. 业务写入和审计追加不是同一个事务，审计失败可能留下已写入业务数据。
+5. 当前没有数据库迁移框架，依赖 schema version、备份和兼容读取。
+6. 服务设计为单实例写入（内存索引也建立在此前提上）。不要在没有重新设计锁、审计、索引失效和备份的情况下部署多个写实例。
+7. 团队服务器可以直接复制运行，但协议兼容性仍由服务端和主项目两边共同维护；现已由 `test/team-protocol-drift.test.ts` 强制两份拷贝逐行一致（仅 `import` 行允许不同）。
+8. `validateTeamAccess()` / `encodeTeamInvite()` 允许 loopback HTTP（本地开发需要）。`invite.ts` 的管理请求本身仍强制 HTTPS（`requestJson()` 拒绝非 `https:` 的 `--url`），生产部署只使用 HTTPS 公共地址。
+9. `mergePaperRecords()` 对摘要、标题、作者列表采用"更长者胜出"。进入指纹的字段（标题、摘要、identifiers、下载链接）变化时会形成待审修订，审核拒绝即可整体丢弃；但不进入指纹的软字段（作者列表、venue、引用数等）会直接合并生效，一旦更长的错误值合并进来，重新提案正确的较短值无法把它替换回去，只能由管理员直接修正数据文件。
+10. `proposedBy` 是展示名，管理员改名后旧记录不会更新；撤回和 `mine=true` 优先按 `proposedById` 匹配，只有实施成员 id 之前写入的旧记录才回退到按名称匹配。
 
 ## 13. 推荐阅读顺序
 

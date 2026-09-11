@@ -95,10 +95,14 @@ export interface PaperCuration {
 	teamReview?: {
 		status: TeamReviewStatus;
 		proposedBy?: string;
+		/** Stable member id of the proposer; `proposedBy` is only the display name and may be renamed. */
+		proposedById?: string;
 		proposedAt?: string;
 		reviewedBy?: string;
 		reviewedAt?: string;
 		reason?: string;
+		/** Pending revision of a currently approved record: approving replaces that record, rejecting discards this. */
+		revision?: true;
 	};
 }
 

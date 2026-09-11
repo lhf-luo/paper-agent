@@ -109,6 +109,23 @@ export interface TeamPaperProposalInput {
 	personalNamespace?: string;
 }
 
+export interface TeamPullInput {
+	paperIds: string[];
+	personalNamespace?: string;
+	includePdf?: boolean;
+}
+
+export type { TeamPullResult } from "../../team/application/team-pull.ts";
+
+export interface TeamDerivedProposalInput {
+	keys: string[];
+	personalNamespace?: string;
+}
+
+export interface TeamWithdrawInput {
+	paperIds: string[];
+}
+
 export interface TeamReviewInput {
 	resource: "papers" | "derived" | "artifacts";
 	ids: string[];

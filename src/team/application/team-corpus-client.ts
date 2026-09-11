@@ -5,7 +5,7 @@ import type {
 	PaperRecord,
 	PaperVersion,
 } from "../../literature/domain/literature-types.ts";
-import type { TeamArtifactEntry, TeamAuditEvent, TeamDerivedEntry } from "../domain/team-corpus-types.ts";
+import type { TeamArtifactEntry, TeamAuditEvent, TeamDerivedEntry, SharedReviewStatus } from "../domain/team-corpus-types.ts";
 import { validateTeamNamespace } from "../domain/team-corpus-validation.ts";
 import type { PublicTeamIdentity, TeamIdentityAction, TeamIdentityInput } from "../domain/team-identity.ts";
 import { teamFetch } from "../infrastructure/team-http-transport.ts";
@@ -121,6 +121,7 @@ export class TeamCorpusClient {
 		authors?: string[];
 		venues?: string[];
 		types?: string[];
+		statuses?: SharedReviewStatus[];
 		openAccess?: boolean;
 		cursor?: string;
 		limit?: number;
@@ -132,21 +133,44 @@ export class TeamCorpusClient {
 		for (const author of input.authors ?? []) query.append("author", author);
 		for (const venue of input.venues ?? []) query.append("venue", venue);
 		for (const type of input.types ?? []) query.append("type", type);
+		for (const status of input.statuses ?? []) query.append("status", status);
 		if (input.openAccess !== undefined) query.set("openAccess", String(input.openAccess));
 		if (input.cursor !== undefined) query.set("cursor", input.cursor);
 		if (input.limit !== undefined) query.set("limit", String(input.limit));
 		return this.requestJson(`${this.namespacePath(input.namespace, "search")}?${query}`);
 	}
 
-	async pendingPapers(namespace: string, cursor?: string): Promise<{ records: PaperRecord[]; nextCursor?: string }> {
-		const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-		return this.requestJson(`${this.namespacePath(namespace, "proposals")}${query}`);
+	async getPaper(namespace: string, paperId: string): Promise<PaperRecord> {
+		return this.requestJson(this.namespacePath(namespace, `papers/${encodeURIComponent(paperId)}`));
+	}
+
+	async listPaperVersions(namespace: string, paperId: string): Promise<{ versions: PaperVersion[] }> {
+		return this.requestJson(this.namespacePath(namespace, `papers/${encodeURIComponent(paperId)}/versions`));
+	}
+
+	async pendingPapers(
+		namespace: string,
+		cursor?: string,
+		options: { mine?: boolean } = {},
+	): Promise<{ records: PaperRecord[]; nextCursor?: string }> {
+		const query = new URLSearchParams();
+		if (cursor) query.set("cursor", cursor);
+		if (options.mine) query.set("mine", "true");
+		const suffix = query.size ? `?${query}` : "";
+		return this.requestJson(`${this.namespacePath(namespace, "proposals")}${suffix}`);
 	}
 
 	async proposePapers(namespace: string, records: PaperRecord[]) {
 		return this.requestJson<{ promoted: number; contributor: string }>(this.namespacePath(namespace, "proposals"), {
 			method: "POST",
 			body: JSON.stringify({ records: records.map(sanitizePaperRecordForTeamProposal) }),
+		});
+	}
+
+	async withdrawPapers(namespace: string, paperIds: string[]): Promise<{ withdrawn: string[] }> {
+		return this.requestJson(this.namespacePath(namespace, "proposals/withdraw"), {
+			method: "POST",
+			body: JSON.stringify({ paperIds }),
 		});
 	}
 

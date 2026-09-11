@@ -69,6 +69,23 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 		return results.sort((left, right) => left.title.localeCompare(right.title));
 	}
 
+	/** Personal derived records available to propose to the team (Web submission block + tooling). */
+	async listPersonalDerived(namespace = this.defaultNamespace): Promise<{
+		entries: Array<{ key: string; operation: string; paperId: string; createdAt: string }>;
+	}> {
+		await this.initialize();
+		const store = this.personalStore(namespace);
+		const records = await store.listDerived();
+		return {
+			entries: records.map((record) => ({
+				key: record.key,
+				operation: record.operation,
+				paperId: record.paperId,
+				createdAt: record.createdAt,
+			})),
+		};
+	}
+
 	async teamOverview() {
 		const connection = resolveTeamConnection(this.projectRoot);
 		if (!connection)
@@ -95,15 +112,21 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 					throw error;
 				}
 			};
-			const [stats, papers, pending, derived, artifacts, events, identities] = await Promise.all([
+			const [stats, papers, pending, myProposals, derived, artifacts, events, identities] = await Promise.all([
 				capabilities.canRead
 					? permissionAware("stats", client.stats(namespace), {} as Record<string, unknown>)
 					: Promise.resolve({} as Record<string, unknown>),
+				// The overview only carries the first page of approved papers; the Web client pages with /api/team/search.
 				capabilities.canRead
-					? permissionAware("papers", client.search({ namespace, limit: 300 }), { hits: [] })
+					? permissionAware("papers", client.search({ namespace, limit: 50 }), { hits: [] })
 					: Promise.resolve({ hits: [] }),
 				capabilities.canReview
 					? permissionAware("pendingPapers", client.pendingPapers(namespace), { records: [] as PaperRecord[] })
+					: Promise.resolve({ records: [] as PaperRecord[] }),
+				capabilities.canContribute && !capabilities.canReview
+					? permissionAware("myProposals", client.pendingPapers(namespace, undefined, { mine: true }), {
+							records: [] as PaperRecord[],
+						})
 					: Promise.resolve({ records: [] as PaperRecord[] }),
 				capabilities.canRead || capabilities.canReview
 					? permissionAware("derived", client.listDerived(namespace, { includePending: capabilities.canReview }), {
@@ -131,8 +154,10 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 				capabilities,
 				unavailable,
 				stats,
+				/** First page of approved papers; use `searchTeamLibrary` with a cursor to load more. */
 				papers: papers.hits.map((hit) => hit.record),
 				pendingPapers: pending.records,
+				myProposals: myProposals.records,
 				derived: derived.entries,
 				artifacts: artifacts.entries,
 				events: events.events,

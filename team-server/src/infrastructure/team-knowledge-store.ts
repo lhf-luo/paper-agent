@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { appendFile, type FileHandle, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
 	ArtifactManifest,
@@ -42,6 +42,62 @@ function normalizedActor(actor: AuditActor): TeamActor {
 	return typeof actor === "string" ? { id: "legacy", name: actor } : actor;
 }
 
+/** Stable member id for records; string actors (legacy callers and tests) carry no id. */
+function actorId(actor: AuditActor): string | undefined {
+	return typeof actor === "string" ? undefined : actor.id;
+}
+
+const AUDIT_READ_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Read the newest `count` valid audit events without loading the whole log. The file is scanned backwards in
+ * fixed-size chunks and only complete lines are decoded, so a multi-byte UTF-8 sequence split across two
+ * chunks is never corrupted. Corrupt lines are skipped, exactly as the full-read implementation did.
+ */
+async function readNewestAuditEvents(path: string, count: number): Promise<TeamAuditEvent[]> {
+	let handle: FileHandle;
+	try {
+		handle = await open(path, "r");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+	try {
+		const events: TeamAuditEvent[] = [];
+		const pushLine = (line: Buffer): void => {
+			const text = line.toString("utf8").trim();
+			if (!text) return;
+			try {
+				events.push(JSON.parse(text) as TeamAuditEvent);
+			} catch {
+				/* Skip a corrupt line rather than failing the whole page. */
+			}
+		};
+		let position = (await handle.stat()).size;
+		let carry = Buffer.alloc(0);
+		while (position > 0 && events.length < count) {
+			const length = Math.min(AUDIT_READ_CHUNK_BYTES, position);
+			position -= length;
+			const chunk = Buffer.alloc(length);
+			await handle.read(chunk, 0, length, position);
+			const buffer = carry.length ? Buffer.concat([chunk, carry]) : chunk;
+			// Every complete line ends at a newline; the leading remainder may continue in the previous chunk.
+			let end = buffer.length;
+			for (let index = buffer.length - 1; index >= 0 && events.length < count; index--) {
+				if (buffer[index] !== 0x0a) continue;
+				pushLine(buffer.subarray(index + 1, end));
+				end = index;
+			}
+			carry = buffer.subarray(0, end);
+		}
+		// The first line of the file has no preceding newline.
+		if (position === 0 && events.length < count) pushLine(carry);
+		return events;
+	} finally {
+		await handle.close();
+	}
+}
+
 export class TeamKnowledgeStore {
 	readonly literature: TeamLiteratureRepository;
 	readonly root: string;
@@ -76,9 +132,18 @@ export class TeamKnowledgeStore {
 	async proposePapers(records: PaperRecord[], actor: AuditActor): Promise<number> {
 		await this.initialize();
 		return this.withWriteOperation(async () => {
-			const promoted = await this.literature.proposePapers(records, normalizedActor(actor).name);
+			const promoted = await this.literature.proposePapers(records, normalizedActor(actor).name, actorId(actor));
 			await this.appendAudit(actor, "paper.propose", undefined, { paperIds: records.map((record) => record.id) });
 			return promoted;
+		});
+	}
+
+	async withdrawPapers(paperIds: string[], actor: AuditActor): Promise<string[]> {
+		await this.initialize();
+		return this.withWriteOperation(async () => {
+			const withdrawn = await this.literature.withdrawPapers(paperIds, normalizedActor(actor).name, actorId(actor));
+			await this.appendAudit(actor, "paper.withdraw", undefined, { paperIds: withdrawn });
+			return withdrawn;
 		});
 	}
 
@@ -128,26 +193,11 @@ export class TeamKnowledgeStore {
 
 	async listAuditEvents(offset = 0, limit = 100): Promise<{ events: TeamAuditEvent[]; nextCursor?: string }> {
 		await this.auditChain;
-		let text = "";
-		try {
-			text = await readFile(join(this.root, "events", "audit.jsonl"), "utf8");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-		const all = text
-			.split(/\r?\n/)
-			.filter(Boolean)
-			.flatMap((line) => {
-				try {
-					return [JSON.parse(line) as TeamAuditEvent];
-				} catch {
-					return [];
-				}
-			})
-			.reverse();
 		const bounded = Math.min(Math.max(limit, 1), 500);
-		const events = all.slice(offset, offset + bounded);
-		return { events, nextCursor: offset + events.length < all.length ? String(offset + events.length) : undefined };
+		// Ask for one event beyond the page so `nextCursor` can be decided without counting the whole log.
+		const newest = await readNewestAuditEvents(join(this.root, "events", "audit.jsonl"), offset + bounded + 1);
+		const events = newest.slice(offset, offset + bounded);
+		return { events, nextCursor: newest.length > offset + bounded ? String(offset + events.length) : undefined };
 	}
 
 	private derivedPath(key: string): string {

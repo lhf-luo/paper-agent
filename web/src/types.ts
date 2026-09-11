@@ -24,7 +24,16 @@ export interface PaperRecord {
 		tags: string[];
 		userNotes: Array<{ id: string; text: string; author: string; createdAt: string }>;
 		screening?: { status: string; reason?: string };
-		teamReview?: { status: string; proposedBy?: string; reviewedBy?: string; reason?: string };
+		teamReview?: {
+			status: string;
+			proposedBy?: string;
+			proposedById?: string;
+			proposedAt?: string;
+			reviewedBy?: string;
+			reviewedAt?: string;
+			reason?: string;
+			revision?: boolean;
+		};
 	};
 }
 

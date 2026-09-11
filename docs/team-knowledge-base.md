@@ -33,8 +33,8 @@ Roles are capabilities rather than a strict ladder; `admin` has all capabilities
 
 | Role | Main capabilities |
 | --- | --- |
-| `reader` | Search approved papers, read derived/artifact entries and blobs, inspect statistics |
-| `contributor` | Propose papers, derived records, and artifact manifests; upload validated blobs |
+| `reader` | Search approved papers, read derived/artifact entries and blobs, pull approved papers into the personal library, inspect statistics |
+| `contributor` | Propose papers, derived records, and artifact manifests; upload validated blobs; list and withdraw their own pending proposals |
 | `reviewer` | Inspect pending paper proposals and audit events; approve or reject supported entries |
 | `admin` | All capabilities, identity-token rotation/revocation, and namespace backup |
 
@@ -53,7 +53,25 @@ personal record
 
 The same review state applies to team derived memory and artifact manifests. Search metadata and proposed records remain discovery evidence; opening the primary PDF or official artifact is still required for technical claims.
 
+**Only approved papers are visible to readers.** `GET /search` returns `team-approved` records unless the caller is a `reviewer`/`admin` and explicitly asks for `status=team-proposed` or `status=team-rejected`; `GET /papers/{paperId}` and `GET /papers/{paperId}/versions` return 404 for anything else, so pending and rejected records never leak their existence.
+
+**Changing a paper never interrupts readers.** Re-proposing identical content keeps the existing decision. The content a decision vouches for is the normalized title and abstract, the year, the identifiers, and the `pdf`/`artifact` download links. When any of those change on an approved record, the approved copy stays exactly as reviewed and visible, and the merged content is parked as a pending revision that appears in the reviewer queue flagged as a revision. Approving it replaces the record; rejecting it discards the revision and leaves the approved copy untouched, which is also the rollback for an unwanted merge. Author lists, venues, citation counts, provenance, and landing links merge freely without a revision, so a second member re-proposing the same paper from a different search does not create review noise.
+
+**An id always means the same paper.** A proposal that reuses an existing team id for a record whose identifiers point at a different paper is rejected with HTTP 409 before anything is written, so nobody can merge foreign titles or download links into an approved record by copying its id.
+
+Contributors can list their own pending proposals (`mine=true` / the Web "My pending proposals" panel) and withdraw one that has never been reviewed. Withdrawing a new proposal deletes the record from the team corpus; withdrawing a pending revision only discards the revision. Both write a `paper.withdraw` audit event. Ownership is matched by stable member id, so renaming a member does not strand their proposals.
+
 Readers can use the Web team page to search shared paper metadata by free text and a publication-year range. The browser requests bounded pages and follows the opaque cursor returned by the service; it does not download an unrestricted namespace snapshot. The authenticated HTTP service also supports author, venue, publication-type, and open-access filters for client/tool integrations.
+
+## Pulling from the team
+
+Approved team papers can be brought back into the personal library, optionally with their PDFs:
+
+- Web: tick records in **Shared search** or **Shared papers** and use **Pull to personal library**, optionally with **include PDF**.
+- Pi tool: `manage_team_literature_server` action `pull` with `paper_ids`, optional `personal_namespace`, `personal_corpus_root` and `include_pdf`.
+- HTTP: `POST /api/team/pull/prepare` then `/api/team/pull/execute`.
+
+Pulling is a confirmed `personal-corpus-write`. The manifest lists every paper id/title and whether a downloadable PDF version exists. Personal notes and screening are cleared on the way down; `tags`, `reading`, and the `teamReview` provenance marker are kept so the copy is recognisable as team-sourced. PDFs are verified against the version `sha256` before being stored, and one failed PDF does not block the other papers — failures are reported per paper.
 
 ## Team content
 
@@ -74,7 +92,7 @@ Admins may create or rotate an identity token. The Web UI shows the returned sec
 
 ## Backup and audit
 
-Admins can create namespace backups when the server has a backup root. Backups include team knowledge, blobs, token-registry metadata, and audit events. Production operators should schedule backups, copy them off-host, and perform restore drills rather than assuming an archive is usable.
+Admins can create namespace backups when the server has a backup root. Backups include team knowledge, blobs, token-registry metadata, and audit events. Production operators should schedule backups (see the `paper-agent-team-backup.timer` unit), copy them off-host, prune old bundles with `npm --prefix team-server run prune-backups`, and perform real restores with `npm --prefix team-server run restore` instead of assuming an archive is usable.
 
 Reviewers can inspect append-only events for proposal, review, blob, identity, and backup actions according to server policy.
 

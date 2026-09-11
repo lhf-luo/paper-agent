@@ -1,0 +1,19 @@
+[Unit]
+Description=Paper Agent team server daily backup
+After=network-online.target paper-agent-team.service
+Wants=network-online.target paper-agent-team.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/paper-agent-team/team-server.env
+EnvironmentFile=/etc/paper-agent-team/backup.env
+# systemd does not run ExecStart through a shell, so the token cannot be read with $(cat ...). curl reads the
+# complete "Authorization: Bearer ..." header from a root-only file instead, which also keeps the secret out of
+# the process list.
+ExecStart=/usr/bin/curl --silent --show-error --fail --cacert ${PAPER_AGENT_TEAM_CA_FILE} -H @${PAPER_AGENT_TEAM_ADMIN_HEADER_FILE} -X POST ${PAPER_AGENT_TEAM_PUBLIC_URL}/v1/namespaces/${PAPER_AGENT_TEAM_BACKUP_NAMESPACE}/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

@@ -371,6 +371,16 @@ describe("local Paper Agent web server", () => {
 			body: JSON.stringify({ records: [record("web-team-2024", 2024), record("web-team-2025", 2025)] }),
 		});
 		expect(seeded.status).toBe(200);
+		// Readers only see approved records, so approve the seeds before asserting on search results.
+		const approved = await fetch(`${teamUrl}/v1/namespaces/security/reviews`, {
+			method: "POST",
+			headers: { authorization: "Bearer team-search-token", "content-type": "application/json" },
+			body: JSON.stringify({
+				paperIds: ["web-team-2024", "web-team-2025"],
+				decision: "team-approved",
+			}),
+		});
+		expect(approved.status).toBe(200);
 		const application = new PaperAgentApplication({ projectRoot: root });
 		const local = await startLocalWebServer(application, { staticRoot });
 		try {

@@ -1,20 +1,37 @@
 import { createHash } from "node:crypto";
-import type { ArtifactManifest, PaperRecord } from "../../literature/domain/literature-types.ts";
+import type { ArtifactManifest, DerivedRecord, PaperRecord } from "../../literature/domain/literature-types.ts";
 import type {
 	ConfirmationGrant,
 	OperationPlan,
 	PreparedOperation,
 } from "../../shared/application/operation-consent.ts";
 import { sanitizePaperRecordForTeamProposal } from "../../team/application/team-corpus-client.ts";
+import { executeTeamPull, previewTeamPull, type TeamPullPreview } from "../../team/application/team-pull.ts";
 
 import type {
 	TeamArtifactProposalInput,
 	TeamBlobUploadInput,
+	TeamDerivedProposalInput,
 	TeamPaperProposalInput,
+	TeamPullInput,
+	TeamPullResult,
 	TeamRestoreDrillInput,
 	TeamReviewInput,
+	TeamWithdrawInput,
 } from "./paper-agent-contracts.ts";
 import { PaperAgentTeamAccess } from "./paper-agent-team-access.ts";
+
+/** Locate absolute-looking paths inside a derived record so the confirmation manifest can warn about them. */
+export function absolutePathLocations(value: unknown, location = "$"): string[] {
+	if (typeof value === "string") return /^([A-Za-z]:[\\/]|\/)/.test(value) ? [location] : [];
+	if (Array.isArray(value)) return value.flatMap((entry, index) => absolutePathLocations(entry, `${location}[${index}]`));
+	if (value && typeof value === "object") {
+		return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+			absolutePathLocations(child, `${location}.${key}`),
+		);
+	}
+	return [];
+}
 
 export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	protected async teamPaperProposalPlan(
@@ -64,6 +81,151 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 		await this.consent.consume(grant, prepared.plan);
 		const { client, namespace } = await this.configuredTeam();
 		return client.proposePapers(namespace, prepared.records);
+	}
+
+	/**
+	 * Resolve every requested team paper plus its preferred PDF version so the confirmation manifest can
+	 * disclose exactly what will be written into the personal library.
+	 */
+	protected async teamPullPlan(input: TeamPullInput): Promise<{
+		plan: OperationPlan;
+		previews: TeamPullPreview[];
+		personalNamespace: string;
+		includePdf: boolean;
+	}> {
+		if (!input.paperIds.length || input.paperIds.length > 200)
+			throw new Error("Select between 1 and 200 team papers");
+		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
+		const includePdf = input.includePdf ?? false;
+		const { client, namespace, serverUrl } = await this.configuredTeam();
+		const previews = await previewTeamPull(client, namespace, input.paperIds);
+		return {
+			previews,
+			personalNamespace,
+			includePdf,
+			plan: {
+				kind: "personal-corpus-write",
+				summary: `Pull ${previews.length} team paper record(s) into the personal library${includePdf ? " with PDFs" : ""}`,
+				actor: "local-user",
+				targets: previews.map((preview) => ({
+					label: preview.record.title.slice(0, 120),
+					value: preview.record.id,
+					risk: "medium" as const,
+				})),
+				details: {
+					serverUrl,
+					teamNamespace: namespace,
+					personalNamespace,
+					includePdf,
+					papers: previews.map((preview) => ({
+						id: preview.record.id,
+						title: preview.record.title,
+						hasPdf: Boolean(preview.version),
+						pdfSha256: preview.version?.sha256,
+					})),
+				},
+			},
+		};
+	}
+
+	async prepareTeamPull(input: TeamPullInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.teamPullPlan(input)).plan);
+	}
+
+	async pullTeamPapers(input: TeamPullInput, grant: ConfirmationGrant): Promise<TeamPullResult> {
+		const prepared = await this.teamPullPlan(input);
+		await this.consent.consume(grant, prepared.plan);
+		const { client, namespace } = await this.configuredTeam();
+		const store = this.personalStore(prepared.personalNamespace);
+		await store.initialize();
+		// The previews were fetched by the plan that was just consumed, so what lands is exactly what the manifest
+		// disclosed; no second round of team requests is needed.
+		return executeTeamPull({ client, namespace, store, previews: prepared.previews, includePdf: prepared.includePdf });
+	}
+
+	protected async teamDerivedProposalPlan(input: TeamDerivedProposalInput): Promise<{
+		records: DerivedRecord[];
+		plan: OperationPlan;
+	}> {
+		if (!input.keys.length || input.keys.length > 200)
+			throw new Error("Select between 1 and 200 personal derived records");
+		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
+		const store = this.personalStore(personalNamespace);
+		await store.initialize();
+		const records: DerivedRecord[] = [];
+		const warnings: string[] = [];
+		for (const key of input.keys) {
+			const record = await store.getDerived(key);
+			if (!record) throw new Error(`Personal corpus does not contain derived record: ${key}`);
+			if (!(await store.getPaper(record.paperId))) {
+				throw new Error(
+					`Derived record ${key} references paper ${record.paperId}, which is not in the personal corpus`,
+				);
+			}
+			records.push(record);
+			for (const location of absolutePathLocations(record.result)) {
+				warnings.push(`${key}: absolute path retained at ${location}`);
+			}
+		}
+		const team = await this.configuredTeam();
+		return {
+			records,
+			plan: {
+				kind: "team-proposal",
+				summary: `Propose ${records.length} personal derived record(s) to the team knowledge base`,
+				actor: "local-user",
+				targets: records.map((record) => ({
+					label: `${record.operation} · ${record.key}`.slice(0, 120),
+					value: record.key,
+					risk: "medium" as const,
+				})),
+				details: {
+					serverUrl: team.serverUrl,
+					teamNamespace: team.namespace,
+					personalNamespace,
+					keys: records.map((record) => record.key),
+					warnings,
+				},
+			},
+		};
+	}
+
+	async prepareTeamDerivedProposal(input: TeamDerivedProposalInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.teamDerivedProposalPlan(input)).plan);
+	}
+
+	async proposeTeamDerived(input: TeamDerivedProposalInput, grant: ConfirmationGrant) {
+		const prepared = await this.teamDerivedProposalPlan(input);
+		await this.consent.consume(grant, prepared.plan);
+		const { client, namespace } = await this.configuredTeam();
+		return client.proposeDerived(namespace, prepared.records);
+	}
+
+	protected async teamWithdrawPlan(input: TeamWithdrawInput): Promise<OperationPlan> {
+		if (!input.paperIds.length || input.paperIds.length > 200)
+			throw new Error("Select between 1 and 200 pending proposals to withdraw");
+		const team = await this.configuredTeam();
+		return {
+			kind: "team-write",
+			summary: `Withdraw ${input.paperIds.length} pending team proposal(s)`,
+			actor: "local-user",
+			targets: input.paperIds.map((id) => ({ label: "Pending proposal", value: id, risk: "high" as const })),
+			details: {
+				serverUrl: team.serverUrl,
+				teamNamespace: team.namespace,
+				paperIds: [...input.paperIds],
+			},
+		};
+	}
+
+	async prepareTeamWithdraw(input: TeamWithdrawInput): Promise<PreparedOperation> {
+		return this.consent.prepare(await this.teamWithdrawPlan(input));
+	}
+
+	async withdrawTeamProposals(input: TeamWithdrawInput, grant: ConfirmationGrant) {
+		await this.consent.consume(grant, await this.teamWithdrawPlan(input));
+		const { client, namespace } = await this.configuredTeam();
+		return client.withdrawPapers(namespace, input.paperIds);
 	}
 
 	protected async teamReviewPlan(input: TeamReviewInput): Promise<OperationPlan> {

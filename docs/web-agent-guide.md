@@ -166,6 +166,12 @@ Inspect the official Artifact candidates for this paper: D:\papers\paper.pdf. Sh
 Search approved team knowledge for "replace with topic". If selected personal records should be proposed, show exactly what would be submitted, remove private notes and screening opinions, and wait for explicit confirmation.
 ```
 
+```text
+Pull the approved "replace with topic" team papers into my personal library, including their PDFs. Only approved records; show exactly which papers and PDFs would be written first.
+```
+
+Team search only returns approved papers by default, and pulling team papers into the personal library is a confirmed `personal-corpus-write`; personal notes and screening opinions are never copied down.
+
 The left-side templates insert equivalent starter prompts into the input box; edit them before sending.
 
 ## 8. Tool cards and human confirmation

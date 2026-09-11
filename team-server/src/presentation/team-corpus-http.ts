@@ -257,6 +257,19 @@ export function artifactBody(value: unknown): { paperId: string; manifest: Artif
 	return { paperId: body.paperId, manifest };
 }
 
+export function paperIdsBody(value: unknown, label: string): string[] {
+	const body = objectBody(value, `${label} request must be a JSON object`);
+	const ids = body.paperIds;
+	if (
+		!Array.isArray(ids) ||
+		ids.length === 0 ||
+		ids.length > 500 ||
+		!ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 128)
+	)
+		rejectRequest("paperIds[] is required and limited to 500 entries");
+	return ids as string[];
+}
+
 export function reviewBody(
 	value: unknown,
 	key: "paperIds" | "keys",

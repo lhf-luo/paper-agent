@@ -3,8 +3,11 @@ import type {
 	PaperAgentApplication,
 	TeamArtifactProposalInput,
 	TeamBlobUploadInput,
+	TeamDerivedProposalInput,
+	TeamPullInput,
 	TeamRestoreDrillInput,
 	TeamReviewInput,
+	TeamWithdrawInput,
 } from "../application/paper-agent-application.ts";
 import { ApiError, grantFromBody, json, namespaceValue, numberValue, readJson, stringArray } from "./web-http.ts";
 import type { TeamAccessChange, TeamMemberChange } from "../../team/application/team-access-service.ts";
@@ -42,6 +45,69 @@ export async function handleTeamRoutes(
 				limit: numberValue(url.searchParams.get("limit"), 100),
 				cursor: url.searchParams.get("cursor") ?? undefined,
 			}),
+		);
+		return;
+	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/team/pull/prepare" || url.pathname === "/api/team/pull/execute")
+	) {
+		const body = await readJson(request);
+		const input: TeamPullInput = {
+			paperIds: stringArray(body.paperIds) ?? [],
+			personalNamespace: namespaceValue(body.personalNamespace),
+			includePdf: body.includePdf === true,
+		};
+		json(
+			response,
+			200,
+			url.pathname.endsWith("/prepare")
+				? await application.prepareTeamPull(input)
+				: await application.pullTeamPapers(input, grantFromBody(body)),
+		);
+		return;
+	}
+	if (request.method === "GET" && url.pathname === "/api/team/derived/personal") {
+		json(
+			response,
+			200,
+			await application.listPersonalDerived(
+				namespaceValue(url.searchParams.get("namespace")) ?? application.defaultNamespace,
+			),
+		);
+		return;
+	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/team/derived/prepare" || url.pathname === "/api/team/derived/execute")
+	) {
+		const body = await readJson(request);
+		const input: TeamDerivedProposalInput = {
+			keys: stringArray(body.keys) ?? [],
+			personalNamespace: namespaceValue(body.personalNamespace),
+		};
+		json(
+			response,
+			200,
+			url.pathname.endsWith("/prepare")
+				? await application.prepareTeamDerivedProposal(input)
+				: await application.proposeTeamDerived(input, grantFromBody(body)),
+		);
+		return;
+	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/team/proposals/withdraw/prepare" ||
+			url.pathname === "/api/team/proposals/withdraw/execute")
+	) {
+		const body = await readJson(request);
+		const input: TeamWithdrawInput = { paperIds: stringArray(body.paperIds) ?? [] };
+		json(
+			response,
+			200,
+			url.pathname.endsWith("/prepare")
+				? await application.prepareTeamWithdraw(input)
+				: await application.withdrawTeamProposals(input, grantFromBody(body)),
 		);
 		return;
 	}

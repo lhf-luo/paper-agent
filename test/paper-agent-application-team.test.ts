@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -125,6 +126,16 @@ describe("PaperAgentApplication team overview", () => {
 			body: JSON.stringify({ records }),
 		});
 		expect(proposal.status).toBe(200);
+		// The reader identity only sees approved records, so approve both proposals first.
+		const approval = await fetch(`${serverUrl}/v1/namespaces/security/reviews`, {
+			method: "POST",
+			headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+			body: JSON.stringify({
+				paperIds: records.map((entry) => entry.id),
+				decision: "team-approved",
+			}),
+		});
+		expect(approval.status).toBe(200);
 		const application = new PaperAgentApplication({ projectRoot: root });
 		try {
 			const first = await application.searchTeamLibrary({
@@ -242,6 +253,115 @@ describe("PaperAgentApplication team overview", () => {
 				validated: true,
 				namespace: "security",
 				stats: { recordCount: 0, artifactCount: 1, blobCount: 1 },
+			});
+		} finally {
+			await application.close();
+		}
+	});
+
+	it("pulls an approved team paper and its PDF back into the personal library", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-pull-"));
+		temporaryPaths.push(root);
+		const server = createTeamCorpusServer({
+			root: join(root, "team"),
+			identities: [{ name: "admin", tokenSha256: hashTeamToken("admin-token"), roles: ["admin"] }],
+		});
+		servers.push(server);
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const address = server.address();
+		if (!address || typeof address === "string") throw new Error("team server did not bind a TCP port");
+		const serverUrl = `http://127.0.0.1:${address.port}`;
+		await saveTeamAccess(root, {
+			serverUrl,
+			namespace: "security",
+			token: "admin-token",
+			identity: "admin",
+		});
+
+		const teamRecord: PaperRecord = {
+			id: "team-pull-paper",
+			title: "Downstream Pull",
+			abstract: "A team-shared abstract.",
+			authors: ["Pull Author"],
+			year: 2026,
+			identifiers: {},
+			links: [{ url: "https://example.org/pull.pdf", kind: "pdf", openAccess: true }],
+			provenance: [
+				{ provider: "json-import", query: "team-pull", retrievedAt: "2026-01-01T00:00:00.000Z" },
+			],
+			mergedFrom: [],
+		};
+		const teamHeaders = { authorization: "Bearer admin-token", "content-type": "application/json" };
+		expect(
+			(
+				await fetch(`${serverUrl}/v1/namespaces/security/proposals`, {
+					method: "POST",
+					headers: teamHeaders,
+					body: JSON.stringify({ records: [teamRecord] }),
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await fetch(`${serverUrl}/v1/namespaces/security/reviews`, {
+					method: "POST",
+					headers: teamHeaders,
+					body: JSON.stringify({ paperIds: [teamRecord.id], decision: "team-approved" }),
+				})
+			).status,
+		).toBe(200);
+
+		const pdf = Buffer.from("%PDF-1.4\nteam downlink\n%%EOF\n");
+		const sha256 = createHash("sha256").update(pdf).digest("hex");
+		expect(
+			(
+				await fetch(`${serverUrl}/v1/namespaces/security/blobs/${sha256}`, {
+					method: "PUT",
+					headers: {
+						authorization: "Bearer admin-token",
+						"content-type": "application/pdf",
+						"x-paper-id": teamRecord.id,
+						"x-source-url": "https://example.org/pull.pdf",
+						"x-final-url": "https://cdn.example.org/pull.pdf",
+						"x-retrieved-at": "2026-01-02T00:00:00.000Z",
+					},
+					body: pdf,
+				})
+			).status,
+		).toBe(200);
+
+		const application = new PaperAgentApplication({ projectRoot: root });
+		try {
+			const input = { paperIds: [teamRecord.id], includePdf: true };
+			const plan = await application.prepareTeamPull(input);
+			expect(plan.kind).toBe("personal-corpus-write");
+			const grant = await application.confirmOperation(plan.operationId, plan.manifestFingerprint);
+			const result = await application.pullTeamPapers(input, grant);
+			expect(result).toMatchObject({
+				pulled: 1,
+				created: [teamRecord.id],
+				updated: [],
+				unchanged: [],
+				pdfs: [{ paperId: teamRecord.id, sha256, status: "stored" }],
+			});
+
+			const store = application.personalStore();
+			const stored = await store.getPaper(teamRecord.id);
+			expect(stored?.curation?.userNotes).toEqual([]);
+			expect(stored?.curation?.screening).toBeUndefined();
+			expect(stored?.curation?.teamReview?.status).toBe("team-approved");
+			expect(stored?.provenance).toHaveLength(1);
+			const versions = await store.listPaperVersions(teamRecord.id);
+			expect(versions.map((version) => version.sha256)).toContain(sha256);
+
+			const again = await application.prepareTeamPull(input);
+			const secondGrant = await application.confirmOperation(again.operationId, again.manifestFingerprint);
+			await expect(application.pullTeamPapers(input, secondGrant)).resolves.toMatchObject({
+				pulled: 1,
+				created: [],
+				updated: [],
+				unchanged: [teamRecord.id],
+				pdfs: [{ paperId: teamRecord.id, sha256, status: "existed" }],
 			});
 		} finally {
 			await application.close();

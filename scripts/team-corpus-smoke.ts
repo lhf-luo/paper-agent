@@ -58,6 +58,17 @@ try {
 		body: JSON.stringify({ records: [record, secondRecord] }),
 	});
 	assert(proposal.status === 200, `proposal smoke failed with HTTP ${proposal.status}`);
+	// Readers only see approved records, so the proposal must be reviewed before it is searchable.
+	const review = await fetch(`${base}/reviews`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify({
+			paperIds: [record.id, secondRecord.id],
+			decision: "team-approved",
+			reason: "deployment smoke",
+		}),
+	});
+	assert(review.status === 200, `review smoke failed with HTTP ${review.status}`);
 	const firstPage = await fetch(`${base}/search?q=deployment&limit=1`, { headers });
 	assert(firstPage.status === 200, `search smoke failed with HTTP ${firstPage.status}`);
 	const firstPageBody = (await firstPage.json()) as { hits?: unknown[]; nextCursor?: string };
@@ -73,16 +84,9 @@ try {
 	const filtered = await fetch(`${base}/search?q=deployment&type=conference&openAccess=true`, { headers });
 	const filteredBody = (await filtered.json()) as { hits?: unknown[] };
 	assert(filtered.status === 200 && filteredBody.hits?.length === 1, "search filters were not enforced");
-	const review = await fetch(`${base}/reviews`, {
-		method: "POST",
-		headers,
-		body: JSON.stringify({
-			paperIds: [record.id, secondRecord.id],
-			decision: "team-approved",
-			reason: "deployment smoke",
-		}),
-	});
-	assert(review.status === 200, `review smoke failed with HTTP ${review.status}`);
+	// A reader-visible search must never surface pending proposals.
+	const pendingSearch = await fetch(`${base}/search?q=deployment&status=team-proposed`, { headers });
+	assert(pendingSearch.status === 200, `pending search smoke failed with HTTP ${pendingSearch.status}`);
 
 	const backup = await fetch(`${base}/backups`, { method: "POST", headers, body: "{}" });
 	assert(backup.status === 200, `backup smoke failed with HTTP ${backup.status}`);
