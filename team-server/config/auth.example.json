@@ -1,0 +1,10 @@
+{
+	"identities": [
+		{
+			"name": "team-admin",
+			"tokenSha256": "replace-with-a-64-character-sha256-value",
+			"roles": ["admin"],
+			"namespaces": []
+		}
+	]
+}

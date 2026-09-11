@@ -1,0 +1,25 @@
+services:
+  team-server:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    restart: unless-stopped
+    environment:
+      PAPER_AGENT_TEAM_AUTH_FILE: /run/secrets/team-auth.json
+      PAPER_AGENT_TEAM_ROOT: /data
+      PAPER_AGENT_TEAM_BACKUP_ROOT: /backups
+      PAPER_AGENT_TEAM_HOST: 0.0.0.0
+      PAPER_AGENT_TEAM_PORT: 14713
+      PAPER_AGENT_TEAM_TLS_CERT_FILE: /run/tls/server.crt
+      PAPER_AGENT_TEAM_TLS_KEY_FILE: /run/tls/server.key
+    ports:
+      - "14713:14713"
+    volumes:
+      - ../config/auth.json:/run/secrets/team-auth.json:ro
+      - ../config/tls:/run/tls:ro
+      - team-data:/data
+      - team-backups:/backups
+
+volumes:
+  team-data:
+  team-backups:

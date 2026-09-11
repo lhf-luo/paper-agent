@@ -1,0 +1,401 @@
+export type LiteratureProvider =
+	| "arxiv"
+	| "acl_anthology"
+	| "openalex"
+	| "crossref"
+	| "semanticscholar"
+	| "dblp"
+	| "core"
+	| "opencitations"
+	| "unpaywall"
+	| "usenix"
+	| "exa";
+export type ProvenanceProvider = LiteratureProvider | "local-pdf" | "bibtex-import" | "json-import" | "zotero";
+export type CorpusScope = "personal" | "team";
+export type PersistenceMode = "once" | "persistent";
+export type ScreeningStatus = "unreviewed" | "include" | "exclude" | "maybe";
+export type ReadingStatus = "unread" | "queued" | "reading" | "read" | "skimmed";
+export type TeamReviewStatus = "personal" | "team-proposed" | "team-approved" | "team-rejected";
+
+export interface SearchFilters {
+	yearFrom?: number;
+	yearTo?: number;
+	venues?: string[];
+	authors?: string[];
+	openAccess?: boolean;
+	types?: string[];
+}
+
+export interface PaperIdentifiers {
+	doi?: string;
+	arxivId?: string;
+	openAlexId?: string;
+	semanticScholarId?: string;
+	dblpKey?: string;
+	coreId?: string;
+	openCitationsId?: string;
+}
+
+export interface PaperLink {
+	url: string;
+	kind: "landing" | "pdf" | "doi" | "artifact" | "other";
+	openAccess?: boolean;
+}
+
+export interface PaperProvenance {
+	provider: ProvenanceProvider;
+	query: string;
+	retrievedAt: string;
+	providerRecordId?: string;
+	rawUrl?: string;
+}
+
+export type PaperDiscoveryPathKind =
+	| "keyword-search"
+	| "corpus-reuse"
+	| "reference-expansion"
+	| "citation-expansion"
+	| "author-homepage"
+	| "similar-paper"
+	| "manual-seed"
+	| "unknown";
+
+export interface PaperDiscoveryPath {
+	kind: PaperDiscoveryPathKind;
+	query?: string;
+	provider?: ProvenanceProvider;
+	seedPaperId?: string;
+	sourceUrl?: string;
+	note?: string;
+	discoveredAt: string;
+}
+
+export interface PaperUserNote {
+	id: string;
+	text: string;
+	author: string;
+	createdAt: string;
+}
+
+export interface PaperCuration {
+	tags: string[];
+	userNotes: PaperUserNote[];
+	screening?: {
+		status: ScreeningStatus;
+		reason?: string;
+		updatedBy: string;
+		updatedAt: string;
+	};
+	reading?: {
+		status: ReadingStatus;
+		note?: string;
+		updatedBy: string;
+		updatedAt: string;
+	};
+	teamReview?: {
+		status: TeamReviewStatus;
+		proposedBy?: string;
+		proposedAt?: string;
+		reviewedBy?: string;
+		reviewedAt?: string;
+		reason?: string;
+	};
+}
+
+export interface PaperRecord {
+	id: string;
+	title: string;
+	abstract?: string;
+	authors: string[];
+	year?: number;
+	venue?: string;
+	venueRank?: "A" | "B" | "C";
+	publicationType?: string;
+	identifiers: PaperIdentifiers;
+	links: PaperLink[];
+	materialHashes?: string[];
+	citationCount?: number;
+	referencedWorks?: string[];
+	citedByApiUrl?: string;
+	provenance: PaperProvenance[];
+	discoveryPaths?: PaperDiscoveryPath[];
+	mergedFrom: string[];
+	curation?: PaperCuration;
+	/** 论文所属的分类(集合) id 列表, 多对多; 一篇论文可同时属于多个分类。 */
+	collectionIds?: string[];
+}
+
+/** 文献分类(集合)。一篇论文可属于多个分类, 语义同 Zotero collection。 */
+export interface PaperCollection {
+	id: string;
+	name: string;
+	parentId?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface PossibleDuplicate {
+	leftId: string;
+	rightId: string;
+	titleSimilarity: number;
+	reason: "similar-title";
+}
+
+export interface CorpusSearchHit {
+	record: PaperRecord;
+	score: number;
+	matchedFields: string[];
+}
+
+export interface PaperVersion {
+	paperId: string;
+	sourceUrl: string;
+	finalUrl: string;
+	retrievedAt: string;
+	sha256: string;
+	bytes: number;
+	blobPath: string;
+	contentType: string;
+	versionKind?: "published" | "preprint" | "supplement" | "translation" | "unknown";
+	versionLabel?: string;
+	relatedVersionSha256?: string;
+	isPreferred?: boolean;
+	translation?: {
+		engine: "pdf2zh-next";
+		engineVersion?: string;
+		model: string;
+		sourceLanguage: string;
+		targetLanguage: string;
+		outputMode: "mono" | "dual";
+	};
+}
+
+export interface ProviderPage {
+	provider: LiteratureProvider;
+	query: string;
+	records: PaperRecord[];
+	nextCursor?: string;
+	total?: number;
+	requestUrl: string;
+	failures?: ProviderFailure[];
+}
+
+export interface ProviderFailure {
+	provider: LiteratureProvider;
+	query: string;
+	message: string;
+	retryable: boolean;
+	statusCode?: number;
+	rateLimited?: boolean;
+	retryAfter?: string;
+}
+
+export interface ProviderHealthSnapshot {
+	status: "healthy" | "partial" | "rate-limited" | "failed" | "not-run";
+	recordCount: number;
+	failureCount: number;
+	checkedAt: string;
+	message?: string;
+	retryAfter?: string;
+}
+
+export interface LiteratureSearchPlan {
+	researchQuestion: string;
+	researchObject?: string;
+	researchProblem?: string;
+	scenario?: string;
+	timeRange?: string;
+	keywordGroups: {
+		domain: string[];
+		problem: string[];
+		method: string[];
+	};
+	queryVariants: string[];
+	unsupportedProviders?: Array<{
+		provider: string;
+		reason: string;
+		suggestedAlternatives: LiteratureProvider[];
+	}>;
+	notes?: string[];
+}
+
+export interface CandidatePaperTableRow {
+	paperId: string;
+	title: string;
+	authors: string;
+	year: string;
+	venue: string;
+	doiOrArxiv: string;
+	sources: string;
+	discoveryPath: string;
+	screeningResult: string;
+	pdf: string;
+	code: string;
+}
+
+export interface CitationExpansionTableRow extends CandidatePaperTableRow {
+	seedPaperId: string;
+	relationship: "reference" | "citation";
+	depth: string;
+}
+
+export interface PaperPackageTableRow {
+	paperId: string;
+	metadata: string;
+	version: string;
+	pdf: string;
+	artifact: string;
+	discoverySource: string;
+	screeningStatus: string;
+	readingStatus: string;
+	updatedAt: string;
+}
+
+export interface PaperMaterialPackage {
+	paperId: string;
+	record: PaperRecord;
+	versions: PaperVersion[];
+	artifactManifests: ArtifactManifest[];
+	tableRow: PaperPackageTableRow;
+	missing: string[];
+}
+
+export interface SearchRun {
+	id: string;
+	startedAt: string;
+	completedAt: string;
+	queries: string[];
+	filters: SearchFilters;
+	providers: LiteratureProvider[];
+	pagesPerProvider: number;
+	maxResultsPerProvider: number;
+	results: PaperRecord[];
+	failures: ProviderFailure[];
+	sourceCounts: Partial<Record<LiteratureProvider, number>>;
+	deduplicatedCount: number;
+	corpusHitCount?: number;
+	possibleDuplicates?: PossibleDuplicate[];
+	providerHealth?: Partial<Record<LiteratureProvider, ProviderHealthSnapshot>>;
+	resumedFromCheckpoint?: boolean;
+	searchPlan?: LiteratureSearchPlan;
+	candidateTable?: CandidatePaperTableRow[];
+	scope: CorpusScope;
+	mode: PersistenceMode;
+	namespace: string;
+}
+
+export interface ArtifactCandidate {
+	id: string;
+	url: string;
+	kind: "repository" | "dataset" | "supplement" | "project" | "unknown";
+	host: string;
+	parentCandidateId?: string;
+	sources: Array<{
+		method: "latex-source" | "pdfinfo-url" | "pdftotext" | "doi-derived" | "github-search" | "external-url";
+		page?: number;
+		path?: string;
+		context?: string;
+		url?: string;
+		query?: string;
+		retrievedAt?: string;
+	}>;
+	confidence: "high" | "medium" | "low";
+	relationship?: "author-released" | "artifact-context" | "third-party" | "citation-only" | "unknown";
+	signals?: string[];
+	estimatedBytes?: number;
+}
+
+export interface ArtifactSourceFile {
+	name: string;
+	url: string;
+	bytes?: number;
+	checksum?: string;
+}
+
+export interface ArtifactSnapshot {
+	candidateId: string;
+	sourceUrl: string;
+	status: "downloaded" | "cloned" | "skipped" | "failed";
+	localPath?: string;
+	retrievedAt: string;
+	finalUrl?: string;
+	sha256?: string;
+	bytes?: number;
+	contentType?: string;
+	detectedContentType?: string;
+	contentDisposition?: string;
+	contentValidation?: "validated" | "unverified";
+	commit?: string;
+	remote?: string;
+	requestedRef?: string;
+	branch?: string;
+	tag?: string;
+	shallow?: boolean;
+	resolvedAddresses?: string[];
+	metadata?: ArtifactSourceMetadata;
+	metadataFile?: ArtifactSourceFile;
+	metadataError?: string;
+	licenseFiles?: string[];
+	excludedCheckoutPaths?: string[];
+	failureReason?: string;
+}
+
+export interface ArtifactSourceMetadata {
+	provider: "dataverse" | "figshare" | "github" | "huggingface" | "osf" | "zenodo";
+	recordId: string;
+	apiUrl: string;
+	version?: string;
+	doi?: string;
+	license?: string;
+	publishedAt?: string;
+	description?: string;
+	estimatedBytes?: number;
+	resolvedCommit?: string;
+	files?: ArtifactSourceFile[];
+}
+
+export interface ArtifactManifest {
+	schemaVersion: 1;
+	pdfPath: string;
+	pdfSha256: string;
+	discoveredAt: string;
+	paperIdentity?: {
+		title?: string;
+		authors?: string[];
+		doi?: string;
+		projectNames?: string[];
+	};
+	candidates: ArtifactCandidate[];
+	acquisitions: ArtifactSnapshot[];
+	discoveryWarnings?: Array<{
+		source: "github" | "external-url";
+		code: string;
+		message: string;
+		query?: string;
+		retryAfter?: string;
+	}>;
+}
+
+export interface CorpusManifest {
+	schemaVersion: 1;
+	scope: CorpusScope;
+	namespace: string;
+	updatedAt: string;
+	recordCount: number;
+	searchRunCount: number;
+	derivedRecordCount: number;
+}
+
+export interface DerivedRecord {
+	key: string;
+	paperId: string;
+	operation: string;
+	inputHashes: string[];
+	pipelineVersion: string;
+	modelVersion?: string;
+	promptVersion?: string;
+	normalizedConfig: unknown;
+	createdAt: string;
+	createdBy?: string;
+	result: unknown;
+}

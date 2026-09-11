@@ -1,0 +1,344 @@
+import { readFile, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+	corpusAnnotationPlan,
+	corpusExportFilename,
+	corpusExportPlan,
+} from "../../literature/application/corpus-operations.ts";
+import { runAuthorizedMutation } from "../../literature/application/literature-write.ts";
+import type { PaperCollection, PaperRecord } from "../../literature/domain/literature-types.ts";
+import type { ConfirmationGrant, PreparedOperation } from "../../shared/application/operation-consent.ts";
+
+import type {
+	PersonalCorpusAnnotationInput,
+	PersonalCorpusExportInput,
+	PersonalPaperRemovalInput,
+} from "./paper-agent-contracts.ts";
+import { PaperAgentLibrary } from "./paper-agent-library.ts";
+
+function isWithinDirectory(root: string, candidate: string): boolean {
+	const path = relative(resolve(root), resolve(candidate));
+	return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+}
+
+async function artifactAvailability(store: ReturnType<PaperAgentLibrary["personalStore"]>, paperId: string) {
+	const artifactRoot = join(store.personalFilesRoot, paperId, "artifacts");
+	const latest = new Map<
+		string,
+		Awaited<ReturnType<typeof store.listArtifactManifests>>[number]["acquisitions"][number]
+	>();
+	for (const snapshot of (await store.listArtifactManifests(paperId)).flatMap((manifest) => manifest.acquisitions)) {
+		const previous = latest.get(snapshot.candidateId);
+		if (!previous || snapshot.retrievedAt >= previous.retrievedAt) latest.set(snapshot.candidateId, snapshot);
+	}
+	let count = 0;
+	for (const snapshot of latest.values()) {
+		if (!snapshot.localPath || !["cloned", "downloaded", "skipped"].includes(snapshot.status)) continue;
+		if (!isWithinDirectory(artifactRoot, snapshot.localPath)) continue;
+		try {
+			const local = await stat(snapshot.localPath);
+			if (local.isDirectory() || local.isFile()) count += 1;
+		} catch {
+			// Stale manifest paths are not available artifacts.
+		}
+	}
+	return { artifactRoot, count, available: count > 0 };
+}
+
+export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
+	protected async personalPaperRemovalOperation(input: PersonalPaperRemovalInput) {
+		const requestedIds = input.paperIds?.length ? input.paperIds : input.paperId ? [input.paperId] : [];
+		if (requestedIds.length < 1 || requestedIds.length > 1_000) {
+			throw new Error("Select between 1 and 1000 personal papers");
+		}
+		const paperIds = [...new Set(requestedIds.map((id) => id.trim()))];
+		if (paperIds.some((id) => !id || id.length > 500)) throw new Error("Personal paper ids are invalid");
+		const isBatch = Boolean(input.paperIds?.length);
+		if (isBatch && input.collectionId?.trim()) {
+			throw new Error("Batch deletion permanently removes papers and does not accept collectionId");
+		}
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		const requested = await Promise.all(paperIds.map(async (id) => ({ id, paper: await store.getPaper(id) })));
+		const missing = requested.filter((item) => !item.paper).map((item) => item.id);
+		if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
+		const papers = requested.map((item) => item.paper).filter((paper): paper is PaperRecord => Boolean(paper));
+		const collectionId = input.collectionId?.trim() || undefined;
+		let collection: PaperCollection | undefined;
+		if (collectionId) {
+			collection = (await store.listCollections()).find((value) => value.id === collectionId);
+			if (!collection) throw new Error(`Collection not found: ${collectionId}`);
+			const outsideCollection = papers.filter((paper) => !paper.collectionIds?.includes(collectionId));
+			if (outsideCollection.length) {
+				throw new Error(
+					`Papers are not assigned to collection ${collection.name}: ${outsideCollection.map((paper) => paper.id).join(", ")}`,
+				);
+			}
+		}
+		const targets = papers.map((paper) => {
+			const removeFromCollectionOnly = Boolean(collectionId && (paper.collectionIds?.length ?? 0) > 1);
+			return {
+				paper,
+				mode: removeFromCollectionOnly ? ("remove-from-collection" as const) : ("permanent-delete" as const),
+				remainingCollectionIds: (paper.collectionIds ?? []).filter((id) => id !== collectionId),
+			};
+		});
+		const permanentTargets = targets.filter((target) => target.mode === "permanent-delete");
+		const cleanupByPaper = new Map(
+			await Promise.all(
+				permanentTargets.map(async ({ paper }) => {
+					const [versions, derived] = await Promise.all([
+						store.listPaperVersions(paper.id),
+						store.listDerived({ paperId: paper.id }),
+					]);
+					return [paper.id, { versions, derived }] as const;
+				}),
+			),
+		);
+		const author = input.author?.trim() || "local-user";
+		const mode = targets.every((target) => target.mode === "remove-from-collection")
+			? "remove-from-collection"
+			: targets.every((target) => target.mode === "permanent-delete")
+				? "permanent-delete"
+				: "mixed";
+		return {
+			namespace,
+			store,
+			targets,
+			collection,
+			mode,
+			plan: {
+				kind: "personal-paper-remove" as const,
+				summary:
+					mode === "remove-from-collection"
+						? `从分类“${collection!.name}”移除 ${papers.length} 篇已选论文`
+						: `永久删除 ${papers.length} 篇已选论文及相关本地数据`,
+				actor: author,
+				targets: targets.map((target) => ({
+					label: target.mode === "remove-from-collection" ? "分类关系" : "个人库论文",
+					value:
+						target.mode === "remove-from-collection"
+							? `${collection!.name}/${target.paper.title}`
+							: `${namespace}/${target.paper.title}`,
+					risk: target.mode === "remove-from-collection" ? ("medium" as const) : ("high" as const),
+				})),
+				details: {
+					namespace,
+					mode,
+					paperId: papers.length === 1 ? papers[0].id : undefined,
+					paperIds,
+					paperCount: papers.length,
+					collectionId,
+					pdfVersionCount: [...cleanupByPaper.values()].reduce((sum, value) => sum + value.versions.length, 0),
+					pdfBytes: [...cleanupByPaper.values()].reduce(
+						(sum, value) => sum + value.versions.reduce((bytes, version) => bytes + version.bytes, 0),
+						0,
+					),
+					derivedRecordCount: [...cleanupByPaper.values()].reduce((sum, value) => sum + value.derived.length, 0),
+					noteAssociations: "Paper deletion removes note links but keeps Markdown notes.",
+				},
+			},
+		};
+	}
+
+	async preparePersonalPaperRemoval(input: PersonalPaperRemovalInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.personalPaperRemovalOperation(input)).plan);
+	}
+
+	async removePersonalPaper(input: PersonalPaperRemovalInput, grant: ConfirmationGrant) {
+		const prepared = await this.personalPaperRemovalOperation(input);
+		return runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, async () => {
+			const removedFromCollection: PaperRecord[] = [];
+			for (const target of prepared.targets) {
+				if (target.mode !== "remove-from-collection") continue;
+				removedFromCollection.push(
+					await prepared.store.setPaperCollections(target.paper.id, target.remainingCollectionIds),
+				);
+			}
+			const permanentIds = prepared.targets
+				.filter((target) => target.mode === "permanent-delete")
+				.map((target) => target.paper.id);
+			const result = permanentIds.length
+				? await prepared.store.deletePapers(permanentIds)
+				: { deleted: [], missing: [], blobWarnings: [] };
+			return {
+				namespace: prepared.namespace,
+				mode: prepared.mode,
+				paper: removedFromCollection.length === 1 ? removedFromCollection[0] : undefined,
+				removedFromCollection: removedFromCollection.map((paper) => paper.id),
+				...result,
+			};
+		});
+	}
+
+	async paperDetails(id: string, namespace = this.defaultNamespace) {
+		const store = this.personalStore(namespace);
+		const paper = await store.getPaper(id);
+		if (!paper) return undefined;
+		const [versions, derived, artifact] = await Promise.all([
+			store.listPaperVersions(id),
+			store.listDerived({ paperId: id }),
+			artifactAvailability(store, id),
+		]);
+		return {
+			paper,
+			versions,
+			derived,
+			artifact: { available: artifact.available, count: artifact.count },
+		};
+	}
+
+	async openPaperArtifactFolder(id: string, namespace = this.defaultNamespace) {
+		const store = this.personalStore(namespace);
+		if (!(await store.getPaper(id))) throw new Error(`Personal corpus does not contain: ${id}`);
+		const artifact = await artifactAvailability(store, id);
+		if (!artifact.available) throw new Error("该论文没有可用的本地 Artifact");
+		const command =
+			process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
+		const opened = await this.executor.exec(command, [artifact.artifactRoot], { detached: true });
+		if (opened.code !== 0 || opened.killed) {
+			throw new Error(opened.stderr.trim() || "无法打开 Artifact 文件夹");
+		}
+		return { opened: true, artifactCount: artifact.count };
+	}
+
+	async openPaperPdfFolder(id: string, sha256: string, namespace = this.defaultNamespace) {
+		const store = this.personalStore(namespace);
+		if (!(await store.getPaper(id))) throw new Error(`Personal corpus does not contain: ${id}`);
+		const version = (await store.listPaperVersions(id)).find(
+			(candidate) => candidate.sha256.toLowerCase() === sha256.toLowerCase(),
+		);
+		if (!version) throw new Error("PDF version was not found in the selected corpus");
+		const path = resolve(version.blobPath);
+		if (!isWithinDirectory(store.personalFilesRoot, path)) {
+			throw new Error("PDF file resolves outside the selected namespace");
+		}
+		const file = await stat(path).catch(() => undefined);
+		if (!file?.isFile()) throw new Error("PDF file is missing from local storage");
+		const command =
+			process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
+		const opened = await this.executor.exec(command, [dirname(path)], { detached: true });
+		if (opened.code !== 0 || opened.killed) {
+			throw new Error(opened.stderr.trim() || "无法打开当前 PDF 文件夹");
+		}
+		return { opened: true };
+	}
+
+	protected async personalAnnotationOperation(input: PersonalCorpusAnnotationInput) {
+		if (!Array.isArray(input.paperIds) || input.paperIds.length < 1 || input.paperIds.length > 500) {
+			throw new Error("Select between 1 and 500 personal papers");
+		}
+		const paperIds = [...new Set(input.paperIds.map((id) => id.trim()))];
+		if (paperIds.some((id) => !id || id.length > 500)) throw new Error("Personal paper ids are invalid");
+		const author = input.author?.trim() || "local-user";
+		if (author.length > 200) throw new Error("Annotation author is too long");
+		const tags = [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))];
+		if (tags.length > 50 || tags.some((tag) => tag.length > 100)) {
+			throw new Error("Annotations may contain at most 50 tags of 100 characters or fewer");
+		}
+		const note = input.note?.trim() || undefined;
+		if (note && note.length > 20_000) throw new Error("Annotation note is too long");
+		const screeningReason = input.screeningReason?.trim() || undefined;
+		if (screeningReason && screeningReason.length > 10_000) throw new Error("Screening reason is too long");
+		if (
+			input.screeningStatus !== undefined &&
+			!["unreviewed", "include", "exclude", "maybe"].includes(input.screeningStatus)
+		) {
+			throw new Error("Screening status is invalid");
+		}
+		if (!tags.length && !note && !input.screeningStatus) {
+			throw new Error("Add at least one tag, note, or screening status");
+		}
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		const requested = await Promise.all(paperIds.map(async (id) => ({ id, record: await store.getPaper(id) })));
+		const missing = requested.filter((item) => !item.record).map((item) => item.id);
+		if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
+		const records = requested.map((item) => item.record).filter((record): record is PaperRecord => Boolean(record));
+		const annotation = {
+			author,
+			tags: tags.length ? tags : undefined,
+			note,
+			screeningStatus: input.screeningStatus,
+			screeningReason,
+		};
+		return { namespace, store, records, annotation, plan: corpusAnnotationPlan(store, records, annotation) };
+	}
+
+	async preparePersonalAnnotation(input: PersonalCorpusAnnotationInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.personalAnnotationOperation(input)).plan);
+	}
+
+	async annotatePersonalPapers(input: PersonalCorpusAnnotationInput, grant: ConfirmationGrant) {
+		const prepared = await this.personalAnnotationOperation(input);
+		const updated = await runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, async () => {
+			const values: PaperRecord[] = [];
+			for (const record of prepared.records) {
+				values.push(await prepared.store.annotatePaper(record.id, prepared.annotation));
+			}
+			return values;
+		});
+		return { namespace: prepared.namespace, updated, count: updated.length };
+	}
+
+	protected async personalExportOperation(input: PersonalCorpusExportInput) {
+		if (!["markdown", "csv", "bibtex", "json"].includes(input.format)) {
+			throw new Error("Export format must be markdown, csv, bibtex, or json");
+		}
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		let records: PaperRecord[];
+		if (input.paperIds?.length) {
+			if (input.paperIds.length > 1_000) throw new Error("Select at most 1000 papers for one export");
+			const paperIds = [...new Set(input.paperIds.map((id) => id.trim()))];
+			const requested = await Promise.all(paperIds.map(async (id) => ({ id, record: await store.getPaper(id) })));
+			const missing = requested.filter((item) => !item.record).map((item) => item.id);
+			if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
+			records = requested.map((item) => item.record).filter((record): record is PaperRecord => Boolean(record));
+		} else {
+			records = await store.listPapers();
+		}
+		if (!records.length) throw new Error("The selected personal corpus export is empty");
+		const filename = corpusExportFilename(input.format, input.filename, "literature-export");
+		return { namespace, store, records, filename, plan: corpusExportPlan(store, input.format, filename, records) };
+	}
+
+	async preparePersonalExport(input: PersonalCorpusExportInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.personalExportOperation(input)).plan);
+	}
+
+	async exportPersonalCorpus(input: PersonalCorpusExportInput, grant: ConfirmationGrant) {
+		const prepared = await this.personalExportOperation(input);
+		const path = await runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, () =>
+			prepared.store.export(input.format, prepared.filename, prepared.records),
+		);
+		return {
+			namespace: prepared.namespace,
+			format: input.format,
+			filename: prepared.filename,
+			path,
+			count: prepared.records.length,
+		};
+	}
+
+	async readPersonalExport(filename: string, namespace = this.defaultNamespace): Promise<Buffer> {
+		const safeFilename = corpusExportFilename(
+			filename.toLowerCase().endsWith(".bib")
+				? "bibtex"
+				: filename.toLowerCase().endsWith(".csv")
+					? "csv"
+					: filename.toLowerCase().endsWith(".json")
+						? "json"
+						: "markdown",
+			filename,
+			"literature-export",
+		);
+		const store = this.personalStore(namespace);
+		const root = resolve(store.root, "exports");
+		const path = resolve(root, safeFilename);
+		const relativePath = relative(root, path);
+		if (relativePath.startsWith("..") || isAbsolute(relativePath))
+			throw new Error("Export path is outside the corpus");
+		return readFile(path);
+	}
+}

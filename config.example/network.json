@@ -1,0 +1,17 @@
+{
+  "proxyEnabled": false,
+  "proxyUrl": "http://127.0.0.1:7890",
+  "noProxyHosts": [
+    "export.arxiv.org",
+    "arxiv.org",
+    "api.openalex.org",
+    "openalex.org",
+    "api.crossref.org",
+    "api.core.ac.uk",
+    "api.deepseek.com",
+    "api1.pdf2zh-next.com",
+    "api2.pdf2zh-next.com",
+    "127.0.0.1",
+    "localhost"
+  ]
+}

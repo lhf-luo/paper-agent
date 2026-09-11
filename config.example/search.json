@@ -1,0 +1,8 @@
+{
+  "providers": ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa"],
+  "doiEnrichmentProviders": ["crossref", "openalex", "semanticscholar", "opencitations", "unpaywall"],
+  "maxResultsPerProvider": 20,
+  "pagesPerProvider": 1,
+  "queryExpansions": [],
+  "reuseCorpus": true
+}

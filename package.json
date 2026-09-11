@@ -1,0 +1,103 @@
+{
+	"name": "pi-paper-agent",
+	"version": "0.1.0",
+	"description": "Evidence-driven research agent for analyzing papers, code artifacts, and primary sources with Pi",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "biome lint . && npm run typecheck && npm run typecheck:team-server && npm run typecheck:web && npm run web:build && vitest run && npm run test:team-server && npm run docs:tools:check",
+		"format": "biome check --write .",
+		"team-server": "node team-server/src/index.ts",
+		"team-token-hash": "node team-server/src/hash-token.ts",
+		"team-invite": "npm --prefix team-server run invite --",
+		"models": "node scripts/configure-model.ts",
+		"init:storage": "node scripts/initialize-storage.ts",
+		"docs:tools": "node scripts/generate-agent-tools-docs.ts",
+		"docs:tools:check": "node scripts/generate-agent-tools-docs.ts --check",
+		"start:web": "node scripts/web-server.ts",
+		"status": "node scripts/status.ts",
+		"test:live": "node scripts/live-integration-smoke.ts",
+		"test:cli-smoke": "node scripts/cli-smoke.ts",
+		"test:team-server": "vitest run --config team-server/vitest.config.ts && node scripts/team-corpus-smoke.ts",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"typecheck:team-server": "tsc -p team-server/tsconfig.json --noEmit",
+		"typecheck:web": "tsc -p web/tsconfig.json",
+		"verify": "node scripts/verify.ts --mode quick",
+		"verify:full": "node scripts/verify.ts --mode full",
+		"verify:live": "node scripts/verify.ts --mode live",
+		"web:build": "vite build",
+		"web:dev": "vite",
+		"release:check": "npm run check"
+	},
+	"files": [
+		"team-server",
+		"docs",
+		"src/**/*.ts",
+		"src/**/*.md",
+		".agents/skills",
+		"scripts",
+		"test",
+		"biome.json",
+		"config.example",
+		"LICENSE",
+		"README.md",
+		"README.zh-CN.md",
+		"paper-agent.ps1",
+		"run.sh",
+		"tsconfig.json",
+		"vite.config.ts",
+		"vitest.config.ts",
+		"dist/web",
+		"web"
+	],
+	"keywords": [
+		"pi-package",
+		"paper-reading",
+		"research-agent"
+	],
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.5",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@types/node": "24.12.4",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4",
+		"@vitejs/plugin-react": "^6.0.5",
+		"typebox": "1.1.38",
+		"typescript": "5.9.3",
+		"vite": "^8.2.0",
+		"vitest": "4.1.9"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/lhf-luo/paper-agent.git"
+	},
+	"dependencies": {
+		"lucide-react": "^0.544.0",
+		"pdfjs-dist": "^6.2.108",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
+		"react-markdown": "^10.1.0",
+		"remark-gfm": "^4.0.1",
+		"undici": "6.28.0",
+		"yaml": "^2.9.0"
+	},
+	"overrides": {
+		"brace-expansion": "5.0.9",
+		"protobufjs": "7.6.5",
+		"undici": "6.28.0"
+	}
+}

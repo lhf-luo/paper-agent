@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Research"
+  short_description: "Run evidence-traceable, human-led paper research"
+  default_prompt: "Use $paper-research to read this paper for my stated goal and keep every conclusion traceable to the available evidence."

@@ -1,0 +1,159 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type {
+	WebAgentConfigView,
+	WebAgentEvent,
+	WebAgentServiceApi,
+	WebAgentSessionSnapshot,
+} from "../src/agent/application/web-agent-service.ts";
+import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
+import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
+
+const temporaryPaths: string[] = [];
+
+afterEach(async () => {
+	await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+describe("local Web Agent routes", () => {
+	it("routes local JSON and fetch-SSE requests through the injected service and closes it", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-routes-"));
+		temporaryPaths.push(root);
+		const staticRoot = join(root, "web");
+		await mkdir(staticRoot, { recursive: true });
+		await writeFile(join(staticRoot, "index.html"), "<!doctype html><title>Paper Agent</title>");
+		const config: WebAgentConfigView = {
+			providerId: "fake",
+			modelId: "fake-model",
+			baseUrl: "http://127.0.0.1:9000/v1",
+			api: "openai-completions",
+			input: ["text"],
+			configured: true,
+			credentialsAvailable: true,
+			credentialSource: "memory",
+			configuredModels: [],
+		};
+		let snapshot: WebAgentSessionSnapshot = {
+			id: "session-one",
+			title: "Route test",
+			mode: "persistent",
+			status: "idle",
+			createdAt: "2026-08-07T00:00:00.000Z",
+			updatedAt: "2026-08-07T00:00:00.000Z",
+			pendingUIRequests: 0,
+			messages: [],
+			tools: [],
+			uiRequests: [],
+		};
+		let closed = false;
+		let createdContext: unknown;
+		let listedFilter: unknown;
+		const listeners = new Set<(event: WebAgentEvent) => void>();
+		const agentService: WebAgentServiceApi = {
+			projectRoot: "/tmp/paper-agent-mock",
+			getConfig: () => config,
+			listSkills: () => [],
+			uploadAttachment: async () => ({ path: "/tmp/mock.bin", name: "mock.bin", size: 0 }),
+			updateConfig: () => config,
+			applyConfiguredModel: () => config,
+			renameSession: () => snapshot,
+			clearKey: () => ({ ...config, credentialsAvailable: false, credentialSource: "none" }),
+			listSessions: (filter) => {
+				listedFilter = filter;
+				return [{ ...snapshot }];
+			},
+			createSession: (input) => {
+				createdContext = input.context;
+				snapshot = { ...snapshot, context: input.context };
+				return snapshot;
+			},
+			getSession: () => snapshot,
+			deleteSession: () => undefined,
+			sendMessage: (_id, input) => {
+				snapshot = {
+					...snapshot,
+					status: "running",
+					messages: [
+						{
+							id: "message-one",
+							role: "user",
+							content: input.message,
+							status: "complete",
+							createdAt: snapshot.createdAt,
+						},
+					],
+				};
+				return snapshot;
+			},
+			abortSession: () => ({ ...snapshot, status: "idle" }),
+			respondToUI: () => snapshot,
+			subscribeSession: (_id, listener) => {
+				listeners.add(listener);
+				return { snapshot, unsubscribe: () => listeners.delete(listener) };
+			},
+			close: () => {
+				closed = true;
+			},
+		};
+		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
+		const server = await startLocalWebServer(application, {
+			staticRoot,
+			agentService,
+		});
+		const authenticated = (path: string, init: RequestInit = {}) =>
+			fetch(`${server.url}${path}`, {
+				...init,
+				headers: { "content-type": "application/json", ...init.headers },
+			});
+		try {
+			expect((await fetch(`${server.url}/api/agent/sessions`)).status).toBe(200);
+			const configResponse = await authenticated("/api/agent/config");
+			expect(configResponse.status).toBe(200);
+			expect(await configResponse.json()).toMatchObject({ providerId: "fake", credentialsAvailable: true });
+			const sessionsResponse = await authenticated("/api/agent/sessions");
+			expect(await sessionsResponse.json()).toMatchObject({ sessions: [{ id: "session-one" }] });
+			const paperSessionsResponse = await authenticated(
+				"/api/agent/sessions?scope=paper&namespace=alternate&paperId=paper-one",
+			);
+			expect(paperSessionsResponse.status).toBe(200);
+			expect(listedFilter).toEqual({ scope: "paper", namespace: "alternate", paperId: "paper-one" });
+			const createdResponse = await authenticated("/api/agent/sessions", {
+				method: "POST",
+				body: JSON.stringify({
+					mode: "persistent",
+					context: { kind: "paper", namespace: "alternate", paperId: "paper-one" },
+				}),
+			});
+			expect(createdResponse.status).toBe(201);
+			expect(createdContext).toEqual({ kind: "paper", namespace: "alternate", paperId: "paper-one" });
+			const messageResponse = await authenticated("/api/agent/sessions/session-one/messages", {
+				method: "POST",
+				body: JSON.stringify({ message: "route hello" }),
+			});
+			expect(messageResponse.status).toBe(202);
+			expect(await messageResponse.json()).toMatchObject({
+				status: "running",
+				messages: [{ content: "route hello" }],
+			});
+
+			const controller = new AbortController();
+			const eventResponse = await fetch(`${server.url}/api/agent/sessions/session-one/events`, {
+				signal: controller.signal,
+			});
+			expect(eventResponse.status).toBe(200);
+			const reader = eventResponse.body?.getReader();
+			if (!reader) throw new Error("SSE response body missing");
+			const firstChunk = await reader.read();
+			const text = new TextDecoder().decode(firstChunk.value);
+			expect(text).toContain("event: snapshot");
+			expect(text).toContain("session-one");
+			controller.abort();
+		} finally {
+			await server.close();
+			await application.close();
+		}
+		expect(closed).toBe(true);
+	});
+});

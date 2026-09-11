@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<collection id="2024.acl">
+  <volume id="long" type="proceedings">
+    <meta><booktitle>Proceedings of ACL 2024</booktitle><year>2024</year><venue>acl</venue></meta>
+    <paper id="1">
+      <title><fixed-case>QST</fixed-case>: Efficient Language Model Tuning</title>
+      <author><first>Ada</first><last>Example</last></author>
+      <author><first>Grace</first><middle>B.</middle><last>Researcher</last></author>
+      <abstract>Efficient and reproducible language model tuning.</abstract>
+      <url hash="abc">2024.acl-long.1</url><doi>10.18653/v1/2024.acl-long.1</doi>
+    </paper>
+    <paper id="2"><title>Unrelated Parsing Study</title><author><first>Lin</first><last>Tester</last></author><url>2024.acl-long.2</url></paper>
+  </volume>
+</collection>

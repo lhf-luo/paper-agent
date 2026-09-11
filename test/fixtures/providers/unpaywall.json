@@ -1,0 +1,12 @@
+{
+	"doi": "10.1000/unpaywall.fixture",
+	"title": "An openly available fixture",
+	"year": 2021,
+	"journal_name": "Open Fixtures",
+	"genre": "journal-article",
+	"z_authors": [{ "given": "Open", "family": "Author" }],
+	"best_oa_location": {
+		"url_for_landing_page": "https://example.org/landing",
+		"url_for_pdf": "https://example.org/open.pdf"
+	}
+}

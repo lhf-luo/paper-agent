@@ -1,0 +1,30 @@
+{
+	"active": "deepseek/deepseek-flash",
+	"providers": {
+		"deepseek": {
+			"models": [
+				{
+					"id": "deepseek-flash",
+					"name": "DeepSeek Flash",
+					"api": "openai-completions",
+					"baseUrl": "https://api.deepseek.com/v1",
+					"reasoning": true,
+					"input": ["text", "image"],
+					"contextWindow": 1000000,
+					"maxTokens": 384000
+				},
+				{
+					"id": "deepseek-v4-pro",
+					"name": "DeepSeek V4 Pro",
+					"api": "openai-completions",
+					"baseUrl": "https://api.deepseek.com/v1",
+					"reasoning": true,
+					"input": ["text"],
+					"contextWindow": 1000000,
+					"maxTokens": 384000
+				}
+			]
+		}
+	},
+	"updatedAt": "2026-09-01T00:00:00.000Z"
+}

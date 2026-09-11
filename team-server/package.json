@@ -1,0 +1,21 @@
+{
+	"name": "paper-agent-team-server",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node src/index.ts",
+		"token": "node src/hash-token.ts",
+		"invite": "node src/invite.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"engines": {
+		"node": ">=24.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "24.12.4",
+		"typescript": "5.9.3",
+		"vitest": "4.1.9"
+	}
+}

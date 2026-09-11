@@ -1,0 +1,23 @@
+{
+	"result": {
+		"hits": {
+			"@total": "1",
+			"total": "1",
+			"hit": [
+				{
+					"info": {
+						"authors": { "author": [{ "text": "Ada Researcher" }, { "text": "Bob Reviewer" }] },
+						"title": "Stateful Protocol Fuzzing.",
+						"venue": "USENIX Security",
+						"year": "2025",
+						"type": "Conference and Workshop Papers",
+						"key": "conf/sec/Fuzz25",
+						"doi": "10.1000/fuzz.25",
+						"ee": "https://example.org/fuzz.pdf",
+						"url": "https://dblp.org/rec/conf/sec/Fuzz25"
+					}
+				}
+			]
+		}
+	}
+}

@@ -1,0 +1,102 @@
+# Dependencies and build output
+node_modules/
+coverage/
+dist/
+*.tsbuildinfo
+.vite/
+.turbo/
+.cache/
+.eslintcache
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors and local IDE state
+.vscode/
+.idea/
+.claude/
+.cursor/
+.windsurf/
+*.code-workspace
+*.swp
+*.swo
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.partial
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local Paper Agent data and generated artifacts
+.paper-agent/
+/artifacts/
+/.test-artifacts/
+/.doc_work/
+test-output/*
+!test-output/README.md
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Pi and team-server secrets
+/auth.json
+/oauth.json
+/pi/
+/team-server/config/auth.json
+/team-server/config/tls/
+/team-server/data/
+/team-server/backups/
+
+# Local expansion tools, imported projects, and reference material
+/expand-tools/
+/dependence/
+/image/
+/mdtest/
+/pdf分析测试/
+/verfiy/
+/verify/
+/paper-ingest/
+/paper-agent-1/
+/obsidian-skills-main/
+/karpathy-llm-wiki-vault-main/
+/bootstrop/
+/lhf-paper-agent
+/lhf-paper-agent.pub
+/rag_arxiv2005.txt
+/SYSTEM.md
+/src/get_personal_libary_paper.txt
+/scripts/_*.ts
+
+# Local archives and PDFs
+/*.zip
+*.pdf
+
+# Obsidian local workspace state
+.obsidian/workspace*.json

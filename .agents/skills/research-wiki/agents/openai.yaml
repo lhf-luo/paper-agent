@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Wiki"
+  short_description: "Deposit, query, and audit curated research knowledge"
+  default_prompt: "Use $research-wiki to query my deposited knowledge, or explicitly synthesize source-located paper, note, and Artifact evidence into a reusable Wiki batch."

@@ -1,0 +1,35 @@
+{
+	"version": 1,
+	"interface": {
+		"port": 43127,
+		"openBrowser": true
+	},
+	"storage": {
+		"defaultNamespace": "default"
+	},
+	"externalTools": {
+		"commandDirectories": []
+	},
+	"agent": {
+		"builtinTools": ["read", "bash", "edit", "write", "grep", "find", "ls"]
+	},
+	"confirmations": {
+		"requireAgentWriteConfirmation": false,
+		"requirePersonalLibraryWriteConfirmation": false,
+		"requirePersonalLibraryDeleteConfirmation": true,
+		"requireResearchConfirmation": true,
+		"requirePdfArtifactConfirmation": true,
+		"requireWikiWriteConfirmation": true
+	},
+	"pdfTranslation": {
+		"engine": "siliconflowfree",
+		"command": "pdf2zh_next"
+	},
+	"mineru": {
+		"baseUrl": "https://mineru.net/api/v4",
+		"modelVersion": "vlm",
+		"language": "en"
+	},
+	"wiki": {},
+	"updatedAt": "2026-01-01T00:00:00.000Z"
+}

@@ -1,0 +1,15 @@
+{
+	"manifest_version": 3,
+	"name": "Paper Agent Connector",
+	"version": "0.2.0",
+	"description": "Automatically import Edge PDF downloads into the local Paper Agent personal library.",
+	"permissions": ["downloads", "storage"],
+	"host_permissions": ["http://127.0.0.1:43127/*"],
+	"background": {
+		"service_worker": "background.js"
+	},
+	"action": {
+		"default_title": "Paper Agent 自动捕捉",
+		"default_popup": "popup.html"
+	}
+}

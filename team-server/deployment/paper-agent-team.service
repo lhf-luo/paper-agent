@@ -1,0 +1,23 @@
+[Unit]
+Description=Paper Agent team server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/paper-agent-team
+EnvironmentFile=/etc/paper-agent-team/team-server.env
+ExecStartPre=/usr/bin/node -e "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)"
+ExecStart=/usr/bin/node /opt/paper-agent-team/src/index.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/paper-agent-team /var/back/paper-agent-team
+
+[Install]
+WantedBy=multi-user.target

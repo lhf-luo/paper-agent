@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paper Agent Connector</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="eyebrow">PAPER AGENT</span>
+      <h1>论文捕捉</h1>
+    </header>
+    <main>
+      <p id="connection" class="status" aria-live="polite">正在连接…</p>
+      <section class="capture-status" aria-label="自动捕捉状态">
+        <span>自动捕捉</span>
+        <strong>已开启</strong>
+      </section>
+      <p class="target">目标空间：<span id="namespace">-</span></p>
+      <p id="result" class="result" aria-live="polite"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
