@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ArtifactManifest, ArtifactSnapshot } from "../protocol/literature-types.ts";
+import { recordTeamFileChange } from "./team-write-journal.ts";
+import { renameTeamFile } from "./team-file-operations.ts";
 
 export function safeSegment(value: string, label: string): string {
 	if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new Error(`${label} must be a safe identifier`);
@@ -9,11 +11,18 @@ export function safeSegment(value: string, label: string): string {
 }
 
 export async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+	await recordTeamFileChange(path);
 	await mkdir(dirname(path), { recursive: true });
 	const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
 	try {
-		await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-		await rename(temporary, path);
+		const handle = await open(temporary, "wx", 0o600);
+		try {
+			await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+		await renameTeamFile(temporary, path);
 	} catch (error) {
 		try {
 			await unlink(temporary);
@@ -22,6 +31,11 @@ export async function writeJsonAtomic(path: string, value: unknown): Promise<voi
 		}
 		throw error;
 	}
+}
+
+export async function removeTeamFile(path: string): Promise<void> {
+	await recordTeamFileChange(path);
+	await unlink(path);
 }
 
 export async function readJson<T>(path: string): Promise<T | undefined> {

@@ -64,10 +64,18 @@ describe("team knowledge store", () => {
 		temporaryPaths.push(root);
 		const namespaceRoot = join(root, "security");
 		const store = createTeamKnowledgeService(namespaceRoot, "security");
+		const versions = async (resource: "derived" | "artifacts", ids: string[]) =>
+			Object.fromEntries((await store.previewReview(resource, ids)).map((entry) => [entry.id, entry.version]));
 
 		expect(await store.proposeDerived([derived()], "alice")).toMatchObject([{ review: { status: "team-proposed" } }]);
 		expect(await store.listDerived()).toEqual([]);
-		await store.reviewDerived(["research-skim-card-one"], "team-approved", "bob", "checked");
+		await store.reviewDerived(
+			["research-skim-card-one"],
+			"team-approved",
+			"bob",
+			"checked",
+			await versions("derived", ["research-skim-card-one"]),
+		);
 		expect(await store.listDerived()).toHaveLength(1);
 		expect(await store.proposeDerived([derived()], "alice")).toMatchObject([
 			{ review: { status: "team-approved", reviewedBy: "bob" } },
@@ -84,13 +92,33 @@ describe("team knowledge store", () => {
 			metadataFile: { name: "metadata.json" },
 		});
 		expect(proposedArtifact.manifest.candidates[0].sources[0].context).toHaveLength(2_000);
-		await store.reviewArtifact(["paper-one"], "team-approved", "bob");
+		await store.reviewArtifact(
+			["paper-one"],
+			"team-approved",
+			"bob",
+			undefined,
+			await versions("artifacts", ["paper-one"]),
+		);
 		expect((await store.proposeArtifact("paper-one", artifact(), "alice")).review.status).toBe("team-approved");
 		const changedArtifact = artifact();
 		changedArtifact.candidates[0].confidence = "medium";
 		expect((await store.proposeArtifact("paper-one", changedArtifact, "alice")).review.status).toBe("team-proposed");
 
 		const body = Buffer.from("team-pdf");
+		await store.proposePapers(
+			[
+				{
+					id: "paper-one",
+					title: "Shared paper",
+					authors: [],
+					identifiers: {},
+					links: [],
+					provenance: [{ provider: "local-pdf", query: "fixture", retrievedAt: "2026-08-01T00:00:00.000Z" }],
+					mergedFrom: [],
+				},
+			],
+			"alice",
+		);
 		const sha256 = createHash("sha256").update(body).digest("hex");
 		await expect(store.putBlob(body, "0".repeat(64), "alice")).rejects.toThrow("does not match");
 		await store.putBlob(body, sha256, "alice", {
@@ -100,8 +128,11 @@ describe("team knowledge store", () => {
 			retrievedAt: "2026-08-01T00:02:00.000Z",
 			contentType: "application/pdf",
 		});
-		expect(await store.readBlob(sha256)).toMatchObject({ body, contentType: "application/pdf" });
-		expect(await store.stats()).toMatchObject({
+		expect(await store.readBlob(sha256, { includePending: true })).toMatchObject({
+			body,
+			contentType: "application/pdf",
+		});
+		expect(await store.stats({ includePending: true })).toMatchObject({
 			derivedCount: 1,
 			artifactCount: 1,
 			blobCount: 1,

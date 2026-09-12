@@ -112,7 +112,8 @@ export async function createTeamBackupBundle(input: {
 		await mkdir(join(temporaryPath, "_security"), { recursive: true });
 		await cp(namespaceRoot, join(temporaryPath, "namespace"), {
 			recursive: true,
-			filter: (source) => source !== join(namespaceRoot, ".write.lock"),
+			filter: (source) =>
+				source !== join(namespaceRoot, ".write.lock") && source !== join(namespaceRoot, ".transactions"),
 		});
 		await writeFile(
 			join(temporaryPath, "_security", "identities.json"),

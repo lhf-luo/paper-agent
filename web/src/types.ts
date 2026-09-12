@@ -24,7 +24,16 @@ export interface PaperRecord {
 		tags: string[];
 		userNotes: Array<{ id: string; text: string; author: string; createdAt: string }>;
 		screening?: { status: string; reason?: string };
-		teamReview?: { status: string; proposedBy?: string; reviewedBy?: string; reason?: string };
+		teamReview?: {
+			status: string;
+			proposedBy?: string;
+			proposedById?: string;
+			proposedAt?: string;
+			reviewedBy?: string;
+			reviewedAt?: string;
+			reason?: string;
+			revision?: boolean;
+		};
 	};
 }
 
@@ -613,3 +622,56 @@ export type AgentEvent =
 	| (AgentEventBase & { type: "ui_resolved"; requestId: string })
 	| (AgentEventBase & { type: "notice"; level: "info" | "warning" | "error"; message: string })
 	| (AgentEventBase & { type: "deleted" });
+
+export type Page =
+	| "dashboard"
+	| "search"
+	| "agent"
+	| "library"
+	| "tasks"
+	| "pdf"
+	| "team"
+	| "research"
+	| "wiki"
+	| "settings"
+	| "reader";
+
+export interface ApplicationStatus {
+	ok: boolean;
+	projectRoot: string;
+	dataRoot: string;
+	corpusRoot: string;
+	defaultNamespace: string;
+	personalNamespaces: string[];
+	defaultRecordCount: number;
+	confirmations: OperationConfirmationSettingsView;
+	jobs: { queued: number; running: number; failed: number };
+}
+
+export interface ReaderState {
+	title: string;
+	url: string;
+	pdfPath?: string;
+	paperId?: string;
+	namespace?: string;
+	sha256?: string;
+	bytes?: number;
+	retrievedAt?: string;
+	versionKind?: "published" | "preprint" | "supplement" | "translation" | "unknown";
+	versionLabel?: string;
+}
+
+export type ReaderWorkspaceTab =
+	| { id: "agent"; kind: "agent"; title: string }
+	| { id: string; kind: "note"; noteId: string; title: string }
+	| { id: "new-note"; kind: "new-note"; title: string };
+
+export interface ReaderPaperDetails {
+	paper: PaperRecord;
+	versions: PaperVersionView[];
+}
+
+export interface LocalPdfImportIssue {
+	filename: string;
+	message: string;
+}

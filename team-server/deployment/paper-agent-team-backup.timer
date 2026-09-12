@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Paper Agent team server backup once per day
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=600
+Unit=paper-agent-team-backup.service
+
+[Install]
+WantedBy=timers.target

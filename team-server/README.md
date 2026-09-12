@@ -230,7 +230,11 @@ sudo chmod 600 /etc/paper-agent-team/team-server.env
 - `0.0.0.0` 表示监听全部网卡；
 - 对外监听必须配置 TLS 证书和私钥；
 - 未配置 TLS 时只允许绑定 `127.0.0.1` 或 `::1`；
-- `PAPER_AGENT_TEAM_MAX_BLOB_BYTES` 默认允许单个 PDF/Artifact blob 最大 200 MB。
+- `PAPER_AGENT_TEAM_MAX_BLOB_BYTES` 默认允许单个 PDF/Artifact blob 最大 200 MB；
+- blob 上传使用临时文件流式接收，校验 SHA-256 和实际字节数后落入内容地址；校验失败、中断和超限清理临时文件，下载也使用流；
+- `PAPER_AGENT_TEAM_PUBLIC_URL` **只被 `src/invite.ts` 读取**（生成邀请串时使用的公共地址），服务进程本身不读取它；
+- 访问日志默认开启，每个请求向 stdout 写一行脱敏 JSON（`at`/`method`/`path`/`status`/`ms`/`identityId`/`namespace`）。设 `PAPER_AGENT_TEAM_ACCESS_LOG=off` 可关闭；
+- 同一来源 IP 在 60 秒内累计 20 次 `401` 后，窗口内后续未通过认证的请求返回 `429`；有效 Token 和 `/health` 不受影响。
 
 ## 7. 安装并启动 systemd
 
@@ -265,7 +269,7 @@ sudo ss -lntp | grep 14713
 正常日志包含：
 
 ```text
-Paper Agent team server listening at https://0.0.0.0:14713
+paper-agent team server listening on https://0.0.0.0:14713
 ```
 
 ## 8. 开放端口
@@ -443,6 +447,14 @@ sudo du -sh /var/back/paper-agent-team
     blobs/sha256/
     knowledge/derived/
     knowledge/artifacts/
+    knowledge/pages/
+    collaboration/entries/
+    collaboration/snapshots/
+    collaboration/notifications/
+    topics/
+    history/papers/
+    maintenance.json
+    .transactions/
     events/audit.jsonl
     manifest.json
 ```
@@ -464,6 +476,12 @@ sudo tar -C / -czf /root/paper-agent-team-data-$(date +%F).tar.gz \
   etc/paper-agent-team
 sudo systemctl start paper-agent-team
 ```
+
+自动化备份、保留策略和真正的恢复流程见第 21 节。
+
+业务文件与审计使用 namespace 恢复日志：重启先回滚未提交写入，已提交操作补记审计并去重。不要手动删除 `.transactions/` 中的恢复证据；恢复失败时先保留原数据、备份并排查。备份不会复制活动事务目录。身份注册表仍独立持久化，服务仍要求单实例写入。
+
+管理员可在 Web 管理区查看附件数量和容量，以及最近备份/恢复演练的结果；`GET /v1/namespaces/{namespace}/maintenance` 返回相同状态。失败提示保存在 `maintenance.json` 中，详细故障使用 systemd 日志排查。普通读者不能读取维护信息或未公开附件的统计。
 
 ## 15. 升级
 
@@ -487,6 +505,8 @@ sudo systemctl status paper-agent-team --no-pager
 ```
 
 升级后重新检查 `/health`。只要服务器 IP、端口、CA 和成员 Token 未改变，客户端接入串无需更新。
+
+本次审核协议要求四类审核都携带预览生成的 `expectedVersions`；仅按 id 提交审核的旧客户端会收到 428，旧版本会收到 409。请同时升级客户端和服务端。旧知识条目可兼容读取；有变化的更新保留已发布副本并生成待审修订。页面来源按稳定成员身份与个人空间隔离，无法证明来源身份的旧页面不按展示姓名接管。API 细节见[交接文档](../docs/team-handoff.md)。
 
 ## 16. IP 和证书变化
 
@@ -620,4 +640,62 @@ npm test
 - [ ] 管理员 Token 访问 `/v1/whoami` 成功；
 - [ ] 管理员 `pateam1.` 接入串已在客户端验证；
 - [ ] 普通成员只有所需角色和 namespace；
-- [ ] 已建立异地备份并完成恢复演练。
+- [ ] 定时备份 timer 已启用；
+- [ ] 已建立异地备份并完成一次真实恢复。
+
+## 21. 定时备份与恢复
+
+### 21.1 每日备份（systemd timer）
+
+仓库提供 `deployment/paper-agent-team-backup.service` 与 `.timer`，按日调用一次 `POST /v1/namespaces/{ns}/backups`：
+
+```bash
+sudo cp /opt/paper-agent-team/deployment/paper-agent-team-backup.service \
+        /opt/paper-agent-team/deployment/paper-agent-team-backup.timer \
+        /etc/systemd/system/
+sudo cp /opt/paper-agent-team/deployment/backup.env.example \
+        /etc/paper-agent-team/backup.env
+sudo nano /etc/paper-agent-team/backup.env
+```
+
+把管理员 Token 做成 curl 可直接读取的请求头文件。systemd 不会通过 shell 执行 `ExecStart`，所以 unit 里不能用 `$(cat …)` 读取 Token；`curl -H @文件` 既能读到完整的 `Authorization` 头，也让 Token 不出现在进程列表里：
+
+```bash
+printf 'Authorization: Bearer %s\n' "$(sudo cat /root/paper-agent-team-admin.token)" \
+  | sudo install -m 600 /dev/stdin /etc/paper-agent-team/admin.header
+sudo systemctl daemon-reload
+sudo systemctl enable --now paper-agent-team-backup.timer
+systemctl list-timers paper-agent-team-backup.timer --no-pager
+sudo systemctl start paper-agent-team-backup.service   # 立即试跑一次
+sudo journalctl -u paper-agent-team-backup -n 50 --no-pager
+```
+
+`backup.env` 需要 `PAPER_AGENT_TEAM_ADMIN_HEADER_FILE`、`PAPER_AGENT_TEAM_CA_FILE`，以及要快照的 `PAPER_AGENT_TEAM_BACKUP_NAMESPACE`。`PAPER_AGENT_TEAM_PUBLIC_URL` 来自 `team-server.env`。
+
+### 21.2 保留策略
+
+按目录名中的时间戳倒序保留最新 N 个 bundle，删除前会先校验，非法目录只警告不删除：
+
+```bash
+npm --prefix team-server run prune-backups -- --root /var/back/paper-agent-team --keep 14
+```
+
+建议把这条命令挂到备份 timer 之后，或写进独立的每日 cron。
+
+### 21.3 真正的恢复
+
+**先停止服务**。脚本会读取服务启动时写入的 `{root}/.team-server.pid`，进程仍存活就拒绝运行；`{root}/{namespace}/.write.lock` 存在时同样拒绝：
+
+```bash
+sudo systemctl stop paper-agent-team
+npm --prefix team-server run restore -- \
+  --backup /var/back/paper-agent-team/team-lab-20260911030000-ab12cd34 \
+  --root /var/lib/paper-agent-team \
+  --with-identities --force
+sudo systemctl start paper-agent-team
+```
+
+- 不带 `--force` 时，若目标 `{root}/{namespace}` 已存在则拒绝执行；
+- 带 `--force` 时，旧目录会先被重命名为 `{namespace}.replaced-<timestamp>` 保留下来，而不是被删除；
+- `--with-identities` 对 `_security/identities.json` 应用同样的替换规则；
+- 恢复完成后请核对 `/v1/whoami`、`/stats` 与审计事件，并删除不再需要的 `.replaced-*` 目录。

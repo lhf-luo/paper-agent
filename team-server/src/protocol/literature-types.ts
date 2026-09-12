@@ -95,10 +95,14 @@ export interface PaperCuration {
 	teamReview?: {
 		status: TeamReviewStatus;
 		proposedBy?: string;
+		/** Stable member id of the proposer; `proposedBy` is only the display name and may be renamed. */
+		proposedById?: string;
 		proposedAt?: string;
 		reviewedBy?: string;
 		reviewedAt?: string;
 		reason?: string;
+		/** Pending revision of a currently approved record: approving replaces that record, rejecting discards this. */
+		revision?: true;
 	};
 }
 
@@ -148,6 +152,8 @@ export interface CorpusSearchHit {
 }
 
 export interface PaperVersion {
+	/** Team attachment approval; absent on personal and pre-versioned legacy records. */
+	teamReview?: PaperCuration["teamReview"];
 	paperId: string;
 	sourceUrl: string;
 	finalUrl: string;

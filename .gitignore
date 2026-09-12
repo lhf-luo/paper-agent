@@ -28,6 +28,7 @@ Desktop.ini
 .claude/
 .cursor/
 .windsurf/
+.workbuddy/
 *.code-workspace
 *.swp
 *.swo

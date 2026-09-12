@@ -1,13 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, relative, resolve } from "node:path";
-import type {
-	ArtifactManifest,
-	DerivedRecord,
-	PaperRecord,
-	PaperVersion,
-} from "../protocol/literature-types.ts";
+import type { ArtifactManifest, DerivedRecord, PaperRecord, PaperVersion } from "../protocol/literature-types.ts";
 import { validateTeamNamespace } from "../domain/team-corpus-validation.ts";
 import type { TeamIdentity, TeamRole } from "../infrastructure/team-token-registry.ts";
+import type { TeamPageSnapshot, TeamReviewResource, TeamReviewVersions } from "../protocol/team-corpus-types.ts";
+import { TeamStateError } from "../domain/team-state-error.ts";
 
 export class HttpError extends Error {
 	readonly status: 400 | 403 | 404 | 413;
@@ -236,6 +233,50 @@ export function derivedRecordsBody(value: unknown): DerivedRecord[] {
 	return body.records as DerivedRecord[];
 }
 
+const SAFE_PAGE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SAFE_PAPER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const MAX_PAGE_MARKDOWN_CHARS = 400_000;
+
+export function pageSnapshotsBody(value: unknown): TeamPageSnapshot[] {
+	const body = objectBody(value, "page proposal request must be a JSON object");
+	if (!Array.isArray(body.records) || body.records.length === 0) rejectRequest("records[] is required");
+	if (body.records.length > 200) rejectRequest("a page proposal is limited to 200 records");
+	for (const record of body.records as TeamPageSnapshot[]) {
+		if (
+			!record ||
+			typeof record !== "object" ||
+			typeof record.sourceId !== "string" ||
+			!SAFE_PAGE_ID.test(record.sourceId) ||
+			(record.sourceNamespace !== undefined &&
+				(typeof record.sourceNamespace !== "string" || !SAFE_PAPER_ID.test(record.sourceNamespace))) ||
+			(record.kind !== "note" && record.kind !== "wiki") ||
+			typeof record.title !== "string" ||
+			record.title.length === 0 ||
+			record.title.length > 500 ||
+			typeof record.markdown !== "string" ||
+			record.markdown.length === 0 ||
+			record.markdown.length > MAX_PAGE_MARKDOWN_CHARS ||
+			typeof record.contentHash !== "string" ||
+			!/^[a-f0-9]{64}$/i.test(record.contentHash) ||
+			!Number.isInteger(record.revision) ||
+			record.revision < 0 ||
+			record.revision > 2_147_483_647 ||
+			!Array.isArray(record.paperIds) ||
+			record.paperIds.length > 200 ||
+			!record.paperIds.every((paperId: unknown) => typeof paperId === "string" && SAFE_PAPER_ID.test(paperId)) ||
+			typeof record.createdAt !== "string" ||
+			!Number.isFinite(Date.parse(record.createdAt)) ||
+			typeof record.key !== "string" ||
+			(record.key !== `${record.kind}.${record.sourceId}` && !/^page-[a-f0-9]{40}$/.test(record.key))
+		) {
+			rejectRequest(
+				"page snapshots require a safe composite key, bounded title and markdown, a SHA-256 content hash, a revision, and valid paper ids",
+			);
+		}
+	}
+	return body.records as TeamPageSnapshot[];
+}
+
 export function artifactBody(value: unknown): { paperId: string; manifest: ArtifactManifest } {
 	const body = objectBody(value, "artifact proposal request must be a JSON object");
 	if (typeof body.paperId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(body.paperId))
@@ -257,24 +298,60 @@ export function artifactBody(value: unknown): { paperId: string; manifest: Artif
 	return { paperId: body.paperId, manifest };
 }
 
+export function paperIdsBody(value: unknown, label: string): string[] {
+	const body = objectBody(value, `${label} request must be a JSON object`);
+	const ids = body.paperIds;
+	if (
+		!Array.isArray(ids) ||
+		ids.length === 0 ||
+		ids.length > 500 ||
+		!ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 128)
+	)
+		rejectRequest("paperIds[] is required and limited to 500 entries");
+	return ids as string[];
+}
+
+export function reviewPreviewBody(value: unknown): { resource: TeamReviewResource; ids: string[] } {
+	const body = objectBody(value, "review preview must be a JSON object");
+	if (!["papers", "derived", "pages", "artifacts"].includes(String(body.resource)))
+		rejectRequest("invalid review resource");
+	const ids = paperIdsBody({ paperIds: body.ids }, "review preview");
+	if (ids.some((id) => !SAFE_PAGE_ID.test(id)) || new Set(ids).size !== ids.length)
+		rejectRequest("review ids must be unique safe identifiers");
+	return { resource: body.resource as TeamReviewResource, ids };
+}
+
 export function reviewBody(
 	value: unknown,
 	key: "paperIds" | "keys",
-): { ids: string[]; decision: "team-approved" | "team-rejected"; reason?: string } {
+): {
+	ids: string[];
+	decision: "team-approved" | "team-rejected";
+	reason?: string;
+	expectedVersions: TeamReviewVersions;
+} {
 	const body = objectBody(value, "review request must be a JSON object");
 	const ids = body[key];
 	if (
 		!Array.isArray(ids) ||
 		ids.length === 0 ||
 		ids.length > 500 ||
-		!ids.every((id) => typeof id === "string" && id.length <= 128)
+		!ids.every((id) => typeof id === "string" && SAFE_PAGE_ID.test(id)) ||
+		new Set(ids).size !== ids.length
 	)
 		rejectRequest(`${key}[] is required and limited to 500 entries`);
 	if (body.decision !== "team-approved" && body.decision !== "team-rejected")
 		rejectRequest("decision must be team-approved or team-rejected");
 	if (body.reason !== undefined && (typeof body.reason !== "string" || body.reason.length > 10_000))
 		rejectRequest("review reason is invalid");
-	return { ids, decision: body.decision, reason: body.reason as string | undefined };
+	if (!body.expectedVersions || typeof body.expectedVersions !== "object" || Array.isArray(body.expectedVersions)) {
+		throw new TeamStateError(428, "expectedVersions from a review preview are required");
+	}
+	const expectedVersions = body.expectedVersions as TeamReviewVersions;
+	if (ids.some((id) => !Object.hasOwn(expectedVersions, id) || !/^[a-f0-9]{64}$/.test(expectedVersions[id]))) {
+		throw new TeamStateError(428, "A preview version is required for every review target");
+	}
+	return { ids, decision: body.decision, reason: body.reason as string | undefined, expectedVersions };
 }
 
 export function listParameter(url: URL, name: string): string[] | undefined {

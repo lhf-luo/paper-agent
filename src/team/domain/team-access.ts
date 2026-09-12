@@ -1,5 +1,7 @@
 import { validateTeamNamespace } from "./team-corpus-validation.ts";
 
+const INVITE_PREFIX = "pateam1.";
+
 export interface TeamAccess {
 	serverUrl: string;
 	namespace: string;
@@ -68,15 +70,16 @@ export function validateTeamAccess(input: unknown): TeamAccess {
 
 export function decodeTeamInvite(value: string): TeamAccess {
 	const normalized = typeof value === "string" ? value.replace(/\s+/g, "") : "";
-	if (normalized.length > 90_000 || !/^pateam1\.[A-Za-z0-9_-]+$/.test(normalized))
-		throw new Error("Invalid team invite");
+	const pattern = new RegExp(`^${INVITE_PREFIX.replace(/\./g, "\\.")}[A-Za-z0-9_-]+$`);
+	if (normalized.length > 90_000 || !pattern.test(normalized)) throw new Error("Invalid team invite");
 	try {
-		return validateTeamAccess(JSON.parse(Buffer.from(normalized.slice(8), "base64url").toString("utf8")));
+		const payload = Buffer.from(normalized.slice(INVITE_PREFIX.length), "base64url").toString("utf8");
+		return validateTeamAccess(JSON.parse(payload));
 	} catch {
 		throw new Error("Invalid team invite content");
 	}
 }
 
 export function encodeTeamInvite(value: TeamAccess): string {
-	return `pateam1.${Buffer.from(JSON.stringify(validateTeamAccess(value))).toString("base64url")}`;
+	return `${INVITE_PREFIX}${Buffer.from(JSON.stringify(validateTeamAccess(value))).toString("base64url")}`;
 }

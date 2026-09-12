@@ -26,6 +26,7 @@ The main README is the quick entry point. These guides explain individual workfl
 ## Deployment and implementation contracts
 
 - [Team library developer handoff](team-handoff.md)
+- [Team library improvement plan](team-improvement-plan.md) — phased work plan for the team library and team server, with review checklist.
 - [Standalone team-service deployment](../team-server/README.md)
 - [Literature Corpus Manager Skill](../.agents/skills/literature-corpus-manager/SKILL.md)
 - [Workflow contract](../.agents/skills/literature-corpus-manager/references/workflow-contract.md)

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { TeamIdentitySeed } from "./domain/team-identity.ts";
+import { removeServerPidFile, removeServerPidFileSync, writeServerPidFile } from "./infrastructure/server-pid-file.ts";
 import { createTeamCorpusServer } from "./presentation/team-corpus-server.ts";
 
 const authFile = process.env.PAPER_AGENT_TEAM_AUTH_FILE;
@@ -30,8 +31,9 @@ if (!tls && !["127.0.0.1", "::1", "localhost"].includes(host.toLowerCase())) {
 	throw new Error("Plain HTTP team service may listen only on a loopback address; configure TLS for remote access");
 }
 
+const dataRoot = resolve(process.env.PAPER_AGENT_TEAM_ROOT ?? ".paper-agent/team-server");
 const server = createTeamCorpusServer({
-	root: resolve(process.env.PAPER_AGENT_TEAM_ROOT ?? ".paper-agent/team-server"),
+	root: dataRoot,
 	backupRoot: process.env.PAPER_AGENT_TEAM_BACKUP_ROOT ? resolve(process.env.PAPER_AGENT_TEAM_BACKUP_ROOT) : undefined,
 	identityStorePath: process.env.PAPER_AGENT_TEAM_IDENTITY_STORE
 		? resolve(process.env.PAPER_AGENT_TEAM_IDENTITY_STORE)
@@ -44,6 +46,10 @@ const server = createTeamCorpusServer({
 
 server.listen(port, host, () => {
 	console.log(`paper-agent team server listening on ${tls ? "https" : "http"}://${host}:${port}`);
+	// Lets offline tooling (restore.ts) detect a live service on this data root.
+	writeServerPidFile(dataRoot, { pid: process.pid, startedAt: new Date().toISOString(), host, port }).catch(
+		(error) => console.error("paper-agent team server could not write its pid file", error),
+	);
 });
 
 server.on("error", (error) => {
@@ -61,7 +67,17 @@ const shutdown = (signal: NodeJS.Signals) => {
 			console.error("paper-agent team server shutdown failed", error);
 			process.exitCode = 1;
 		}
+		removeServerPidFile(dataRoot).catch((removeError) =>
+			console.error("paper-agent team server could not remove its pid file", removeError),
+		);
 	});
 };
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
+process.once("exit", () => {
+	try {
+		removeServerPidFileSync(dataRoot);
+	} catch {
+		/* Nothing else can be done during exit. */
+	}
+});

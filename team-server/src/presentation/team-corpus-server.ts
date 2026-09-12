@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -8,7 +9,36 @@ import { hashTeamTokenValue, type TeamIdentitySeed, TeamTokenRegistry } from "..
 export type { TeamIdentitySeed as TeamIdentity, TeamRole } from "../domain/team-identity.ts";
 
 import { canAccessTeamNamespace, publicTeamIdentity, TeamIdentityError } from "../domain/team-identity.ts";
+import { proposedByIdentity, TeamPaperConflictError } from "../domain/team-literature-repository.ts";
+import { TeamStateError } from "../domain/team-state-error.ts";
+import type { SharedReviewStatus } from "../protocol/team-corpus-types.ts";
 import { handleTeamIdentityRoutes } from "./team-identity-routes.ts";
+import { handleTeamContentRoutes } from "./team-content-routes.ts";
+
+const sharedReviewStatuses: SharedReviewStatus[] = ["team-proposed", "team-approved", "team-rejected"];
+
+/** Per-IP budget for failed authentication attempts, plus the window those failures are counted over. */
+const AUTH_FAILURE_LIMIT = 20;
+const AUTH_FAILURE_WINDOW_MS = 60_000;
+
+interface AccessContext {
+	address?: string;
+	identityId?: string;
+	namespace?: string;
+}
+
+/** Redacted access log line: never carries headers, bodies, tokens, or invite strings. */
+export function writeAccessLog(entry: {
+	at: string;
+	method: string;
+	path: string;
+	status: number;
+	ms: number;
+	identityId?: string;
+	namespace?: string;
+}): void {
+	process.stdout.write(`${JSON.stringify(entry)}\n`);
+}
 
 export interface TeamCorpusServerConfig {
 	root: string;
@@ -33,13 +63,15 @@ import {
 	namespaceRoot,
 	objectBody,
 	pagination,
+	paperIdsBody,
+	pageSnapshotsBody,
 	permits,
-	readBody,
 	readJsonBody,
 	recordsBody,
 	rejectForbidden,
 	rejectRequest,
 	reviewBody,
+	reviewPreviewBody,
 	versionHeaders,
 } from "./team-corpus-http.ts";
 
@@ -53,14 +85,36 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 	const storeFor = (namespace: string): Promise<TeamKnowledgeService> => {
 		let store = stores.get(namespace);
 		if (!store) {
-			store = Promise.resolve(createTeamKnowledgeService(namespaceRoot(root, namespace), namespace));
+			const service = createTeamKnowledgeService(namespaceRoot(root, namespace), namespace);
+			store = service
+				.recover()
+				.then(() => service)
+				.catch((error) => {
+					stores.delete(namespace);
+					throw error;
+				});
 			stores.set(namespace, store);
 		}
 		return store;
 	};
+	const authFailures = new Map<string, { count: number; resetAt: number }>();
+	const rateLimitExceeded = (address: string): boolean => {
+		const entry = authFailures.get(address);
+		return Boolean(entry && entry.count >= AUTH_FAILURE_LIMIT && Date.now() < entry.resetAt);
+	};
+	const registerAuthFailure = (address: string): void => {
+		const now = Date.now();
+		const entry = authFailures.get(address);
+		if (!entry || now >= entry.resetAt) {
+			authFailures.set(address, { count: 1, resetAt: now + AUTH_FAILURE_WINDOW_MS });
+			return;
+		}
+		entry.count += 1;
+	};
 	const handleRequest = async (
 		request: import("node:http").IncomingMessage,
 		response: import("node:http").ServerResponse,
+		context: AccessContext = {},
 	) => {
 		if (config.tls) response.setHeader("strict-transport-security", "max-age=31536000");
 		try {
@@ -74,9 +128,16 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				? await registry.authenticate(authorization.slice(7))
 				: undefined;
 			if (!identity) {
-				json(response, 401, { error: "authentication required" });
+				// Only requests that fail authentication are throttled. A valid token from the same address keeps
+				// working, so one misconfigured client behind a shared NAT cannot lock out the rest of the lab.
+				if (context.address !== undefined && rateLimitExceeded(context.address)) {
+					json(response, 429, { error: "too many authentication failures" });
+				} else {
+					json(response, 401, { error: "authentication required" });
+				}
 				return;
 			}
+			context.identityId = identity.id;
 			if (request.method === "GET" && url.pathname === "/v1/whoami") {
 				json(response, 200, { identity: publicTeamIdentity(identity) });
 				return;
@@ -90,8 +151,23 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				return;
 			}
 			if (!canAccessTeamNamespace(identity, route.namespace)) rejectForbidden("namespace access denied");
+			context.namespace = route.namespace;
 			const store = await storeFor(route.namespace);
 			const actor = { id: identity.id, name: identity.name };
+			if (
+				await handleTeamContentRoutes({
+					request,
+					response,
+					url,
+					resourcePath: route.resource,
+					namespace: route.namespace,
+					identity,
+					registry,
+					store,
+					maxBodyBytes,
+				})
+			)
+				return;
 
 			if (request.method === "GET" && route.resource === "search") {
 				if (!permits(identity, "reader")) rejectForbidden("reader role required");
@@ -113,6 +189,13 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 					openAccess === "invalid"
 				)
 					rejectRequest("year filters and openAccess are invalid");
+				const requestedStatuses = listParameter(url, "status");
+				if (requestedStatuses?.some((status) => !sharedReviewStatuses.includes(status as SharedReviewStatus)))
+					rejectRequest("status must be team-proposed, team-approved, or team-rejected");
+				// Records that are still pending or were rejected stay invisible to plain readers.
+				if (requestedStatuses?.some((status) => status !== "team-approved") && !permits(identity, "reviewer"))
+					rejectForbidden("reviewer role required to read non-approved records");
+				const reviewStatuses = requestedStatuses as SharedReviewStatus[] | undefined;
 				const searchOptions = {
 					query: url.searchParams.get("q") ?? undefined,
 					yearFrom,
@@ -121,6 +204,7 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 					venues: listParameter(url, "venue"),
 					types: listParameter(url, "type"),
 					openAccess,
+					reviewStatuses,
 					offset,
 					limit,
 				};
@@ -143,10 +227,14 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				return;
 			}
 			if (request.method === "GET" && route.resource === "proposals") {
-				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
+				// `mine=true` lets contributors audit their own pending proposals; reviewers keep the full queue.
+				const mine = url.searchParams.get("mine") === "true";
+				if (mine ? !permits(identity, "contributor") : !permits(identity, "reviewer"))
+					rejectForbidden(mine ? "contributor role required" : "reviewer role required");
 				const { offset, limit } = pagination(url);
-				const pending = (await store.literature.listPapers()).filter(
-					(record) => record.curation?.teamReview?.status === "team-proposed",
+				// Pending work is new proposals plus parked revisions of approved records (flagged `revision: true`).
+				const pending = (await store.literature.listPendingPapers()).filter(
+					(record) => !mine || proposedByIdentity(record.curation?.teamReview, identity),
 				);
 				json(response, 200, {
 					records: pending.slice(offset, offset + limit),
@@ -154,10 +242,64 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				});
 				return;
 			}
+			// `/versions` must be matched before the single-paper read so the suffix is not treated as an id.
+			const versionRoute = /^papers\/(.+)\/versions$/.exec(route.resource);
+			if (request.method === "GET" && versionRoute) {
+				if (!permits(identity, "reader")) rejectForbidden("reader role required");
+				const paperId = decodeURIComponent(versionRoute[1]);
+				const record = await store.literature.getPaper(paperId);
+				if (!record || (record.curation?.teamReview?.status !== "team-approved" && !permits(identity, "reviewer")))
+					json(response, 404, { error: "paper not found" });
+				else {
+					const versions = await store.literature.listPaperVersions(paperId);
+					json(response, 200, {
+						versions: versions
+							.filter(
+								(version) =>
+									(permits(identity, "reviewer") && url.searchParams.get("pending") === "true") ||
+									!version.teamReview ||
+									version.teamReview.status === "team-approved",
+							)
+							.map(({ blobPath: _path, ...version }) => version),
+					});
+				}
+				return;
+			}
 			if (request.method === "GET" && route.resource.startsWith("papers/")) {
 				if (!permits(identity, "reader")) rejectForbidden("reader role required");
 				const record = await store.literature.getPaper(decodeURIComponent(route.resource.slice(7)));
-				json(response, record ? 200 : 404, record ?? { error: "paper not found" });
+				// Non-approved records are hidden from plain readers; use 404 so their existence never leaks.
+				if (!record || (record.curation?.teamReview?.status !== "team-approved" && !permits(identity, "reviewer")))
+					json(response, 404, { error: "paper not found" });
+				else json(response, 200, record);
+				return;
+			}
+			if (request.method === "POST" && route.resource === "proposals/withdraw") {
+				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
+				const body = objectBody(await readJsonBody(request, maxBodyBytes), "Expected withdrawal input");
+				const paperIds = paperIdsBody(body, "withdraw");
+				const expected =
+					body.expectedVersions === undefined
+						? undefined
+						: objectBody(body.expectedVersions, "Invalid withdrawal versions");
+				if (
+					expected &&
+					paperIds.some((id) => typeof expected[id] !== "string" || !/^[a-f0-9]{64}$/.test(expected[id] as string))
+				)
+					rejectRequest("Every withdrawal target needs a valid version");
+				try {
+					json(response, 200, {
+						withdrawn: await store.withdrawPapers(
+							paperIds,
+							actor,
+							expected as Record<string, string> | undefined,
+						),
+					});
+				} catch (error) {
+					if (error instanceof TeamStateError) throw error;
+					// Any rule violation rejects the whole batch with 400; nothing is partially withdrawn.
+					rejectRequest(error instanceof Error ? error.message : "withdraw failed");
+				}
 				return;
 			}
 			if (request.method === "POST" && route.resource === "proposals") {
@@ -167,10 +309,22 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				json(response, 200, { promoted, contributor: identity.name });
 				return;
 			}
+			if (request.method === "POST" && route.resource === "reviews/preview") {
+				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
+				const input = reviewPreviewBody(await readJsonBody(request, maxBodyBytes));
+				json(response, 200, { entries: await store.previewReview(input.resource, input.ids) });
+				return;
+			}
 			if (request.method === "POST" && route.resource === "reviews") {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "paperIds");
-				const reviewed = await store.reviewPapers(review.ids, review.decision, actor, review.reason);
+				const reviewed = await store.reviewPapers(
+					review.ids,
+					review.decision,
+					actor,
+					review.reason,
+					review.expectedVersions,
+				);
 				json(response, 200, { reviewed });
 				return;
 			}
@@ -199,7 +353,46 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "keys");
 				json(response, 200, {
-					entries: await store.reviewDerived(review.ids, review.decision, actor, review.reason),
+					entries: await store.reviewDerived(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
+				});
+				return;
+			}
+			if (request.method === "GET" && route.resource === "pages") {
+				if (!permits(identity, "reader") && !permits(identity, "reviewer"))
+					rejectForbidden("reader or reviewer role required");
+				json(response, 200, {
+					entries: await store.listPages(
+						permits(identity, "reviewer") && url.searchParams.get("pending") === "true"
+							? { includePending: true }
+							: {},
+					),
+				});
+				return;
+			}
+			if (request.method === "POST" && route.resource === "pages") {
+				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
+				json(response, 200, {
+					entries: await store.proposePages(pageSnapshotsBody(await readJsonBody(request, maxBodyBytes)), actor),
+				});
+				return;
+			}
+			if (request.method === "POST" && route.resource === "pages/reviews") {
+				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
+				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "keys");
+				json(response, 200, {
+					entries: await store.reviewPages(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
 				});
 				return;
 			}
@@ -225,31 +418,50 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "paperIds");
 				json(response, 200, {
-					entries: await store.reviewArtifact(review.ids, review.decision, actor, review.reason),
+					entries: await store.reviewArtifact(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
 				});
 				return;
 			}
 			const blobRoute = /^blobs\/([a-f0-9]{64})$/.exec(route.resource);
 			if (request.method === "PUT" && blobRoute) {
 				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
-				const body = await readBody(request, maxBlobBytes);
-				if (createHash("sha256").update(body).digest("hex") !== blobRoute[1]) {
-					rejectRequest("uploaded blob SHA-256 does not match the request path");
+				if (Number(request.headers["content-length"] ?? 0) > maxBlobBytes)
+					throw new TeamStateError(413, "Blob exceeds configured size limit");
+				try {
+					const stored = await store.putBlobStream(
+						request.iterator({ destroyOnReturn: false }),
+						blobRoute[1],
+						maxBlobBytes,
+						actor,
+						versionHeaders(request),
+					);
+					json(response, 200, { sha256: stored.sha256, bytes: stored.bytes, existed: stored.existed });
+				} catch (error) {
+					request.resume();
+					throw error;
 				}
-				json(response, 200, await store.putBlob(body, blobRoute[1], actor, versionHeaders(request)));
 				return;
 			}
 			if (request.method === "GET" && blobRoute) {
-				if (!permits(identity, "reader")) rejectForbidden("reader role required");
-				const blob = await store.readBlob(blobRoute[1]);
+				if (!permits(identity, "reader") && !permits(identity, "reviewer"))
+					rejectForbidden("reader or reviewer role required");
+				const blob = await store.locateBlob(blobRoute[1], { includePending: permits(identity, "reviewer") });
 				response.writeHead(200, {
 					"content-type": blob.contentType,
-					"content-length": blob.body.length,
-					"cache-control": "private, max-age=31536000, immutable",
+					"content-disposition":
+						blob.contentType === "application/pdf" ? "inline" : `attachment; filename="${blobRoute[1]}.bin"`,
+					"content-length": blob.bytes,
+					"cache-control": "private, no-store",
 					"x-content-type-options": "nosniff",
 					etag: `"sha256-${blobRoute[1]}"`,
 				});
-				response.end(blob.body);
+				await pipeline(createReadStream(blob.path), response);
 				return;
 			}
 			if (request.method === "GET" && route.resource === "events") {
@@ -260,7 +472,12 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			if (request.method === "GET" && route.resource === "stats") {
 				if (!permits(identity, "reader")) rejectForbidden("reader role required");
-				json(response, 200, await store.stats());
+				json(response, 200, await store.stats({ includePending: permits(identity, "reviewer") }));
+				return;
+			}
+			if (request.method === "GET" && route.resource === "maintenance") {
+				if (!permits(identity, "admin")) rejectForbidden("admin role required");
+				json(response, 200, await store.maintenance());
 				return;
 			}
 			if (request.method === "GET" && route.resource === "audit") {
@@ -291,8 +508,16 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			json(response, 405, { error: "method not allowed" });
 		} catch (error) {
-			if (error instanceof HttpError || error instanceof TeamIdentityError) {
+			if (response.headersSent) {
+				response.destroy();
+				return;
+			}
+			if (error instanceof HttpError || error instanceof TeamIdentityError || error instanceof TeamStateError) {
 				json(response, error.status, { error: error.message });
+				return;
+			}
+			if (error instanceof TeamPaperConflictError) {
+				json(response, 409, { error: error.message });
 				return;
 			}
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -303,7 +528,46 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			json(response, 500, { error: "internal server error" });
 		}
 	};
-	return config.tls ? createHttpsServer(config.tls, handleRequest) : createHttpServer(handleRequest);
+	const accessLogEnabled = process.env.PAPER_AGENT_TEAM_ACCESS_LOG !== "off";
+	const guarded = async (
+		request: import("node:http").IncomingMessage,
+		response: import("node:http").ServerResponse,
+	) => {
+		const startedAt = Date.now();
+		const at = new Date().toISOString();
+		let pathname = "/";
+		try {
+			pathname = new URL(request.url ?? "/", "http://paper-agent.invalid").pathname;
+		} catch {
+			/* Keep the generic path for malformed URLs. */
+		}
+		const address = request.socket.remoteAddress ?? "unknown";
+		const context: AccessContext = { address };
+		try {
+			await handleRequest(request, response, context);
+		} finally {
+			if (response.statusCode === 401) registerAuthFailure(address);
+			if (accessLogEnabled) {
+				writeAccessLog({
+					at,
+					method: request.method ?? "GET",
+					path: pathname,
+					status: response.statusCode,
+					ms: Date.now() - startedAt,
+					identityId: context.identityId,
+					namespace: context.namespace,
+				});
+			}
+		}
+	};
+	const server = config.tls ? createHttpsServer(config.tls, guarded) : createHttpServer(guarded);
+	const cleanup = setInterval(() => {
+		const now = Date.now();
+		for (const [address, entry] of authFailures) if (now >= entry.resetAt) authFailures.delete(address);
+	}, AUTH_FAILURE_WINDOW_MS);
+	cleanup.unref();
+	server.on("close", () => clearInterval(cleanup));
+	return server;
 }
 
 export function hashTeamToken(token: string): string {

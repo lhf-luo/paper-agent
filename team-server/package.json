@@ -7,6 +7,8 @@
 		"start": "node src/index.ts",
 		"token": "node src/hash-token.ts",
 		"invite": "node src/invite.ts",
+		"prune-backups": "node src/prune-backups.ts",
+		"restore": "node src/restore.ts",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run"
 	},

@@ -109,16 +109,36 @@ export interface TeamPaperProposalInput {
 	personalNamespace?: string;
 }
 
+export interface TeamPullInput {
+	paperIds: string[];
+	personalNamespace?: string;
+	includePdf?: boolean;
+}
+
+export type { TeamPullResult } from "../../team/application/team-pull.ts";
+
+export interface TeamDerivedProposalInput {
+	keys: string[];
+	personalNamespace?: string;
+}
+
+export type TeamPagesProposalInput = import("../../team/domain/team-corpus-types.ts").TeamPageSourcesInput;
+
+export interface TeamWithdrawInput {
+	paperIds: string[];
+}
+
 export interface TeamReviewInput {
-	resource: "papers" | "derived" | "artifacts";
+	resource: "papers" | "derived" | "artifacts" | "pages";
 	ids: string[];
 	decision: "team-approved" | "team-rejected";
 	reason?: string;
+	expectedVersions?: Record<string, string>;
 }
 
-
 export interface TeamArtifactProposalInput {
-	artifactJobId: string;
+	artifactJobId?: string;
+	manifestSha256?: string;
 	paperId: string;
 	personalNamespace?: string;
 }
