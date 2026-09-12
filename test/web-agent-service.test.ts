@@ -132,9 +132,9 @@ async function startFakeModelServer(options: { secret: string; toolPath?: string
 	};
 }
 
-async function waitFor(check: () => boolean, timeoutMs = 10_000): Promise<void> {
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
-	while (!check()) {
+	while (!(await check())) {
 		if (Date.now() >= deadline) throw new Error("Timed out waiting for Web Agent state");
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
@@ -262,7 +262,7 @@ describe("WebAgentService", () => {
 				return true;
 			}
 		}, 4_000);
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await waitFor(async () => !(await pathExists(piFile)), 4_000);
 		expect(await pathExists(piFile)).toBe(false);
 	});
 

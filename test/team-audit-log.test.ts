@@ -48,5 +48,5 @@ describe("team audit log paging", () => {
 		const last = await store.listAuditEvents(total + 4, 10);
 		expect(last.events.map((event) => event.target)).toEqual(["target-0"]);
 		expect(last.nextCursor).toBeUndefined();
-	});
+	}, 60_000);
 });

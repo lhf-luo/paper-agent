@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,46 @@ afterEach(async () => {
 });
 
 describe("PaperAgentApplication team overview", () => {
+	it("invalidates a prepared page proposal when the team identity changes on the same server", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-identity-plan-"));
+		temporaryPaths.push(root);
+		const server = createTeamCorpusServer({
+			root: join(root, "team"),
+			identities: [
+				{
+					name: "alice",
+					tokenSha256: hashTeamToken("identity-plan-alice"),
+					roles: ["contributor"],
+					namespaces: ["lab"],
+				},
+				{ name: "bob", tokenSha256: hashTeamToken("identity-plan-bob"), roles: ["admin"] },
+			],
+		});
+		servers.push(server);
+		await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+		const address = server.address();
+		if (!address || typeof address === "string") throw new Error("Fixture did not bind");
+		const serverUrl = `http://127.0.0.1:${address.port}`;
+		const app = new PaperAgentApplication({ projectRoot: root });
+		try {
+			await app.initialize();
+			const store = app.personalStore();
+			await store.initialize();
+			const note = await store.createResearchNote({ title: "Explicit shared draft", markdown: "Share as Alice" });
+			await saveTeamAccess(root, { serverUrl, namespace: "lab", token: "identity-plan-alice", identity: "alice" });
+			const input = { sources: [{ kind: "note" as const, id: note.id }] };
+			const plan = await app.prepareTeamPagesProposal(input);
+			const grant = await app.confirmOperation(plan.operationId, plan.manifestFingerprint);
+			await saveTeamAccess(root, { serverUrl, namespace: "lab", token: "identity-plan-bob", identity: "bob" });
+			await expect(app.proposeTeamPages(input, grant)).rejects.toThrow(/manifest|fingerprint|changed/i);
+			const result = await fetch(`${serverUrl}/v1/namespaces/lab/content?resource=pages&pending=true`, {
+				headers: { authorization: "Bearer identity-plan-bob" },
+			});
+			expect(((await result.json()) as { entries: unknown[] }).entries).toEqual([]);
+		} finally {
+			await app.close();
+		}
+	});
 	it("keeps limited contributor and reviewer identities connected without probing reader-only endpoints", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-overview-"));
 		temporaryPaths.push(root);
@@ -209,6 +250,11 @@ describe("PaperAgentApplication team overview", () => {
 			};
 			const store = application.personalStore();
 			await store.upsertPaper(record);
+			const paperProposal = await application.prepareTeamPaperProposal({ paperIds: [record.id] });
+			await application.proposeTeamPapers(
+				{ paperIds: [record.id] },
+				await application.confirmOperation(paperProposal.operationId, paperProposal.manifestFingerprint),
+			);
 			const pdf = Buffer.from("%PDF-1.4\nteam blob\n");
 			const blob = await store.putBlob(pdf);
 			await store.savePaperVersion({
@@ -252,7 +298,7 @@ describe("PaperAgentApplication team overview", () => {
 			await expect(application.drillTeamRestore(drillInput, drillGrant)).resolves.toMatchObject({
 				validated: true,
 				namespace: "security",
-				stats: { recordCount: 0, artifactCount: 1, blobCount: 1 },
+				stats: { recordCount: 1, artifactCount: 1, blobCount: 1 },
 			});
 		} finally {
 			await application.close();
@@ -286,9 +332,7 @@ describe("PaperAgentApplication team overview", () => {
 			year: 2026,
 			identifiers: {},
 			links: [{ url: "https://example.org/pull.pdf", kind: "pdf", openAccess: true }],
-			provenance: [
-				{ provider: "json-import", query: "team-pull", retrievedAt: "2026-01-01T00:00:00.000Z" },
-			],
+			provenance: [{ provider: "json-import", query: "team-pull", retrievedAt: "2026-01-01T00:00:00.000Z" }],
 			mergedFrom: [],
 		};
 		const teamHeaders = { authorization: "Bearer admin-token", "content-type": "application/json" };
@@ -333,6 +377,16 @@ describe("PaperAgentApplication team overview", () => {
 		const application = new PaperAgentApplication({ projectRoot: root });
 		try {
 			const input = { paperIds: [teamRecord.id], includePdf: true };
+			// The uploaded attachment is a new reviewable version, even when metadata was already approved.
+			const attachmentReview = await application.prepareTeamReview({
+				resource: "papers",
+				ids: [teamRecord.id],
+				decision: "team-approved",
+			});
+			await application.reviewTeamEntries(
+				{ resource: "papers", ids: [teamRecord.id], decision: "team-approved" },
+				await application.confirmOperation(attachmentReview.operationId, attachmentReview.manifestFingerprint),
+			);
 			const plan = await application.prepareTeamPull(input);
 			expect(plan.kind).toBe("personal-corpus-write");
 			const grant = await application.confirmOperation(plan.operationId, plan.manifestFingerprint);
@@ -366,5 +420,131 @@ describe("PaperAgentApplication team overview", () => {
 		} finally {
 			await application.close();
 		}
+	});
+
+	it("proposes a personal research note as a team knowledge page and approves it end to end", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-pages-e2e-"));
+		temporaryPaths.push(root);
+		const server = createTeamCorpusServer({
+			root: join(root, "team"),
+			identities: [
+				{
+					name: "alice",
+					tokenSha256: hashTeamToken("alice-token"),
+					roles: ["reader", "contributor"],
+					namespaces: ["security"],
+				},
+				{
+					name: "bob",
+					tokenSha256: hashTeamToken("bob-token"),
+					roles: ["reader", "reviewer"],
+					namespaces: ["security"],
+				},
+			],
+		});
+		servers.push(server);
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		const address = server.address();
+		if (!address || typeof address === "string") throw new Error("team server did not bind a TCP port");
+		const serverUrl = `http://127.0.0.1:${address.port}`;
+		await saveTeamAccess(root, {
+			serverUrl,
+			namespace: "security",
+			token: "alice-token",
+			identity: "alice",
+		});
+		const application = new PaperAgentApplication({ projectRoot: root });
+
+		const noteDirectory = join(root, ".paper-agent", "notes", "default");
+		await mkdir(noteDirectory, { recursive: true });
+		await writeFile(
+			join(noteDirectory, "uaf-detection.md"),
+			"# UAF 检测调研\n\n团队共享的阅读总结，[E1] 指向论文第 4 页。\n",
+			"utf8",
+		);
+		await application.syncResearchNotes();
+		const notes = await application.listResearchNotes();
+		expect(notes).toHaveLength(1);
+		const noteId = notes[0]?.id;
+		expect(noteId).toBeTruthy();
+
+		const input = { sources: [{ kind: "note" as const, id: noteId as string }] };
+		const staleProposal = await application.prepareTeamPagesProposal(input);
+		const staleProposalGrant = await application.confirmOperation(
+			staleProposal.operationId,
+			staleProposal.manifestFingerprint,
+		);
+		await writeFile(join(noteDirectory, "uaf-detection.md"), "# UAF 检测调研\n\n确认后新增的研究内容。\n", "utf8");
+		await application.syncResearchNotes();
+		await expect(application.proposeTeamPages(input, staleProposalGrant)).rejects.toThrow(/changed|manifest|match/i);
+		const plan = await application.prepareTeamPagesProposal(input);
+		expect(plan.kind).toBe("team-proposal");
+		const grant = await application.confirmOperation(plan.operationId, plan.manifestFingerprint);
+		const proposed = await application.proposeTeamPages(input, grant);
+		const pageKey = proposed.entries[0].snapshot.key;
+		expect(proposed.entries[0]?.review.status).toBe("team-proposed");
+		expect(proposed.entries[0]?.snapshot.kind).toBe("note");
+
+		// Re-proposing the unchanged note keeps the pending state; a reviewer still sees exactly one entry.
+		const overviewAsContributor = await application.teamOverview();
+		expect(overviewAsContributor.pages?.length ?? 0).toBe(0);
+
+		await saveTeamAccess(root, { serverUrl, namespace: "security", token: "bob-token", identity: "bob" });
+		const reviewerOverview = await application.teamOverview();
+		expect(reviewerOverview.pages).toHaveLength(1);
+		expect(reviewerOverview.pages?.[0]?.review.status).toBe("team-proposed");
+
+		const reviewPlan = await application.prepareTeamReview({
+			resource: "pages",
+			ids: [pageKey],
+			decision: "team-approved",
+		});
+		const reviewGrant = await application.confirmOperation(reviewPlan.operationId, reviewPlan.manifestFingerprint);
+		const revisedMarkdown = `${proposed.entries[0].snapshot.markdown}\n贡献者在审核确认之后再次修改。\n`;
+		expect(
+			(
+				await fetch(`${serverUrl}/v1/namespaces/security/pages`, {
+					method: "POST",
+					headers: { authorization: "Bearer alice-token", "content-type": "application/json" },
+					body: JSON.stringify({
+						records: [
+							{
+								...proposed.entries[0].snapshot,
+								markdown: revisedMarkdown,
+								contentHash: createHash("sha256").update(revisedMarkdown).digest("hex"),
+							},
+						],
+					}),
+				})
+			).status,
+		).toBe(200);
+		await expect(
+			application.reviewTeamEntries({ resource: "pages", ids: [pageKey], decision: "team-approved" }, reviewGrant),
+		).rejects.toThrow(/changed|manifest|match/i);
+		const freshReviewPlan = await application.prepareTeamReview({
+			resource: "pages",
+			ids: [pageKey],
+			decision: "team-approved",
+		});
+		const freshReviewGrant = await application.confirmOperation(
+			freshReviewPlan.operationId,
+			freshReviewPlan.manifestFingerprint,
+		);
+		const reviewed = (await application.reviewTeamEntries(
+			{ resource: "pages", ids: [pageKey], decision: "team-approved" },
+			freshReviewGrant,
+		)) as { entries: Array<{ review: { status: string } }> };
+		expect(reviewed.entries[0]?.review.status).toBe("team-approved");
+
+		// Approved pages become visible to the reader side again.
+		await saveTeamAccess(root, { serverUrl, namespace: "security", token: "alice-token", identity: "alice" });
+		const afterApproval = await application.teamOverview();
+		expect(afterApproval.pages).toHaveLength(1);
+		expect(afterApproval.pages?.[0]?.snapshot?.title).toBeTruthy();
+		expect(afterApproval.pages?.[0]?.snapshot).not.toHaveProperty("markdown");
+		expect(await application.readTeamContent({ resource: "pages", id: pageKey })).toHaveProperty(
+			"content.snapshot.markdown",
+		);
+		await application.close();
 	});
 });

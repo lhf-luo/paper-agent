@@ -36,11 +36,13 @@ export function proposedByIdentity(
 }
 
 export interface TeamLiteratureRepository {
+	invalidate?(): void;
 	initialize(): Promise<void>;
 	listPapers(): Promise<PaperRecord[]>;
 	/** Records awaiting review: freshly proposed papers plus pending revisions of approved ones. */
 	listPendingPapers(): Promise<PaperRecord[]>;
 	getPaper(id: string): Promise<PaperRecord | undefined>;
+	getReviewablePaper(id: string): Promise<PaperRecord | undefined>;
 	searchPapers(options: {
 		query?: string;
 		yearFrom?: number;

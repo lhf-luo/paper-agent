@@ -39,6 +39,8 @@ export async function previewTeamPull(
 	return Promise.all(
 		paperIds.map(async (id) => {
 			const record = await client.getPaper(namespace, id);
+			if (record.curation?.teamReview?.status !== "team-approved")
+				throw new Error("Only approved team papers can be pulled into the personal library");
 			const { versions } = await client.listPaperVersions(namespace, id);
 			return { record, version: versions.find((version) => version.isPreferred) ?? versions[0] };
 		}),

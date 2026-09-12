@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -211,9 +212,9 @@ describe("team collaboration flows", () => {
 				abstract: "Shared by the collaboration suite.",
 				curation: { teamReview: { status: "team-approved" } },
 			});
-			expect(((await (await call("/proposals", "reviewer-token")).json()) as { records: unknown[] }).records).toEqual(
-				[],
-			);
+			expect(
+				((await (await call("/proposals", "reviewer-token")).json()) as { records: unknown[] }).records,
+			).toEqual([]);
 
 			const events = (await (await call("/events?limit=50", "reviewer-token")).json()) as {
 				events: Array<{ action: string }>;

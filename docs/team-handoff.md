@@ -77,6 +77,8 @@ team-server/
 - `src/team/domain/team-access.ts`
 - `src/team/application/team-connection.ts`
 - `src/team/application/team-corpus-client.ts`
+- `src/team/application/team-personal-sources.ts`（个人笔记/Wiki 来源适配）
+- `src/app/application/paper-agent-team-collaboration.ts`（协作、专题和知识拉取的确认操作）
 - `src/team/infrastructure/team-http-transport.ts`
 - `src/team/presentation/team-corpus-tools.ts`
 
@@ -117,8 +119,9 @@ health 例外
 | `403` | Token 有效，但 role 或 namespace 权限不足 |
 | `404` | 资源不存在 |
 | `405` | 路由存在，但 HTTP 方法不允许 |
-| `409` | 提案复用了已存在的团队论文 id，但 identifiers 表明它是另一篇论文 |
+| `409` | 论文身份冲突，或审核内容、讨论、专题版本已改变 |
 | `413` | 请求体或 blob 超过限制 |
+| `428` | 缺少审核或协作操作需要的版本 |
 | `500` | 未预期的服务端错误 |
 
 ## 5. 身份和权限
@@ -242,26 +245,47 @@ Authorization: Bearer <token>
 | `GET` | `/proposals` | `reviewer`（`mine=true` 时为 `contributor`） | 查看待审核论文，包括对已批准记录的待审修订（`curation.teamReview.revision: true`）；`mine=true` 只返回当前身份提交的提案，优先按成员 id 匹配 |
 | `POST` | `/proposals` | `contributor` | 提交论文提案 |
 | `POST` | `/proposals/withdraw` | `contributor` | 撤回自己尚未被审核的提案，body `{ paperIds }`；任一条不满足整批 400 |
-| `POST` | `/reviews` | `reviewer` | 审核论文；目标存在待审修订时，批准=用修订替换已批准记录，拒绝=丢弃修订、原记录不变 |
+| `POST` | `/reviews/preview` | `reviewer` | `{ resource, ids }`，返回四类内容的完整快照与版本 |
+| `POST` | `/reviews` | `reviewer` | 审核论文和待审附件；必须携带预览返回的 `expectedVersions`。批准修订替换，拒绝修订保留已发布记录 |
 | `GET` | `/derived` | `reader` 或 `reviewer` | 查看派生记录 |
 | `POST` | `/derived` | `contributor` | 提交派生记录 |
 | `POST` | `/derived/reviews` | `reviewer` | 审核派生记录 |
+| `GET` | `/pages` | `reader` 或 `reviewer` | 查看团队知识页面快照（调研笔记 / Wiki 页面）；`pending=true` 仅对 `reviewer` 生效 |
+| `POST` | `/pages` | `contributor` | 提交知识页面快照，body `{ records: TeamPageSnapshot[] }`；服务端按稳定成员 id、个人 namespace、kind 和 sourceId 分配存储键 |
+| `POST` | `/pages/reviews` | `reviewer` | 审核知识页面，body 同 `/derived/reviews`，包含 `{ keys, decision, expectedVersions }` |
 | `GET` | `/artifacts` | `reader` 或 `reviewer` | 查看 Artifact 记录 |
 | `POST` | `/artifacts` | `contributor` | 提交 Artifact manifest |
 | `POST` | `/artifacts/reviews` | `reviewer` | 审核 Artifact manifest |
 | `PUT` | `/blobs/{sha256}` | `contributor` | 上传经 SHA-256 校验的 blob |
-| `GET` | `/blobs/{sha256}` | `reader` | 下载 blob |
+| `GET` | `/blobs/{sha256}` | `reader` 或 `reviewer` | reader 只能下载已批准关联内容的已批准版本；reviewer 可读取待审材料 |
 | `GET` | `/events` | `reviewer` | 读取 namespace 审计事件，倒序分页 |
 | `GET` | `/stats` | `reader` | 读取统计 |
 | `GET` | `/audit` | `reviewer` | 审计记录、provenance 和待审核状态 |
 | `POST` | `/backups` | `admin` | 创建备份 |
 | `POST` | `/backups/drill` | `admin` | 验证备份并执行恢复演练 |
+| `GET` | `/content` | `reader` / `reviewer`；贡献者可查自己的待审内容 | 四类内容全文检索，返回摘要、版本、关联论文和分页游标；支持 `resource/q/pending/topicId/cursor/limit` |
+| `GET` | `/content/{resource}/{id}` | 已发布内容可读；待审/历史限审核者或原提案人 | 按需读取完整正文；`pending=true` 读取待审内容，`version` 读取有权限的历史快照 |
+| `GET` | `/contributions` | `reviewer`；`mine=true` 时为 `contributor` | 四类提案历史，可按 `status` 分页，包含批准、拒绝、退回修改、撤回和被后续版本替换 |
+| `GET` | `/discussions/{resource}/{id}` | `reviewer` 或当前提案人 | 当前提案、历史、评论和负责人，附讨论版本 |
+| `POST` | `/collaboration` | 按 action 校验 | `{resource,id,action,expectedVersion,text?,assigneeId?}`；评论限原提案人/审核者，指派和退回限审核者，撤回限原提案人 |
+| `GET` | `/reviewers` | `contributor` / `reviewer` | 当前空间内有效审核成员的 id 和姓名 |
+| `GET` | `/notifications` | 有效身份 | 仅返回本人通知，附未读数和分页游标 |
+| `POST` | `/notifications/read` | 有效身份 | `{ids}`，仅标记本人通知，整批预检 |
+| `GET` | `/topics` | `reader` / `reviewer` | 分页读取专题；关联内容仅保留已发布项 |
+| `POST` | `/topics` | `reviewer` | 创建/编辑/删除专题；编辑和删除必须携带 `expectedVersion`，成员最多 1000 条已发布内容引用 |
+| `GET` | `/maintenance` | `admin` | 最近备份与恢复演练的成功/失败状态、时间和诊断提示 |
 
 搜索支持 `q`、`yearFrom`、`yearTo`、`author`、`venue`、`type`、`openAccess`、`status`、`cursor` 和 `limit`。当前 `cursor` 实际是数字 offset 的字符串。`author`、`venue`、`type` 和 `status` 可重复或逗号分隔。
 
 `status` 取值 `team-proposed`、`team-approved`、`team-rejected`。**未传时默认只返回 `team-approved`**；传入任何非 `team-approved` 值需要 `reviewer` 或 `admin`，否则返回 403。因此普通 `reader` 无法通过搜索发现待审核或被拒绝的记录。
 
 `GET /papers/{paperId}` 与 `/papers/{paperId}/versions` 对不可见的记录一律返回 **404 而不是 403**，以避免泄露记录是否存在。
+
+新内容列表默认 50 条，`limit` 为 1–200；响应为 `{ entries, total, nextCursor? }`。`/content` 不包含 Markdown、派生结果或完整 Artifact 清单，正文由单条接口按需读取。Web 概览每类只获取已发布和待审的前 25 条摘要，完整列表通过协作区分页访问。旧的 `/derived`、`/pages`、`/artifacts` 完整列表接口仍保留兼容；新客户端应使用 `/content`。
+
+审核版本覆盖完整内容、审核状态和附件。`comment/assign` 的 `expectedVersion` 来自讨论接口；`withdraw/request-changes` 来自内容快照。发生变化返回 409，客户端不能自行替换版本重放旧确认。退回修改在内容层使用拒绝状态，在提案历史中记为 `changes-requested`；重新提交有变化的内容后进入待审。站内通知不会发送邮件或第三方消息。
+
+客户端确认计划还包含连接指纹；切换同一服务器上的身份、Token 或 namespace 后，旧计划不可继续执行。执行时使用再次校验过的连接对象，凭据本身不进入确认内容。
 
 ## 8. 磁盘数据
 
@@ -288,6 +312,15 @@ Authorization: Bearer <token>
         {key}.json
       artifacts/
         {paperId}.json
+      pages/
+        page-{origin-hash}.json
+    collaboration/
+      entries/{resource-id-hash}.json
+      snapshots/{resource-id-hash}/{version}.json
+      notifications/{identity-hash}/{notification-id}.json
+    topics/{topic-id}.json
+    maintenance.json
+    .transactions/{transaction-id}/
     events/
       audit.jsonl
     manifest.json
@@ -304,12 +337,16 @@ Authorization: Bearer <token>
 - `blobs/sha256/...`：按内容寻址的 PDF 或其他二进制。
 - `knowledge/derived/{key}.json`：派生记录和审核状态。
 - `knowledge/artifacts/{paperId}.json`：Artifact manifest 和审核状态。
+- `knowledge/pages/page-{origin-hash}.json`：个人知识页面的已发布版本、最新提案和历史；origin 由稳定成员 id、个人 namespace、kind、sourceId 组成。重复内容不重置决策，变化形成待审修订，已发布副本继续可读。旧 `kind.sourceId` 文件仍可读取；只有稳定来源身份匹配时才沿用旧键，不根据展示姓名接管旧页面。
+- `collaboration/entries/`：四类提案的结果、评论、指派和历史摘要；正文快照单独存放在 `collaboration/snapshots/`，通知按稳定身份隔离。
+- `topics/`：审核者维护的跨论文/知识专题引用；不复制正文。
+- `maintenance.json`：管理员可见的最近备份和恢复演练结果。
 - `events/audit.jsonl`：namespace 级追加式审计日志。
 - `manifest.json`：团队 corpus 的轻量统计清单。
 - `_security/identities.json`：身份注册表，schema version 2。
 - `_security/token-audit.jsonl`：身份和 Token 管理审计。
 
-JSON 写入应先写临时文件，再原子 `rename`。论文存储还会使用 `.write.lock` 串行化写操作。一个数据根目录只能有一个写服务实例，不要把它挂到多个共享写入进程。
+JSON 写入先写临时文件、同步文件，再原子 `rename`。namespace 业务操作在 `.transactions/{id}/` 保存恢复日志、JSON 文件原像与待投递审计事件；未提交操作失败/重启时恢复原像，已提交操作补记审计并按事件 id 去重。`knowledge/derived|artifacts|pages/` 的文件读取兼容旧条目，新写入使用 schemaVersion 2 的 `{ published, latest, history }` 信封；待审修订不会替换已发布内容。论文历史位于 `history/papers/`。论文存储继续使用 `.write.lock`。一个数据根目录只能有一个写服务实例。
 
 ### 备份结构
 
@@ -376,7 +413,7 @@ team-proposed -> team-approved
 - `FileTeamLiteratureRepository` 使用文件锁避免并发论文写入。
 - `TeamKnowledgeStore` 内部还有写入和审计串行链。
 - blob 通过内容 SHA-256 寻址，上传内容必须与路径哈希一致。
-- 业务文件和审计是分开的文件，当前不是跨文件事务。审计追加失败时，业务数据可能已经写入，交接后新增流程时要考虑补偿语义。
+- namespace 业务文件与审计通过恢复日志补偿：新写路径必须使用 `writeJsonAtomic` / `removeTeamFile` 并位于 `withWriteOperation` 内，审计调用 `appendAudit`。身份注册表是独立持久化边界。不要绕过日志直接替换或删除业务 JSON。
 
 ## 10. 本地开发
 
@@ -511,14 +548,15 @@ curl http://127.0.0.1:14713/health
 
 1. `team-server/src/infrastructure/team-knowledge-store.ts` 的 `listAuditEvents()` 从文件尾部按 64 KiB 分块倒序读取，只读到当前页需要的行数；但翻到很深的页（大 `cursor`）仍需扫过前面所有较新的事件，超过十万级后应引入轮转或索引。
 2. 团队搜索在内存索引上打分，已不做重复磁盘读取；但排序仍是 O(n log n) 全量打分，没有倒排索引或字段级索引，超大数据集需要引入真正的检索层。
-3. JSON 和 blob 请求会完整读入内存。当前限制分别是默认 8 MiB 和 200 MiB。
-4. 业务写入和审计追加不是同一个事务，审计失败可能留下已写入业务数据。
+3. JSON 请求仍在默认 8 MiB 限制内读入内存。团队服务及 Web 附件传输使用流，上传边接收边校验，默认上限 200 MiB，失败清理临时文件；兼容的 `downloadBlob()` 调用及个人库 PDF 导入仍可能持有一份 PDF 缓冲区。
+4. namespace 写入有恢复补偿与审计 outbox，但不提供多实例或数据库级读隔离；身份注册表仍是独立持久化边界。恢复日志损坏时应停止写入并修复，不能丢弃恢复证据。
 5. 当前没有数据库迁移框架，依赖 schema version、备份和兼容读取。
 6. 服务设计为单实例写入（内存索引也建立在此前提上）。不要在没有重新设计锁、审计、索引失效和备份的情况下部署多个写实例。
 7. 团队服务器可以直接复制运行，但协议兼容性仍由服务端和主项目两边共同维护；现已由 `test/team-protocol-drift.test.ts` 强制两份拷贝逐行一致（仅 `import` 行允许不同）。
 8. `validateTeamAccess()` / `encodeTeamInvite()` 允许 loopback HTTP（本地开发需要）。`invite.ts` 的管理请求本身仍强制 HTTPS（`requestJson()` 拒绝非 `https:` 的 `--url`），生产部署只使用 HTTPS 公共地址。
 9. `mergePaperRecords()` 对摘要、标题、作者列表采用"更长者胜出"。进入指纹的字段（标题、摘要、identifiers、下载链接）变化时会形成待审修订，审核拒绝即可整体丢弃；但不进入指纹的软字段（作者列表、venue、引用数等）会直接合并生效，一旦更长的错误值合并进来，重新提案正确的较短值无法把它替换回去，只能由管理员直接修正数据文件。
-10. `proposedBy` 是展示名，管理员改名后旧记录不会更新；撤回和 `mine=true` 优先按 `proposedById` 匹配，只有实施成员 id 之前写入的旧记录才回退到按名称匹配。
+10. `proposedBy` 是历史展示名，管理员改名后旧文字不更新；新提案、通知和来源隔离使用稳定 id。旧论文的撤回仍保留无 id 时按姓名匹配的兼容逻辑；来源身份无法证明的旧页面继续只读，新提案分配独立来源键。
+11. 知识检索逐条扫描正文，反馈和历史仍使用 JSON 文件；分页控制响应规模，但尚无大型数据库或全文索引。不要把当前小团队单实例实现当成无限容量服务。
 
 ## 13. 推荐阅读顺序
 

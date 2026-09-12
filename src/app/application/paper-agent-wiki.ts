@@ -3,11 +3,10 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
-import { ResearchNotebook } from "../../research/application/research-notebook.ts";
 import type { ConfirmationGrant, OperationPlan, PreparedOperation } from "../../shared/application/operation-consent.ts";
-import { WikiWorkspace } from "../../wiki/application/wiki-workspace.ts";
+import type { WikiWorkspace } from "../../wiki/application/wiki-workspace.ts";
 import type { WikiIngestRequest, WikiIngestPreview, WikiSearchOptions } from "../../wiki/domain/wiki-types.ts";
-import { PaperAgentTeamOperations } from "./paper-agent-team-operations.ts";
+import { PaperAgentTeamCollaboration } from "./paper-agent-team-collaboration.ts";
 
 export interface PreparedWikiIngest {
 	preview: WikiIngestPreview;
@@ -57,7 +56,7 @@ export async function ensureObsidianVault(vaultPath: string, configPath = defaul
 	return selectedId;
 }
 
-export abstract class PaperAgentWiki extends PaperAgentTeamOperations {
+export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
 		await this.wikiWorkspace().initialize();
@@ -65,36 +64,7 @@ export abstract class PaperAgentWiki extends PaperAgentTeamOperations {
 	}
 
 	wikiWorkspace(namespace = this.defaultNamespace): WikiWorkspace {
-		const store = this.personalStore(namespace);
-		const notebook = new ResearchNotebook(store);
-		return new WikiWorkspace(this.dataRoot, namespace, {
-			resolvePaper: async (id) => {
-				const record = await store.getPaper(id);
-				if (!record) return undefined;
-				const versions = await store.listPaperVersions(id);
-				const preferred = versions.find((version) => version.isPreferred) ?? versions[0];
-				return {
-					kind: "paper",
-					id,
-					title: record.title,
-					version: preferred?.sha256 ?? "metadata",
-					updatedAt: preferred?.retrievedAt ?? record.curation?.reading?.updatedAt,
-				};
-			},
-			resolveNote: async (id) => {
-				const note = await notebook.get(id);
-				return note
-					? {
-							kind: "note",
-							id,
-							title: note.title,
-							version: note.contentHash,
-							revision: note.revision,
-							updatedAt: note.updatedAt,
-						}
-					: undefined;
-			},
-		});
+		return this.wikiWorkspaceFor(namespace);
 	}
 
 	async listWikiPages(namespace = this.defaultNamespace, options: WikiSearchOptions = {}) {

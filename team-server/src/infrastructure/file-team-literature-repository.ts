@@ -24,7 +24,13 @@ import type {
 	ScreeningStatus,
 } from "../protocol/literature-types.ts";
 import type { SharedReviewStatus } from "../protocol/team-corpus-types.ts";
-import { readJson, safeSegment, stableFingerprint, writeJsonAtomic } from "./team-knowledge-serialization.ts";
+import {
+	readJson,
+	removeTeamFile,
+	safeSegment,
+	stableFingerprint,
+	writeJsonAtomic,
+} from "./team-knowledge-serialization.ts";
 
 /**
  * The content a review decision actually vouches for: which paper this is (normalized title, year,
@@ -209,6 +215,10 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		return readJson<PaperRecord>(this.recordPath(id));
 	}
 
+	async getReviewablePaper(id: string): Promise<PaperRecord | undefined> {
+		return (await this.getRevision(id)) ?? this.getPaper(id);
+	}
+
 	async searchPapers(options: {
 		query?: string;
 		yearFrom?: number;
@@ -239,7 +249,10 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 			if (options.yearFrom !== undefined && (record.year === undefined || record.year < options.yearFrom)) continue;
 			if (options.yearTo !== undefined && (record.year === undefined || record.year > options.yearTo)) continue;
 			const authors = record.authors.map(normalizeSearchText);
-			if (wantedAuthors.length && !wantedAuthors.every((wanted) => authors.some((author) => author.includes(wanted))))
+			if (
+				wantedAuthors.length &&
+				!wantedAuthors.every((wanted) => authors.some((author) => author.includes(wanted)))
+			)
 				continue;
 			const venue = normalizeSearchText(record.venue ?? "");
 			if (wantedVenues.length && !wantedVenues.some((wanted) => venue.includes(wanted))) continue;
@@ -332,7 +345,11 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		});
 	}
 
-	private async upsertPaper(record: PaperRecord, candidates: PaperRecord[], proposer?: TeamContributor): Promise<void> {
+	private async upsertPaper(
+		record: PaperRecord,
+		candidates: PaperRecord[],
+		proposer?: TeamContributor,
+	): Promise<void> {
 		const direct = await this.getPaper(record.id);
 		if (direct) assertSamePaper(direct, record);
 		const existing = direct ?? candidates.find((candidate) => samePaperIdentity(candidate, record));
@@ -364,9 +381,10 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 				},
 			};
 		}
-		if (!existing || JSON.stringify(existing) !== JSON.stringify(merged)) await writeJsonAtomic(this.recordPath(merged.id), merged);
+		if (!existing || JSON.stringify(existing) !== JSON.stringify(merged))
+			await writeJsonAtomic(this.recordPath(merged.id), merged);
 		if (existing && existing.id !== merged.id) {
-			await unlink(this.recordPath(existing.id)).catch((error) => {
+			await removeTeamFile(this.recordPath(existing.id)).catch((error) => {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			});
 			this.uncacheRecord(existing.id);
@@ -403,7 +421,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 
 	private async removeRevision(id: string): Promise<void> {
 		try {
-			await unlink(this.revisionPath(id));
+			await removeTeamFile(this.revisionPath(id));
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}
@@ -430,6 +448,8 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 				reason: reason?.trim() || undefined,
 			};
 			const updated = { ...record, curation };
+			await this.archivePaper(record, decision, reviewer, reason);
+			await this.reviewPendingVersions(id, decision, reviewer, reason);
 			await writeJsonAtomic(this.recordPath(id), updated);
 			this.cacheRecord(updated);
 			await this.refreshManifest();
@@ -445,13 +465,16 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		reason?: string,
 	): Promise<PaperRecord> {
 		const approved = await this.getPaper(id);
-		await this.removeRevision(id);
+		await this.archivePaper(revision, decision, reviewer, reason);
+		await this.reviewPendingVersions(id, decision, reviewer, reason);
 		if (decision === "team-rejected" && approved) {
 			// The approved record was never touched, so discarding the revision is the whole rollback.
+			await this.removeRevision(id);
 			await this.refreshManifest();
 			return approved;
 		}
-		const { revision: _flag, ...review }: NonNullable<PaperCuration["teamReview"]> = revision.curation?.teamReview ?? {
+		const { revision: _flag, ...review }: NonNullable<PaperCuration["teamReview"]> = revision.curation
+			?.teamReview ?? {
 			status: "team-proposed",
 		};
 		const updated: PaperRecord = {
@@ -468,6 +491,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 			},
 		};
 		await writeJsonAtomic(this.recordPath(id), updated);
+		await this.removeRevision(id);
 		this.cacheRecord(updated);
 		await this.refreshManifest();
 		return updated;
@@ -493,14 +517,62 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		return { sha256, path, existed };
 	}
 
+	private async archivePaper(record: PaperRecord, decision: string, actor: string, reason?: string): Promise<void> {
+		await writeJsonAtomic(
+			join(this.root, "history", "papers", safeSegment(record.id, "paper id"), `${Date.now()}-${randomUUID()}.json`),
+			{ record, decision, actor, reason, at: new Date().toISOString() },
+		);
+	}
+
+	private async reviewPendingVersions(
+		paperId: string,
+		decision: "team-approved" | "team-rejected",
+		reviewer: string,
+		reason?: string,
+	): Promise<void> {
+		const versions = (await readJson<PaperVersion[]>(this.versionPath(paperId))) ?? [];
+		if (!versions.some((version) => version.teamReview?.status === "team-proposed")) return;
+		await writeJsonAtomic(
+			this.versionPath(paperId),
+			versions.map((version) =>
+				version.teamReview?.status === "team-proposed"
+					? {
+							...version,
+							teamReview: {
+								...version.teamReview,
+								status: decision,
+								reviewedBy: reviewer,
+								reviewedAt: new Date().toISOString(),
+								reason,
+							},
+						}
+					: version,
+			),
+		);
+	}
+
 	async savePaperVersion(version: PaperVersion): Promise<void> {
 		await this.initialize();
 		await this.withWriteLock(async () => {
 			const path = this.versionPath(version.paperId);
 			const versions = (await readJson<PaperVersion[]>(path)) ?? [];
-			if (!versions.some((item) => item.sha256 === version.sha256 && item.finalUrl === version.finalUrl)) {
-				versions.push(version);
+			const existing = versions.findIndex(
+				(item) => item.sha256 === version.sha256 && item.finalUrl === version.finalUrl,
+			);
+			if (existing < 0 || versions[existing].teamReview?.status === "team-rejected") {
+				if (existing < 0) versions.push(version);
+				else versions[existing] = version;
 				await writeJsonAtomic(path, versions);
+				const paper = await this.getPaper(version.paperId);
+				if (
+					version.teamReview?.status === "team-proposed" &&
+					paper?.curation?.teamReview?.status === "team-approved"
+				) {
+					await this.parkRevision(paper, paper, {
+						name: version.teamReview.proposedBy ?? "contributor",
+						id: version.teamReview.proposedById,
+					});
+				}
 			}
 		});
 	}
@@ -530,9 +602,13 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 				const review = record.curation?.teamReview;
 				if (review?.status !== "team-proposed") throw new Error(`Only pending proposals can be withdrawn: ${id}`);
 				if (review.reviewedAt) throw new Error(`A reviewed proposal can no longer be withdrawn: ${id}`);
-				if (!proposedByIdentity(review, identity)) throw new Error(`Only the original proposer can withdraw: ${id}`);
+				if (!proposedByIdentity(review, identity))
+					throw new Error(`Only the original proposer can withdraw: ${id}`);
 			}
 			for (const { id, revision } of targets) {
+				const source = revision ?? (await this.getPaper(id));
+				if (source) await this.archivePaper(source, "withdrawn", contributor);
+				await this.reviewPendingVersions(id, "team-rejected", contributor, "Proposal withdrawn");
 				if (revision) {
 					// Only the parked revision goes; the approved record it would have replaced is untouched.
 					await this.removeRevision(id);
@@ -548,7 +624,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 
 	private async removeRecord(id: string): Promise<void> {
 		try {
-			await unlink(this.recordPath(id));
+			await removeTeamFile(this.recordPath(id));
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}
@@ -564,7 +640,9 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		return {
 			manifest: await this.buildManifest(),
 			recordsMissingPrimaryLink: records.filter((record) => record.links.length === 0).map((record) => record.id),
-			recordsMissingProvenance: records.filter((record) => record.provenance.length === 0).map((record) => record.id),
+			recordsMissingProvenance: records
+				.filter((record) => record.provenance.length === 0)
+				.map((record) => record.id),
 			teamRecordsPendingReview: pending.map((record) => record.id),
 		};
 	}
@@ -597,7 +675,10 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		while (!handle) {
 			try {
 				handle = await open(lockPath, "wx");
-				await handle.writeFile(`${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`, "utf8");
+				await handle.writeFile(
+					`${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
+					"utf8",
+				);
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 				const lockStat = await stat(lockPath).catch(() => undefined);

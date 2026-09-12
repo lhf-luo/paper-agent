@@ -231,9 +231,10 @@ sudo chmod 600 /etc/paper-agent-team/team-server.env
 - 对外监听必须配置 TLS 证书和私钥；
 - 未配置 TLS 时只允许绑定 `127.0.0.1` 或 `::1`；
 - `PAPER_AGENT_TEAM_MAX_BLOB_BYTES` 默认允许单个 PDF/Artifact blob 最大 200 MB；
+- blob 上传使用临时文件流式接收，校验 SHA-256 和实际字节数后落入内容地址；校验失败、中断和超限清理临时文件，下载也使用流；
 - `PAPER_AGENT_TEAM_PUBLIC_URL` **只被 `src/invite.ts` 读取**（生成邀请串时使用的公共地址），服务进程本身不读取它；
 - 访问日志默认开启，每个请求向 stdout 写一行脱敏 JSON（`at`/`method`/`path`/`status`/`ms`/`identityId`/`namespace`）。设 `PAPER_AGENT_TEAM_ACCESS_LOG=off` 可关闭；
-- 同一来源 IP 在 60 秒内累计 20 次 `401` 后会被限速，窗口内后续请求返回 `429`（`/health` 不受影响）。
+- 同一来源 IP 在 60 秒内累计 20 次 `401` 后，窗口内后续未通过认证的请求返回 `429`；有效 Token 和 `/health` 不受影响。
 
 ## 7. 安装并启动 systemd
 
@@ -446,6 +447,14 @@ sudo du -sh /var/back/paper-agent-team
     blobs/sha256/
     knowledge/derived/
     knowledge/artifacts/
+    knowledge/pages/
+    collaboration/entries/
+    collaboration/snapshots/
+    collaboration/notifications/
+    topics/
+    history/papers/
+    maintenance.json
+    .transactions/
     events/audit.jsonl
     manifest.json
 ```
@@ -470,6 +479,10 @@ sudo systemctl start paper-agent-team
 
 自动化备份、保留策略和真正的恢复流程见第 21 节。
 
+业务文件与审计使用 namespace 恢复日志：重启先回滚未提交写入，已提交操作补记审计并去重。不要手动删除 `.transactions/` 中的恢复证据；恢复失败时先保留原数据、备份并排查。备份不会复制活动事务目录。身份注册表仍独立持久化，服务仍要求单实例写入。
+
+管理员可在 Web 管理区查看附件数量和容量，以及最近备份/恢复演练的结果；`GET /v1/namespaces/{namespace}/maintenance` 返回相同状态。失败提示保存在 `maintenance.json` 中，详细故障使用 systemd 日志排查。普通读者不能读取维护信息或未公开附件的统计。
+
 ## 15. 升级
 
 ```bash
@@ -492,6 +505,8 @@ sudo systemctl status paper-agent-team --no-pager
 ```
 
 升级后重新检查 `/health`。只要服务器 IP、端口、CA 和成员 Token 未改变，客户端接入串无需更新。
+
+本次审核协议要求四类审核都携带预览生成的 `expectedVersions`；仅按 id 提交审核的旧客户端会收到 428，旧版本会收到 409。请同时升级客户端和服务端。旧知识条目可兼容读取；有变化的更新保留已发布副本并生成待审修订。页面来源按稳定成员身份与个人空间隔离，无法证明来源身份的旧页面不按展示姓名接管。API 细节见[交接文档](../docs/team-handoff.md)。
 
 ## 16. IP 和证书变化
 

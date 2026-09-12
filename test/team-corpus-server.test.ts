@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 import { access, cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -344,6 +345,14 @@ describe("team corpus server", () => {
 			expect(reviewedArtifact.status).toBe(200);
 
 			const blob = Buffer.from("%PDF-1.4\nteam fixture\n%%EOF\n");
+			expect(
+				(
+					await call("/proposals", "contributor-token", {
+						method: "POST",
+						body: JSON.stringify({ records: [paper()] }),
+					})
+				).status,
+			).toBe(200);
 			const sha256 = createHash("sha256").update(blob).digest("hex");
 			const mismatch = await call(`/blobs/${"0".repeat(64)}`, "contributor-token", {
 				method: "PUT",
@@ -364,6 +373,14 @@ describe("team corpus server", () => {
 			});
 			expect(uploaded.status).toBe(200);
 			expect(await uploaded.json()).toMatchObject({ sha256, existed: false });
+			expect(
+				(
+					await call("/reviews", "reviewer-token", {
+						method: "POST",
+						body: JSON.stringify({ paperIds: ["paper-team-server"], decision: "team-approved" }),
+					})
+				).status,
+			).toBe(200);
 			const downloaded = await call(`/blobs/${sha256}`, "contributor-token");
 			expect(downloaded.status).toBe(200);
 			expect(downloaded.headers.get("content-type")).toBe("application/pdf");
@@ -409,21 +426,16 @@ describe("team corpus server", () => {
 			const backupResponse = await call("/backups", "admin-token", { method: "POST", body: "{}" });
 			expect(backupResponse.status).toBe(200);
 			const backupPath = ((await backupResponse.json()) as { backupPath: string }).backupPath;
-			expect(
-				JSON.parse(
-					await readFile(join(backupPath, "namespace", "knowledge", "derived", `${derived.key}.json`), "utf8"),
-				),
-			).toMatchObject({
+			const derivedBackup = JSON.parse(
+				await readFile(join(backupPath, "namespace", "knowledge", "derived", `${derived.key}.json`), "utf8"),
+			);
+			expect(derivedBackup.published ?? derivedBackup).toMatchObject({
 				review: { status: "team-approved" },
 			});
-			expect(
-				JSON.parse(
-					await readFile(
-						join(backupPath, "namespace", "knowledge", "artifacts", "paper-team-server.json"),
-						"utf8",
-					),
-				),
-			).toMatchObject({
+			const artifactBackup = JSON.parse(
+				await readFile(join(backupPath, "namespace", "knowledge", "artifacts", "paper-team-server.json"), "utf8"),
+			);
+			expect(artifactBackup.published ?? artifactBackup).toMatchObject({
 				review: { status: "team-approved" },
 			});
 			expect(await readFile(join(backupPath, "namespace", "blobs", "sha256", sha256.slice(0, 2), sha256))).toEqual(
@@ -803,10 +815,11 @@ describe("team corpus server", () => {
 
 			// Pending records stay invisible, including their version lists.
 			expect((await call("/papers/paper-team-server/versions", "reader-token")).status).toBe(404);
-			const reviewerVersions = await call("/papers/paper-team-server/versions", "reviewer-token");
+			const reviewerVersions = await call("/papers/paper-team-server/versions?pending=true", "reviewer-token");
 			expect(reviewerVersions.status).toBe(200);
-			expect(((await reviewerVersions.json()) as { versions: Array<{ sha256: string }> }).versions.map((v) => v.sha256))
-				.toContain(sha256);
+			expect(
+				((await reviewerVersions.json()) as { versions: Array<{ sha256: string }> }).versions.map((v) => v.sha256),
+			).toContain(sha256);
 
 			await call("/reviews", "reviewer-token", {
 				method: "POST",
@@ -814,8 +827,9 @@ describe("team corpus server", () => {
 			});
 			const readerVersions = await call("/papers/paper-team-server/versions", "reader-token");
 			expect(readerVersions.status).toBe(200);
-			expect(((await readerVersions.json()) as { versions: Array<{ sha256: string }> }).versions.map((v) => v.sha256))
-				.toContain(sha256);
+			expect(
+				((await readerVersions.json()) as { versions: Array<{ sha256: string }> }).versions.map((v) => v.sha256),
+			).toContain(sha256);
 		} finally {
 			if (server.listening) {
 				await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

@@ -152,6 +152,8 @@ export interface CorpusSearchHit {
 }
 
 export interface PaperVersion {
+	/** Team attachment approval; absent on personal and pre-versioned legacy records. */
+	teamReview?: PaperCuration["teamReview"];
 	paperId: string;
 	sourceUrl: string;
 	finalUrl: string;

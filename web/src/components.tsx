@@ -1,3 +1,4 @@
+import { ArrowUpRight, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree, PAPER_DRAG_TYPE } from "./collection-tree";
@@ -13,16 +14,203 @@ import type {
 	ResearchNoteSummary,
 } from "./types";
 
+export function formatFileSize(bytes: number): string {
+	if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function timeLabel(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return value;
+	return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(
+		date.getHours(),
+	).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+export function PageHeading({
+	eyebrow,
+	title,
+	description,
+	actions,
+}: {
+	eyebrow: string;
+	title: string;
+	description: string;
+	actions?: React.ReactNode;
+}) {
+	return (
+		<header className="page-heading">
+			<div>
+				<span className="eyebrow">{eyebrow}</span>
+				<h1>{title}</h1>
+				<p>{description}</p>
+			</div>
+			{actions && <div className="heading-actions">{actions}</div>}
+		</header>
+	);
+}
+
 export function StatusPill({ status }: { status: string }) {
 	return <span className={`status-pill status-${status}`}>{status}</span>;
 }
 
-export function EmptyState({ title, text }: { title: string; text: string }) {
+export function EmptyState({
+	title,
+	text,
+	action,
+	tips,
+}: {
+	title: string;
+	text: string;
+	action?: React.ReactNode;
+	tips?: string[];
+}) {
 	return (
 		<div className="empty-state">
-			<div className="empty-icon">◇</div>
+			<div className="empty-icon">
+				<Inbox size={28} strokeWidth={1.5} />
+			</div>
 			<h3>{title}</h3>
 			<p>{text}</p>
+			{tips && tips.length > 0 && (
+				<div className="empty-onboarding-tips">
+					<div className="onboarding-label">
+						<Sparkles size={13} />
+						<span>下一步建议</span>
+					</div>
+					<ul>
+						{tips.map((tip) => (
+							<li key={tip}>{tip}</li>
+						))}
+					</ul>
+				</div>
+			)}
+			{action && <div className="empty-action">{action}</div>}
+		</div>
+	);
+}
+
+export function SkeletonCard() {
+	return (
+		<div className="skeleton-card" aria-hidden="true">
+			<div className="skeleton-pulse skeleton-line title" />
+			<div className="skeleton-pulse skeleton-line medium" />
+			<div className="skeleton-pulse skeleton-line full" />
+			<div className="skeleton-pulse skeleton-line short" />
+		</div>
+	);
+}
+
+const SKELETON_KEYS = ["sk-1", "sk-2", "sk-3", "sk-4", "sk-5", "sk-6", "sk-7", "sk-8", "sk-9", "sk-10"];
+
+export function SkeletonList({ count = 3 }: { count?: number }) {
+	const keys = SKELETON_KEYS.slice(0, Math.min(count, SKELETON_KEYS.length));
+	return (
+		<div className="skeleton-list" aria-busy="true">
+			{keys.map((key) => (
+				<SkeletonCard key={key} />
+			))}
+		</div>
+	);
+}
+
+export function AccessibleModal({
+	title,
+	description,
+	onClose,
+	children,
+	className = "",
+	maxWidth = 640,
+}: {
+	title: string;
+	description?: string;
+	onClose: () => void;
+	children: React.ReactNode;
+	className?: string;
+	maxWidth?: number | string;
+}) {
+	const modalRef = useRef<HTMLDivElement>(null);
+	const prevFocusRef = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		prevFocusRef.current = document.activeElement as HTMLElement | null;
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				onClose();
+			}
+			if (event.key === "Tab" && modalRef.current) {
+				const focusables = modalRef.current.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+				);
+				if (focusables.length === 0) return;
+				const first = focusables[0];
+				const last = focusables[focusables.length - 1];
+				if (event.shiftKey && document.activeElement === first) {
+					event.preventDefault();
+					last.focus();
+				} else if (!event.shiftKey && document.activeElement === last) {
+					event.preventDefault();
+					first.focus();
+				}
+			}
+		};
+		document.addEventListener("keydown", handleKeyDown);
+
+		const focusTimer = window.setTimeout(() => {
+			if (modalRef.current) {
+				const first = modalRef.current.querySelector<HTMLElement>(
+					'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+				);
+				first?.focus();
+			}
+		}, 50);
+
+		return () => {
+			document.removeEventListener("keydown", handleKeyDown);
+			window.clearTimeout(focusTimer);
+			prevFocusRef.current?.focus();
+		};
+	}, [onClose]);
+
+	const titleId = useMemo(() => `modal-title-${Math.random().toString(36).slice(2, 8)}`, []);
+	const descId = useMemo(() => `modal-desc-${Math.random().toString(36).slice(2, 8)}`, []);
+
+	return (
+		<div className="accessible-modal-overlay">
+			<button
+				type="button"
+				className="accessible-modal-backdrop"
+				onClick={onClose}
+				aria-label="关闭对话框"
+				tabIndex={-1}
+			/>
+			<div
+				ref={modalRef}
+				className={`accessible-modal-dialog ${className}`}
+				style={{ maxWidth }}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={titleId}
+				aria-describedby={description ? descId : undefined}
+			>
+				<div className="accessible-modal-header">
+					<div>
+						<h3 id={titleId}>{title}</h3>
+						{description && <p id={descId}>{description}</p>}
+					</div>
+					<button
+						type="button"
+						className="accessible-modal-close"
+						onClick={onClose}
+						aria-label="关闭对话框"
+						title="关闭"
+					>
+						<X size={16} />
+					</button>
+				</div>
+				<div className="accessible-modal-body">{children}</div>
+			</div>
 		</div>
 	);
 }
@@ -133,189 +321,199 @@ export function PaperCard({
 				<p className={`paper-abstract${truncateAbstract ? " paper-abstract-truncated" : ""}`}>{paper.abstract}</p>
 			)}
 			<div className="paper-meta">
-				{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
+				{paper.venueRank && (
+					<span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>
+				)}
 				<span>{paper.venue || paper.publicationType || "来源未标注"}</span>
 				{paper.identifiers.doi && <span>DOI {paper.identifiers.doi}</span>}
 				<span>{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</span>
 			</div>
 			<div className="paper-card-actions">
-			{(() => {
-				const action = paperPrimaryAction(paper);
-				if (!action) return null;
-				return (
-					<a
-						className="paper-open-link"
-						href={action.url}
-						target="_blank"
-						rel="noreferrer"
-						title={action.label}
-					>
-						{action.label} ↗
-					</a>
-				);
-			})()}
-			{((collections && onAddToCollection && onMoveToCollection) || onLoadLocalPdf || onDelete || onCreateResearchNote) && (
-				<div className="paper-card-menu-wrap">
-					<button
-						className="paper-card-menu-btn"
-						type="button"
-						title="更多操作"
-						aria-label="更多操作"
-						onMouseEnter={cancelMenuClose}
-						onMouseLeave={scheduleMenuClose}
-						onClick={() => {
-							setMenuOpen((current) => !current);
-							setMenuMode(null);
-						}}
-					>
-						⋯
-					</button>
-					{menuOpen && (
-						<div
-							className="paper-card-menu"
-							role="menu"
+				{(() => {
+					const action = paperPrimaryAction(paper);
+					if (!action) return null;
+					return (
+						<a
+							className="paper-open-link"
+							href={action.url}
+							target="_blank"
+							rel="noreferrer"
+							title={action.label}
+						>
+							{action.label} <ArrowUpRight size={13} style={{ display: "inline-block", verticalAlign: "middle", marginLeft: 3 }} />
+						</a>
+					);
+				})()}
+				{((collections && onAddToCollection && onMoveToCollection) ||
+					onLoadLocalPdf ||
+					onDelete ||
+					onCreateResearchNote) && (
+					<div className="paper-card-menu-wrap">
+						<button
+							className="paper-card-menu-btn"
+							type="button"
+							title="更多操作"
+							aria-label="更多操作"
 							onMouseEnter={cancelMenuClose}
 							onMouseLeave={scheduleMenuClose}
+							onClick={() => {
+								setMenuOpen((current) => !current);
+								setMenuMode(null);
+							}}
 						>
-							{menuMode === null ? (
-								<>
-									{collections && onAddToCollection && onMoveToCollection && (
-										<>
-											<button className="paper-card-menu-item" type="button" onClick={() => setMenuMode("add")}>
-												添加到
-											</button>
-											<button className="paper-card-menu-item" type="button" onClick={() => setMenuMode("move")}>
-												移动到
-											</button>
-										</>
-									)}
-									{onLoadLocalPdf && (
-										<button
-											className="paper-card-menu-item"
-											type="button"
-											disabled={localPdfBusy}
-											onClick={() => {
-												setMenuOpen(false);
-												setMenuMode(null);
-												onLoadLocalPdf(paper);
-											}}
-										>
-											{localPdfUploading ? "正在关联 PDF…" : "从本地加载 PDF"}
-										</button>
-									)}
-									{onCreateResearchNote && (
-										<button className="paper-card-menu-item" type="button" onClick={() => setMenuMode("notes")}>
-											笔记
-										</button>
-									)}
-									{onDelete && (
-										<button
-											className="paper-card-menu-item danger"
-											type="button"
-											disabled={deleteBusy}
-											onClick={() => {
-												setMenuOpen(false);
-												setMenuMode(null);
-												onDelete(paper);
-											}}
-										>
-											{deleteLabel}
-										</button>
-									)}
-								</>
-							) : menuMode === "notes" && onCreateResearchNote ? (
-								<div className="paper-card-note-menu">
-									{researchNotes?.length ? (
-										researchNotes.map((note) => (
+							<MoreHorizontal size={15} />
+						</button>
+						{menuOpen && (
+							<div
+								className="paper-card-menu"
+								role="menu"
+								onMouseEnter={cancelMenuClose}
+								onMouseLeave={scheduleMenuClose}
+							>
+								{menuMode === null ? (
+									<>
+										{collections && onAddToCollection && onMoveToCollection && (
+											<>
+												<button
+													className="paper-card-menu-item"
+													type="button"
+													onClick={() => setMenuMode("add")}
+												>
+													添加到
+												</button>
+												<button
+													className="paper-card-menu-item"
+													type="button"
+													onClick={() => setMenuMode("move")}
+												>
+													移动到
+												</button>
+											</>
+										)}
+										{onLoadLocalPdf && (
 											<button
 												className="paper-card-menu-item"
 												type="button"
-												key={note.id}
+												disabled={localPdfBusy}
 												onClick={() => {
-													onOpenResearchNote?.(note.id);
+													setMenuOpen(false);
+													setMenuMode(null);
+													onLoadLocalPdf(paper);
+												}}
+											>
+												{localPdfUploading ? "正在关联 PDF…" : "从本地加载 PDF"}
+											</button>
+										)}
+										{onCreateResearchNote && (
+											<button
+												className="paper-card-menu-item"
+												type="button"
+												onClick={() => setMenuMode("notes")}
+											>
+												笔记
+											</button>
+										)}
+										{onDelete && (
+											<button
+												className="paper-card-menu-item danger"
+												type="button"
+												disabled={deleteBusy}
+												onClick={() => {
+													setMenuOpen(false);
+													setMenuMode(null);
+													onDelete(paper);
+												}}
+											>
+												{deleteLabel}
+											</button>
+										)}
+									</>
+								) : menuMode === "notes" && onCreateResearchNote ? (
+									<div className="paper-card-note-menu">
+										{researchNotes?.length ? (
+											researchNotes.map((note) => (
+												<button
+													className="paper-card-menu-item"
+													type="button"
+													key={note.id}
+													onClick={() => {
+														onOpenResearchNote?.(note.id);
+														setMenuOpen(false);
+														setMenuMode(null);
+													}}
+												>
+													{note.title}
+												</button>
+											))
+										) : (
+											<span className="paper-card-menu-empty">暂无关联笔记</span>
+										)}
+										<button
+											className="paper-card-menu-item"
+											type="button"
+											onClick={() => {
+												onCreateResearchNote();
+												setMenuOpen(false);
+												setMenuMode(null);
+											}}
+										>
+											+ 新建笔记
+										</button>
+									</div>
+								) : menuMode === "move" && collections && onMoveToCollection ? (
+									<>
+										<button
+											className="paper-card-menu-item"
+											type="button"
+											onClick={() => {
+												onMoveToCollection(paper.id, null);
+												setMenuOpen(false);
+												setMenuMode(null);
+											}}
+										>
+											未分类
+										</button>
+										{collectionOptions.map(({ collection, path }) => (
+											<button
+												className="paper-card-menu-item"
+												type="button"
+												key={collection.id}
+												onClick={() => {
+													onMoveToCollection(paper.id, collection.id);
 													setMenuOpen(false);
 													setMenuMode(null);
 												}}
 											>
-												{note.title}
+												{path.join(" / ")}
 											</button>
-										))
-									) : (
-										<span className="paper-card-menu-empty">暂无关联笔记</span>
-									)}
-									<button
-										className="paper-card-menu-item"
-										type="button"
-										onClick={() => {
-											onCreateResearchNote();
-											setMenuOpen(false);
-											setMenuMode(null);
-										}}
-									>
-										+ 新建笔记
-									</button>
-								</div>
-							) : menuMode === "move" && collections && onMoveToCollection ? (
-								<>
-									<button
-										className="paper-card-menu-item"
-										type="button"
-										onClick={() => {
-											onMoveToCollection(paper.id, null);
-											setMenuOpen(false);
-											setMenuMode(null);
-										}}
-									>
-										未分类
-									</button>
-									{collectionOptions.map(({ collection, path }) => (
+										))}
+									</>
+								) : collections && onAddToCollection ? (
+									collectionOptions.map(({ collection, path }) => (
 										<button
 											className="paper-card-menu-item"
 											type="button"
 											key={collection.id}
 											onClick={() => {
-												onMoveToCollection(paper.id, collection.id);
+												onAddToCollection(paper.id, collection.id);
 												setMenuOpen(false);
 												setMenuMode(null);
 											}}
 										>
 											{path.join(" / ")}
 										</button>
-									))}
-								</>
-							) : collections && onAddToCollection ? (
-								collectionOptions.map(({ collection, path }) => (
-									<button
-										className="paper-card-menu-item"
-										type="button"
-										key={collection.id}
-										onClick={() => {
-											onAddToCollection(paper.id, collection.id);
-											setMenuOpen(false);
-											setMenuMode(null);
-										}}
-									>
-										{path.join(" / ")}
-									</button>
-								))
-							) : null}
-						</div>
-					)}
-				</div>
-			)}
+									))
+								) : null}
+							</div>
+						)}
+					</div>
+				)}
 			</div>
 		</article>
 	);
 }
 
-
-export function PaperDetailDrawer({
-	paper,
-	onClose,
-}: {
-	paper: PaperRecord;
-	onClose: () => void;
-}) {
+export function PaperDetailDrawer({ paper, onClose }: { paper: PaperRecord; onClose: () => void }) {
 	return (
 		<div className="paper-detail-layer">
 			<div className="paper-detail-mask" onClick={onClose} aria-hidden />
@@ -329,7 +527,9 @@ export function PaperDetailDrawer({
 				<div className="paper-detail-body">
 					<h2 className="paper-detail-title">{paper.title}</h2>
 					<div className="paper-detail-meta">
-						{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}
+						{paper.venueRank && (
+							<span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>
+						)}
 						<span className="year-badge">{paper.year ?? "—"}</span>
 						{paper.venue && <span>{paper.venue}</span>}
 						{paper.identifiers.doi && <span>DOI: {paper.identifiers.doi}</span>}
@@ -363,7 +563,9 @@ export function PaperDetailDrawer({
 					{paper.provenance.length > 0 && (
 						<section>
 							<h3>来源</h3>
-							<p className="paper-detail-source">{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}</p>
+							<p className="paper-detail-source">
+								{[...new Set(paper.provenance.map((item) => item.provider))].join(" · ")}
+							</p>
 						</section>
 					)}
 				</div>
@@ -426,11 +628,17 @@ export function SearchResultTable({
 									) : (
 										<span className="paper-detail-title-inline">{paper.title}</span>
 									)}
-									{paper.authors.length > 0 && <span className="search-table-authors">{paper.authors.slice(0, 4).join(", ")}</span>}
+									{paper.authors.length > 0 && (
+										<span className="search-table-authors">{paper.authors.slice(0, 4).join(", ")}</span>
+									)}
 								</td>
 								<td>{paper.year ?? "—"}</td>
 								<td>
-									{paper.venueRank && <span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>CCF-{paper.venueRank}</span>}{" "}
+									{paper.venueRank && (
+										<span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>
+											CCF-{paper.venueRank}
+										</span>
+									)}{" "}
 									<span>{paper.venue || paper.publicationType || "—"}</span>
 								</td>
 								<td className="col-identifier">{paperPrimaryIdentifier(paper)}</td>
@@ -754,13 +962,13 @@ export function PdfViewer({
 	return (
 		<div className="pdf-viewer">
 			<div className="pdf-toolbar">
-					<button type="button" onClick={() => selectPage(page - 1)}>
+				<button type="button" onClick={() => selectPage(page - 1)}>
 					上一页
 				</button>
 				<span>
 					第 {page} / {documentProxy.numPages} 页
 				</span>
-					<button type="button" onClick={() => selectPage(page + 1)}>
+				<button type="button" onClick={() => selectPage(page + 1)}>
 					下一页
 				</button>
 			</div>
@@ -798,7 +1006,7 @@ export function PdfViewer({
 							className={asset.page === page ? "active" : ""}
 							type="button"
 							key={asset.id}
-								onClick={() => selectPage(asset.page)}
+							onClick={() => selectPage(asset.page)}
 						>
 							<span>
 								{asset.type} {asset.identifier}

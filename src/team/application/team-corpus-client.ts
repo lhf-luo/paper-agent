@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import type {
 	ArtifactManifest,
 	CorpusSearchHit,
@@ -5,7 +8,27 @@ import type {
 	PaperRecord,
 	PaperVersion,
 } from "../../literature/domain/literature-types.ts";
-import type { TeamArtifactEntry, TeamAuditEvent, TeamDerivedEntry, SharedReviewStatus } from "../domain/team-corpus-types.ts";
+import type {
+	TeamArtifactEntry,
+	TeamAuditEvent,
+	TeamDerivedEntry,
+	TeamPageEntry,
+	SharedReviewStatus,
+	TeamReviewResource,
+	TeamReviewSnapshot,
+	TeamReviewVersions,
+	TeamActor,
+	TeamCollaborationChange,
+	TeamContentQuery,
+	TeamContentRef,
+	TeamContentSummary,
+	TeamDiscussion,
+	TeamListPage,
+	TeamNotification,
+	TeamSubmission,
+	TeamTopic,
+	TeamTopicChange,
+} from "../domain/team-corpus-types.ts";
 import { validateTeamNamespace } from "../domain/team-corpus-validation.ts";
 import type { PublicTeamIdentity, TeamIdentityAction, TeamIdentityInput } from "../domain/team-identity.ts";
 import { teamFetch } from "../infrastructure/team-http-transport.ts";
@@ -29,6 +52,26 @@ export function sanitizePaperRecordForTeamProposal(record: PaperRecord): PaperRe
 			tags: [...(record.curation?.tags ?? [])],
 			userNotes: [],
 		},
+	};
+}
+
+export function sanitizeArtifactManifestForTeamProposal(manifest: ArtifactManifest): ArtifactManifest {
+	const filename = (value: string) => value.split(/[\\/]/).at(-1) ?? value;
+	return {
+		...manifest,
+		pdfPath: filename(manifest.pdfPath),
+		candidates: manifest.candidates.map((candidate) => ({
+			...candidate,
+			sources: candidate.sources.map((source) => ({ ...source, context: source.context?.slice(0, 2000) })),
+		})),
+		acquisitions: manifest.acquisitions.map((snapshot) => ({
+			...snapshot,
+			localPath: undefined,
+			metadataFile: snapshot.metadataFile
+				? { ...snapshot.metadataFile, name: filename(snapshot.metadataFile.name) }
+				: undefined,
+			licenseFiles: snapshot.licenseFiles?.map(filename),
+		})),
 	};
 }
 
@@ -103,6 +146,76 @@ export class TeamCorpusClient {
 		return `/v1/namespaces/${encodeURIComponent(validateTeamNamespace(namespace))}/${resource}`;
 	}
 
+	async searchContent(namespace: string, input: TeamContentQuery = {}): Promise<TeamListPage<TeamContentSummary>> {
+		const query = new URLSearchParams();
+		for (const [key, value] of Object.entries(input))
+			if (value !== undefined) query.set(key === "query" ? "q" : key, String(value));
+		return this.requestJson(this.namespacePath(namespace, `content?${query}`));
+	}
+	async readContent(
+		namespace: string,
+		ref: TeamContentRef,
+		options: { pending?: boolean; version?: string } = {},
+	): Promise<TeamReviewSnapshot> {
+		const query = new URLSearchParams();
+		if (options.pending) query.set("pending", "true");
+		if (options.version) query.set("version", options.version);
+		return this.requestJson(
+			this.namespacePath(namespace, `content/${ref.resource}/${encodeURIComponent(ref.id)}?${query}`),
+		);
+	}
+	async contributions(
+		namespace: string,
+		options: { mine?: boolean; status?: string; cursor?: string; limit?: number } = {},
+	): Promise<TeamListPage<TeamSubmission>> {
+		const query = new URLSearchParams();
+		for (const [key, value] of Object.entries(options)) if (value !== undefined) query.set(key, String(value));
+		return this.requestJson(this.namespacePath(namespace, `contributions?${query}`));
+	}
+	async discussion(namespace: string, ref: TeamContentRef): Promise<TeamDiscussion> {
+		return this.requestJson(
+			this.namespacePath(namespace, `discussions/${ref.resource}/${encodeURIComponent(ref.id)}`),
+		);
+	}
+	async changeCollaboration(namespace: string, input: TeamCollaborationChange): Promise<unknown> {
+		return this.requestJson(this.namespacePath(namespace, "collaboration"), {
+			method: "POST",
+			body: JSON.stringify(input),
+		});
+	}
+	async reviewers(namespace: string): Promise<{ entries: TeamActor[] }> {
+		return this.requestJson(this.namespacePath(namespace, "reviewers"));
+	}
+	async notifications(
+		namespace: string,
+		cursor?: string,
+		limit = 50,
+	): Promise<TeamListPage<TeamNotification> & { unread: number }> {
+		return this.requestJson(
+			this.namespacePath(
+				namespace,
+				`notifications?${new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) })}`,
+			),
+		);
+	}
+	async readNotifications(namespace: string, ids: string[]): Promise<{ read: number }> {
+		return this.requestJson(this.namespacePath(namespace, "notifications/read"), {
+			method: "POST",
+			body: JSON.stringify({ ids }),
+		});
+	}
+	async topics(namespace: string, cursor?: string, limit = 50): Promise<TeamListPage<TeamTopic>> {
+		return this.requestJson(
+			this.namespacePath(
+				namespace,
+				`topics?${new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) })}`,
+			),
+		);
+	}
+	async changeTopic(namespace: string, input: TeamTopicChange): Promise<TeamTopic | { deleted: string }> {
+		return this.requestJson(this.namespacePath(namespace, "topics"), { method: "POST", body: JSON.stringify(input) });
+	}
+
 	async whoAmI(): Promise<{ identity: PublicTeamIdentity }> {
 		return this.requestJson("/v1/whoami");
 	}
@@ -167,10 +280,25 @@ export class TeamCorpusClient {
 		});
 	}
 
-	async withdrawPapers(namespace: string, paperIds: string[]): Promise<{ withdrawn: string[] }> {
+	async withdrawPapers(
+		namespace: string,
+		paperIds: string[],
+		expectedVersions?: TeamReviewVersions,
+	): Promise<{ withdrawn: string[] }> {
 		return this.requestJson(this.namespacePath(namespace, "proposals/withdraw"), {
 			method: "POST",
-			body: JSON.stringify({ paperIds }),
+			body: JSON.stringify({ paperIds, expectedVersions }),
+		});
+	}
+
+	async previewReview(
+		namespace: string,
+		resource: TeamReviewResource,
+		ids: string[],
+	): Promise<{ entries: TeamReviewSnapshot[] }> {
+		return this.requestJson(this.namespacePath(namespace, "reviews/preview"), {
+			method: "POST",
+			body: JSON.stringify({ resource, ids }),
 		});
 	}
 
@@ -179,10 +307,11 @@ export class TeamCorpusClient {
 		paperIds: string[],
 		decision: "team-approved" | "team-rejected",
 		reason?: string,
+		expectedVersions?: TeamReviewVersions,
 	) {
 		return this.requestJson<{ reviewed: PaperRecord[] }>(this.namespacePath(namespace, "reviews"), {
 			method: "POST",
-			body: JSON.stringify({ paperIds, decision, reason }),
+			body: JSON.stringify({ paperIds, decision, reason, expectedVersions }),
 		});
 	}
 
@@ -226,15 +355,45 @@ export class TeamCorpusClient {
 		keys: string[],
 		decision: "team-approved" | "team-rejected",
 		reason?: string,
+		expectedVersions?: TeamReviewVersions,
 	): Promise<{ entries: TeamDerivedEntry[] }> {
 		return this.requestJson(this.namespacePath(namespace, "derived/reviews"), {
 			method: "POST",
-			body: JSON.stringify({ keys, decision, reason }),
+			body: JSON.stringify({ keys, decision, reason, expectedVersions }),
 		});
 	}
 
 	async listArtifacts(namespace: string, includePending = false): Promise<{ entries: TeamArtifactEntry[] }> {
 		return this.requestJson(`${this.namespacePath(namespace, "artifacts")}${includePending ? "?pending=true" : ""}`);
+	}
+
+	async listPages(
+		namespace: string,
+		options: { includePending?: boolean } = {},
+	): Promise<{ entries: TeamPageEntry[] }> {
+		return this.requestJson(
+			`${this.namespacePath(namespace, "pages")}${options.includePending ? "?pending=true" : ""}`,
+		);
+	}
+
+	async proposePages(namespace: string, records: TeamPageEntry["snapshot"][]): Promise<{ entries: TeamPageEntry[] }> {
+		return this.requestJson(this.namespacePath(namespace, "pages"), {
+			method: "POST",
+			body: JSON.stringify({ records }),
+		});
+	}
+
+	async reviewPages(
+		namespace: string,
+		keys: string[],
+		decision: "team-approved" | "team-rejected",
+		reason?: string,
+		expectedVersions?: TeamReviewVersions,
+	): Promise<{ entries: TeamPageEntry[] }> {
+		return this.requestJson(this.namespacePath(namespace, "pages/reviews"), {
+			method: "POST",
+			body: JSON.stringify({ keys, decision, reason, expectedVersions }),
+		});
 	}
 
 	async proposeArtifact(
@@ -244,7 +403,7 @@ export class TeamCorpusClient {
 	): Promise<{ entry: TeamArtifactEntry }> {
 		return this.requestJson(this.namespacePath(namespace, "artifacts"), {
 			method: "POST",
-			body: JSON.stringify({ paperId, manifest }),
+			body: JSON.stringify({ paperId, manifest: sanitizeArtifactManifestForTeamProposal(manifest) }),
 		});
 	}
 
@@ -253,17 +412,18 @@ export class TeamCorpusClient {
 		paperIds: string[],
 		decision: "team-approved" | "team-rejected",
 		reason?: string,
+		expectedVersions?: TeamReviewVersions,
 	): Promise<{ entries: TeamArtifactEntry[] }> {
 		return this.requestJson(this.namespacePath(namespace, "artifacts/reviews"), {
 			method: "POST",
-			body: JSON.stringify({ paperIds, decision, reason }),
+			body: JSON.stringify({ paperIds, decision, reason, expectedVersions }),
 		});
 	}
 
 	async uploadBlob(
 		namespace: string,
 		sha256: string,
-		data: Uint8Array,
+		data: Uint8Array | ReadableStream<Uint8Array>,
 		version?: Omit<PaperVersion, "sha256" | "bytes" | "blobPath">,
 	) {
 		const headers = new Headers({
@@ -276,17 +436,48 @@ export class TeamCorpusClient {
 			headers.set("x-final-url", version.finalUrl);
 			headers.set("x-retrieved-at", version.retrievedAt);
 		}
-		const response = await this.fetch(this.url(this.namespacePath(namespace, `blobs/${sha256}`)), {
+		const init: RequestInit & { duplex?: "half" } = {
 			method: "PUT",
 			headers,
 			body: data as BodyInit,
+			duplex: data instanceof Uint8Array ? undefined : "half",
 			signal: AbortSignal.timeout(Math.max(this.timeoutMs, 120_000)),
-		});
+		};
+		const response = await this.fetch(this.url(this.namespacePath(namespace, `blobs/${sha256}`)), init);
 		const body = (await response.json()) as { error?: string; sha256?: string; existed?: boolean };
 		if (!response.ok) {
 			throw new TeamCorpusHttpError(response.status, body.error ?? `Team corpus HTTP ${response.status}`);
 		}
 		return body;
+	}
+
+	async uploadBlobFile(
+		namespace: string,
+		sha256: string,
+		path: string,
+		version?: Omit<PaperVersion, "sha256" | "bytes" | "blobPath">,
+	) {
+		const hash = createHash("sha256");
+		for await (const chunk of createReadStream(path)) hash.update(chunk);
+		if (hash.digest("hex") !== sha256) throw new Error("The local PDF blob changed after confirmation");
+		return this.uploadBlob(
+			namespace,
+			sha256,
+			Readable.toWeb(createReadStream(path)) as unknown as ReadableStream<Uint8Array>,
+			version,
+		);
+	}
+
+	async openBlob(namespace: string, sha256: string): Promise<Response> {
+		const response = await this.fetch(this.url(this.namespacePath(namespace, `blobs/${sha256}`)), {
+			headers: { authorization: `Bearer ${this.token}` },
+			signal: AbortSignal.timeout(Math.max(this.timeoutMs, 120_000)),
+		});
+		if (!response.ok) {
+			await response.body?.cancel();
+			throw new TeamCorpusHttpError(response.status, `Team corpus HTTP ${response.status}`);
+		}
+		return response;
 	}
 
 	async downloadBlob(namespace: string, sha256: string): Promise<{ body: Uint8Array; contentType: string }> {
@@ -306,6 +497,11 @@ export class TeamCorpusClient {
 			method: "POST",
 			body: "{}",
 		});
+	}
+	async maintenance(namespace: string) {
+		return this.requestJson<
+			Record<string, { status: "succeeded" | "failed"; at: string; backupPath?: string; message?: string }>
+		>(this.namespacePath(namespace, "maintenance"));
 	}
 
 	async restoreDrill(namespace: string, backupPath: string) {

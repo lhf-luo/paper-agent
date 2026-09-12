@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -9,8 +10,10 @@ export type { TeamIdentitySeed as TeamIdentity, TeamRole } from "../domain/team-
 
 import { canAccessTeamNamespace, publicTeamIdentity, TeamIdentityError } from "../domain/team-identity.ts";
 import { proposedByIdentity, TeamPaperConflictError } from "../domain/team-literature-repository.ts";
+import { TeamStateError } from "../domain/team-state-error.ts";
 import type { SharedReviewStatus } from "../protocol/team-corpus-types.ts";
 import { handleTeamIdentityRoutes } from "./team-identity-routes.ts";
+import { handleTeamContentRoutes } from "./team-content-routes.ts";
 
 const sharedReviewStatuses: SharedReviewStatus[] = ["team-proposed", "team-approved", "team-rejected"];
 
@@ -61,13 +64,14 @@ import {
 	objectBody,
 	pagination,
 	paperIdsBody,
+	pageSnapshotsBody,
 	permits,
-	readBody,
 	readJsonBody,
 	recordsBody,
 	rejectForbidden,
 	rejectRequest,
 	reviewBody,
+	reviewPreviewBody,
 	versionHeaders,
 } from "./team-corpus-http.ts";
 
@@ -81,7 +85,14 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 	const storeFor = (namespace: string): Promise<TeamKnowledgeService> => {
 		let store = stores.get(namespace);
 		if (!store) {
-			store = Promise.resolve(createTeamKnowledgeService(namespaceRoot(root, namespace), namespace));
+			const service = createTeamKnowledgeService(namespaceRoot(root, namespace), namespace);
+			store = service
+				.recover()
+				.then(() => service)
+				.catch((error) => {
+					stores.delete(namespace);
+					throw error;
+				});
 			stores.set(namespace, store);
 		}
 		return store;
@@ -143,6 +154,20 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			context.namespace = route.namespace;
 			const store = await storeFor(route.namespace);
 			const actor = { id: identity.id, name: identity.name };
+			if (
+				await handleTeamContentRoutes({
+					request,
+					response,
+					url,
+					resourcePath: route.resource,
+					namespace: route.namespace,
+					identity,
+					registry,
+					store,
+					maxBodyBytes,
+				})
+			)
+				return;
 
 			if (request.method === "GET" && route.resource === "search") {
 				if (!permits(identity, "reader")) rejectForbidden("reader role required");
@@ -168,10 +193,7 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (requestedStatuses?.some((status) => !sharedReviewStatuses.includes(status as SharedReviewStatus)))
 					rejectRequest("status must be team-proposed, team-approved, or team-rejected");
 				// Records that are still pending or were rejected stay invisible to plain readers.
-				if (
-					requestedStatuses?.some((status) => status !== "team-approved") &&
-					!permits(identity, "reviewer")
-				)
+				if (requestedStatuses?.some((status) => status !== "team-approved") && !permits(identity, "reviewer"))
 					rejectForbidden("reviewer role required to read non-approved records");
 				const reviewStatuses = requestedStatuses as SharedReviewStatus[] | undefined;
 				const searchOptions = {
@@ -228,7 +250,19 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				const record = await store.literature.getPaper(paperId);
 				if (!record || (record.curation?.teamReview?.status !== "team-approved" && !permits(identity, "reviewer")))
 					json(response, 404, { error: "paper not found" });
-				else json(response, 200, { versions: await store.literature.listPaperVersions(paperId) });
+				else {
+					const versions = await store.literature.listPaperVersions(paperId);
+					json(response, 200, {
+						versions: versions
+							.filter(
+								(version) =>
+									(permits(identity, "reviewer") && url.searchParams.get("pending") === "true") ||
+									!version.teamReview ||
+									version.teamReview.status === "team-approved",
+							)
+							.map(({ blobPath: _path, ...version }) => version),
+					});
+				}
 				return;
 			}
 			if (request.method === "GET" && route.resource.startsWith("papers/")) {
@@ -242,10 +276,27 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			if (request.method === "POST" && route.resource === "proposals/withdraw") {
 				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
-				const paperIds = paperIdsBody(await readJsonBody(request, maxBodyBytes), "withdraw");
+				const body = objectBody(await readJsonBody(request, maxBodyBytes), "Expected withdrawal input");
+				const paperIds = paperIdsBody(body, "withdraw");
+				const expected =
+					body.expectedVersions === undefined
+						? undefined
+						: objectBody(body.expectedVersions, "Invalid withdrawal versions");
+				if (
+					expected &&
+					paperIds.some((id) => typeof expected[id] !== "string" || !/^[a-f0-9]{64}$/.test(expected[id] as string))
+				)
+					rejectRequest("Every withdrawal target needs a valid version");
 				try {
-					json(response, 200, { withdrawn: await store.withdrawPapers(paperIds, actor) });
+					json(response, 200, {
+						withdrawn: await store.withdrawPapers(
+							paperIds,
+							actor,
+							expected as Record<string, string> | undefined,
+						),
+					});
 				} catch (error) {
+					if (error instanceof TeamStateError) throw error;
 					// Any rule violation rejects the whole batch with 400; nothing is partially withdrawn.
 					rejectRequest(error instanceof Error ? error.message : "withdraw failed");
 				}
@@ -258,10 +309,22 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				json(response, 200, { promoted, contributor: identity.name });
 				return;
 			}
+			if (request.method === "POST" && route.resource === "reviews/preview") {
+				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
+				const input = reviewPreviewBody(await readJsonBody(request, maxBodyBytes));
+				json(response, 200, { entries: await store.previewReview(input.resource, input.ids) });
+				return;
+			}
 			if (request.method === "POST" && route.resource === "reviews") {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "paperIds");
-				const reviewed = await store.reviewPapers(review.ids, review.decision, actor, review.reason);
+				const reviewed = await store.reviewPapers(
+					review.ids,
+					review.decision,
+					actor,
+					review.reason,
+					review.expectedVersions,
+				);
 				json(response, 200, { reviewed });
 				return;
 			}
@@ -290,7 +353,46 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "keys");
 				json(response, 200, {
-					entries: await store.reviewDerived(review.ids, review.decision, actor, review.reason),
+					entries: await store.reviewDerived(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
+				});
+				return;
+			}
+			if (request.method === "GET" && route.resource === "pages") {
+				if (!permits(identity, "reader") && !permits(identity, "reviewer"))
+					rejectForbidden("reader or reviewer role required");
+				json(response, 200, {
+					entries: await store.listPages(
+						permits(identity, "reviewer") && url.searchParams.get("pending") === "true"
+							? { includePending: true }
+							: {},
+					),
+				});
+				return;
+			}
+			if (request.method === "POST" && route.resource === "pages") {
+				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
+				json(response, 200, {
+					entries: await store.proposePages(pageSnapshotsBody(await readJsonBody(request, maxBodyBytes)), actor),
+				});
+				return;
+			}
+			if (request.method === "POST" && route.resource === "pages/reviews") {
+				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
+				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "keys");
+				json(response, 200, {
+					entries: await store.reviewPages(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
 				});
 				return;
 			}
@@ -316,31 +418,50 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (!permits(identity, "reviewer")) rejectForbidden("reviewer role required");
 				const review = reviewBody(await readJsonBody(request, maxBodyBytes), "paperIds");
 				json(response, 200, {
-					entries: await store.reviewArtifact(review.ids, review.decision, actor, review.reason),
+					entries: await store.reviewArtifact(
+						review.ids,
+						review.decision,
+						actor,
+						review.reason,
+						review.expectedVersions,
+					),
 				});
 				return;
 			}
 			const blobRoute = /^blobs\/([a-f0-9]{64})$/.exec(route.resource);
 			if (request.method === "PUT" && blobRoute) {
 				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
-				const body = await readBody(request, maxBlobBytes);
-				if (createHash("sha256").update(body).digest("hex") !== blobRoute[1]) {
-					rejectRequest("uploaded blob SHA-256 does not match the request path");
+				if (Number(request.headers["content-length"] ?? 0) > maxBlobBytes)
+					throw new TeamStateError(413, "Blob exceeds configured size limit");
+				try {
+					const stored = await store.putBlobStream(
+						request.iterator({ destroyOnReturn: false }),
+						blobRoute[1],
+						maxBlobBytes,
+						actor,
+						versionHeaders(request),
+					);
+					json(response, 200, { sha256: stored.sha256, bytes: stored.bytes, existed: stored.existed });
+				} catch (error) {
+					request.resume();
+					throw error;
 				}
-				json(response, 200, await store.putBlob(body, blobRoute[1], actor, versionHeaders(request)));
 				return;
 			}
 			if (request.method === "GET" && blobRoute) {
-				if (!permits(identity, "reader")) rejectForbidden("reader role required");
-				const blob = await store.readBlob(blobRoute[1]);
+				if (!permits(identity, "reader") && !permits(identity, "reviewer"))
+					rejectForbidden("reader or reviewer role required");
+				const blob = await store.locateBlob(blobRoute[1], { includePending: permits(identity, "reviewer") });
 				response.writeHead(200, {
 					"content-type": blob.contentType,
-					"content-length": blob.body.length,
-					"cache-control": "private, max-age=31536000, immutable",
+					"content-disposition":
+						blob.contentType === "application/pdf" ? "inline" : `attachment; filename="${blobRoute[1]}.bin"`,
+					"content-length": blob.bytes,
+					"cache-control": "private, no-store",
 					"x-content-type-options": "nosniff",
 					etag: `"sha256-${blobRoute[1]}"`,
 				});
-				response.end(blob.body);
+				await pipeline(createReadStream(blob.path), response);
 				return;
 			}
 			if (request.method === "GET" && route.resource === "events") {
@@ -351,7 +472,12 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			if (request.method === "GET" && route.resource === "stats") {
 				if (!permits(identity, "reader")) rejectForbidden("reader role required");
-				json(response, 200, await store.stats());
+				json(response, 200, await store.stats({ includePending: permits(identity, "reviewer") }));
+				return;
+			}
+			if (request.method === "GET" && route.resource === "maintenance") {
+				if (!permits(identity, "admin")) rejectForbidden("admin role required");
+				json(response, 200, await store.maintenance());
 				return;
 			}
 			if (request.method === "GET" && route.resource === "audit") {
@@ -382,7 +508,11 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			json(response, 405, { error: "method not allowed" });
 		} catch (error) {
-			if (error instanceof HttpError || error instanceof TeamIdentityError) {
+			if (response.headersSent) {
+				response.destroy();
+				return;
+			}
+			if (error instanceof HttpError || error instanceof TeamIdentityError || error instanceof TeamStateError) {
 				json(response, error.status, { error: error.message });
 				return;
 			}

@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,7 +33,9 @@ interface Harness {
 	close: () => Promise<void>;
 }
 
-async function startServer(input: { seeds?: Parameters<typeof createTeamCorpusServer>[0]["identities"] } = {}): Promise<Harness> {
+async function startServer(
+	input: { seeds?: Parameters<typeof createTeamCorpusServer>[0]["identities"] } = {},
+): Promise<Harness> {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-team-lifecycle-"));
 	temporaryPaths.push(root);
 	const server = createTeamCorpusServer({
@@ -157,10 +160,14 @@ describe("team identity lifecycle and access controls", () => {
 		try {
 			const me = (await (await harness.adminCall("/v1/whoami")).json()) as { identity: { id: string } };
 			for (const action of ["revoke", "ban", "delete"]) {
-				const response = await harness.adminCall(`/v1/admin/identities/${me.identity.id}/${action}`, "admin-token", {
-					method: "POST",
-					body: "{}",
-				});
+				const response = await harness.adminCall(
+					`/v1/admin/identities/${me.identity.id}/${action}`,
+					"admin-token",
+					{
+						method: "POST",
+						body: "{}",
+					},
+				);
 				expect(response.status, `self ${action} must be rejected`).toBeGreaterThanOrEqual(400);
 				expect(response.status).toBeLessThan(500);
 			}

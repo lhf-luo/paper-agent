@@ -1,3 +1,4 @@
+import { Menu, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -492,7 +493,7 @@ const RESULT_LINK_PATTERN = /\/api\/agent\/results\/[A-Za-z0-9._-]+\.md/g;
 
 /** 把消息文本中的论文清单链接替换为 markdown 链接, 交给 ReactMarkdown 渲染成可点击按钮。 */
 function linkifyResultLinks(text: string): string {
-	return text.replace(RESULT_LINK_PATTERN, "[📄 查看论文清单]($1)");
+	return text.replace(RESULT_LINK_PATTERN, "[查看论文清单]($1)");
 }
 
 function AgentMarkdown({
@@ -1474,7 +1475,7 @@ export function AgentPage({
 							aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
 							title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
 						>
-							{sidebarOpen ? "☰" : "☰"}
+							<Menu size={16} />
 						</button>}
 						<h2 className="agent-chat-title">{embedded ? "论文助手" : (active?.title ?? "")}</h2>
 						{embedded && paperContext && (
@@ -1587,7 +1588,7 @@ export function AgentPage({
 						})}
 						{!active && (
 							<div className="agent-chat-empty">
-								<span>✦</span>
+								<Sparkles size={28} />
 								<h3>{embedded ? "和 Paper Agent 一起阅读" : "在网页中使用完整的 Paper Agent 工具"}</h3>
 								<p>{embedded ? "第一次提问时会创建这篇论文的持续会话，之后打开仍可继续讨论。" : "新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。"}</p>
 								{!embedded && <div className="agent-suggestion-grid">

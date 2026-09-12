@@ -59,12 +59,20 @@ try {
 	});
 	assert(proposal.status === 200, `proposal smoke failed with HTTP ${proposal.status}`);
 	// Readers only see approved records, so the proposal must be reviewed before it is searchable.
+	const previewResponse = await fetch(`${base}/reviews/preview`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify({ resource: "papers", ids: [record.id, secondRecord.id] }),
+	});
+	assert(previewResponse.status === 200, "review preview smoke failed");
+	const preview = (await previewResponse.json()) as { entries: Array<{ id: string; version: string }> };
 	const review = await fetch(`${base}/reviews`, {
 		method: "POST",
 		headers,
 		body: JSON.stringify({
 			paperIds: [record.id, secondRecord.id],
 			decision: "team-approved",
+			expectedVersions: Object.fromEntries(preview.entries.map((entry) => [entry.id, entry.version])),
 			reason: "deployment smoke",
 		}),
 	});

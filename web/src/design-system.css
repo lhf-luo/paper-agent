@@ -1,0 +1,297 @@
+/* ========================================================================= */
+/* UNIFIED DESIGN SYSTEM TOKENS (AWWWARDS / FWA EDITORIAL QUALITY)           */
+/* ========================================================================= */
+
+:root {
+	/* Color Palette: Brand Green & Nature Heritage */
+	--brand-950: #0e2720;
+	--brand-900: #173f35;
+	--brand-850: #1c4b40;
+	--brand-800: #205448;
+	--brand-700: #2d6b5c;
+	--brand-600: #3c8271;
+	--brand-500: #4f9d8a;
+	--brand-400: #71b4a3;
+	--brand-300: #93c5b8;
+	--brand-200: #b8dcce;
+	--brand-100: #dcece6;
+	--brand-50:  #eff7f4;
+
+	/* Functional Accents */
+	--accent-amber: #bd7a2c;
+	--accent-amber-hover: #a36520;
+	--accent-amber-soft: #fcf4e8;
+	--accent-amber-border: #f2d2a4;
+	--accent-amber-text: #8c5314;
+
+	--accent-red: #af433d;
+	--accent-red-hover: #963530;
+	--accent-red-soft: #fbf0ef;
+	--accent-red-border: #f1c2be;
+	--accent-red-text: #8b2b26;
+
+	--accent-blue: #326799;
+	--accent-blue-hover: #26527d;
+	--accent-blue-soft: #eff6fc;
+	--accent-blue-border: #bcd8f3;
+	--accent-blue-text: #21486d;
+
+	--accent-purple: #6a4697;
+	--accent-purple-soft: #f5effc;
+	--accent-purple-border: #dcc8f3;
+
+	/* Light Mode Surfaces & Canvas */
+	--canvas-bg: #f4f5f4;
+	--surface-base: #ffffff;
+	--surface-card: #ffffff;
+	--surface-raised: #ffffff;
+	--surface-overlay: rgba(255, 255, 255, 0.92);
+	--surface-soft: #f5f7f6;
+	--surface-code: #f3f5f4;
+	--surface-hover: #eef5f1;
+	--surface-active: #e3ede8;
+	--surface-subtle: #f8faf9;
+
+	/* Borders & Separators */
+	--border-subtle: #dfe3e1;
+	--border-medium: #cfd8d3;
+	--border-strong: #b2c2bb;
+	--border-glass: rgba(223, 227, 225, 0.85);
+
+	/* Typography & Text */
+	--text-primary: #19201d;
+	--text-secondary: #4a5751;
+	--text-muted: #6b7771;
+	--text-faint: #8fa098;
+	--text-inverse: #ffffff;
+
+	/* Gradients */
+	--gradient-hero: linear-gradient(135deg, #ffffff 0%, #f4f8f6 100%);
+	--gradient-card: linear-gradient(180deg, #ffffff 0%, #fcfdfd 100%);
+	--gradient-accent: linear-gradient(135deg, #205448 0%, #2d6b5c 100%);
+	--gradient-glow: radial-gradient(circle, rgba(45, 107, 92, 0.08) 0%, transparent 70%);
+
+	/* Shadows & Depth */
+	--shadow-subtle: 0 1px 3px rgba(16, 44, 37, 0.04);
+	--shadow-sm: 0 2px 6px rgba(16, 44, 37, 0.04);
+	--shadow-md: 0 6px 18px rgba(16, 44, 37, 0.06);
+	--shadow-lg: 0 14px 34px rgba(16, 44, 37, 0.08);
+	--shadow-glow: 0 0 24px rgba(32, 84, 72, 0.12);
+	--shadow-modal: 0 20px 60px rgba(16, 44, 37, 0.18), 0 4px 16px rgba(16, 44, 37, 0.08);
+
+	/* Focus & Outlines */
+	--focus-ring: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--brand-500);
+
+	/* Shimmer skeleton */
+	--shimmer-gradient: linear-gradient(90deg, #f0f2f1 25%, #e6ebe8 50%, #f0f2f1 75%);
+
+	/* Border Radius */
+	--radius-xs: 4px;
+	--radius-sm: 7px;
+	--radius-md: 10px;
+	--radius-lg: 14px;
+	--radius-xl: 20px;
+	--radius-full: 9999px;
+
+	/* Font Families */
+	--font-sans: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+	--font-editorial: "Newsreader", "Charter", "Georgia", "Songti SC", serif;
+	--font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+	/* Transitions */
+	--ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+	--transition-fast: 150ms var(--ease-standard);
+	--transition-medium: 220ms var(--ease-standard);
+	--transition-slow: 350ms var(--ease-standard);
+}
+
+/* ========================================================================= */
+/* DARK MODE SYSTEM [data-theme="dark"]                                      */
+/* ========================================================================= */
+
+[data-theme="dark"] {
+	/* Canvas & Nocturnal Surfaces */
+	--canvas-bg: #090e0c;
+	--surface-base: #111815;
+	--surface-card: #151f1b;
+	--surface-raised: #1b2823;
+	--surface-overlay: rgba(17, 24, 21, 0.92);
+	--surface-soft: #17231e;
+	--surface-hover: #1f302a;
+	--surface-active: #273d35;
+	--surface-subtle: #131b18;
+	--surface-code: #0d1411;
+
+	/* Borders for Dark Contrast */
+	--border-subtle: #24352f;
+	--border-medium: #30453d;
+	--border-strong: #415d53;
+	--border-glass: rgba(255, 255, 255, 0.08);
+
+	/* Typography & Text */
+	--text-primary: #ecf3f0;
+	--text-secondary: #afc0b8;
+	--text-muted: #7b8f85;
+	--text-faint: #52635b;
+	--text-inverse: #0d1411;
+
+	/* Gradients for Dark */
+	--gradient-hero: linear-gradient(135deg, #151f1b 0%, #111815 100%);
+	--gradient-card: linear-gradient(180deg, #151f1b 0%, #131b18 100%);
+	--gradient-accent: linear-gradient(135deg, #256656 0%, #1c4b40 100%);
+	--gradient-glow: radial-gradient(circle, rgba(60, 130, 113, 0.15) 0%, transparent 70%);
+
+	/* Shadows in Nocturnal Space */
+	--shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.4);
+	--shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.45);
+	--shadow-md: 0 6px 20px rgba(0, 0, 0, 0.55);
+	--shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65);
+	--shadow-glow: 0 0 28px rgba(45, 107, 92, 0.25);
+	--shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--border-subtle);
+
+	/* Brand & Functional Colors Adjusted for Dark Contrast */
+	--brand-950: #060a08;
+	--brand-900: #256656;
+	--brand-850: #2a7361;
+	--brand-800: #2d7d6a;
+	--brand-700: #3c9d86;
+	--brand-600: #4ea892;
+	--brand-500: #62bda7;
+	--brand-100: #1b382f;
+	--brand-50:  #142822;
+
+	--accent-amber: #d99343;
+	--accent-amber-hover: #e6a55a;
+	--accent-amber-soft: #26190c;
+	--accent-amber-border: #5a3e1f;
+	--accent-amber-text: #f5c48b;
+
+	--accent-red: #c9514b;
+	--accent-red-hover: #d9635d;
+	--accent-red-soft: #291414;
+	--accent-red-border: #612725;
+	--accent-red-text: #f39a95;
+
+	--accent-blue: #4d88c2;
+	--accent-blue-hover: #619bd4;
+	--accent-blue-soft: #132230;
+	--accent-blue-border: #234768;
+	--accent-blue-text: #96c4f0;
+
+	--accent-purple-soft: #231633;
+	--accent-purple-border: #4d2b70;
+
+	/* Focus */
+	--focus-ring: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--brand-700);
+
+	/* Shimmer skeleton */
+	--shimmer-gradient: linear-gradient(90deg, #17231e 25%, #21322b 50%, #17231e 75%);
+}
+
+/* ========================================================================= */
+/* AWWWARDS EDITORIAL CANVAS UTILITIES                                       */
+/* ========================================================================= */
+
+.theme-transition * {
+	transition: background-color 220ms ease, border-color 220ms ease, color 180ms ease, box-shadow 220ms ease;
+}
+
+.frosted-glass {
+	backdrop-filter: blur(18px);
+	-webkit-backdrop-filter: blur(18px);
+	background: var(--surface-overlay);
+	border: 1px solid var(--border-glass);
+}
+
+.text-gradient-brand {
+	background: linear-gradient(135deg, var(--brand-900) 0%, var(--brand-700) 100%);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+
+[data-theme="dark"] .text-gradient-brand {
+	background: linear-gradient(135deg, #a7decb 0%, #4f9d8a 100%);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+
+.editorial-eyebrow {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--brand-700);
+}
+
+[data-theme="dark"] .editorial-eyebrow {
+	color: #61bfa8;
+}
+
+.editorial-title {
+	font-family: var(--font-editorial);
+	font-size: 28px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--text-primary);
+	line-height: 1.25;
+}
+
+/* Skeleton loader animations */
+@keyframes shimmer {
+	0% {
+		background-position: -200% 0;
+	}
+	100% {
+		background-position: 200% 0;
+	}
+}
+
+.skeleton-pulse {
+	background: var(--shimmer-gradient);
+	background-size: 200% 100%;
+	animation: shimmer 1.6s infinite ease-in-out;
+	border-radius: var(--radius-sm);
+}
+
+.skeleton-card {
+	background: var(--surface-card);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-lg);
+	padding: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	box-shadow: var(--shadow-sm);
+}
+
+.skeleton-line {
+	height: 12px;
+	border-radius: 6px;
+}
+
+.skeleton-line.short {
+	width: 35%;
+}
+
+.skeleton-line.medium {
+	width: 65%;
+}
+
+.skeleton-line.full {
+	width: 100%;
+}
+
+.skeleton-line.title {
+	height: 20px;
+	width: 80%;
+}
+
+/* Accessible focus outline */
+:focus-visible {
+	outline: 2px solid var(--brand-500);
+	outline-offset: 2px;
+}
