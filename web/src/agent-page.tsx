@@ -1,4 +1,4 @@
-import { Brain, Menu, ShieldCheck, Sparkles } from "lucide-react";
+import { Brain, ExternalLink, Menu, ShieldCheck, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -288,7 +288,7 @@ function AgentResultSidebar({
 					{activeRowCount !== undefined && <span className="agent-result-document-count">{activeRowCount} 篇</span>}
 					{selected.size > 0 && <span className="agent-result-save-count">已选 {selected.size} 篇</span>}
 					<button type="button" className="agent-result-close" aria-label="关闭结果侧边栏" onClick={onClose}>
-						×
+						<X size={15} aria-hidden="true" />
 					</button>
 				</div>
 			</header>
@@ -390,7 +390,7 @@ function AgentResultSidebar({
 														title="在新窗口打开论文页"
 														onClick={(event) => event.stopPropagation()}
 													>
-														↗
+														<ExternalLink size={13} aria-hidden="true" />
 													</a>
 												)}
 											</td>
@@ -418,9 +418,9 @@ function AgentResultSidebar({
 						<aside className="agent-result-detail">
 							<header className="agent-result-detail-head">
 								<strong>来源详情</strong>
-								<button type="button" className="agent-result-close" aria-label="关闭详情" onClick={() => setDetailPaper(undefined)}>
-									×
-								</button>
+							<button type="button" className="agent-result-close" aria-label="关闭详情" onClick={() => setDetailPaper(undefined)}>
+								<X size={15} aria-hidden="true" />
+							</button>
 							</header>
 							<div className="agent-result-detail-body">
 								<h3 className="agent-result-detail-title">
@@ -456,7 +456,10 @@ function AgentResultSidebar({
 										</a>
 									)}
 									{detailPaper.titleUrl && (
-										<a className="agent-result-id" href={detailPaper.titleUrl} target="_blank" rel="noreferrer">论文页 ↗</a>
+										<a className="agent-result-id" href={detailPaper.titleUrl} target="_blank" rel="noreferrer">
+											论文页
+											<ExternalLink size={12} aria-hidden="true" />
+										</a>
 									)}
 								</div>
 								<div className="agent-result-detail-label">摘要</div>
@@ -549,7 +552,7 @@ function DismissibleErrorBanner({ message, onDismiss }: { message: string; onDis
 		<div className="error-banner dismissible-error-banner" role="alert">
 			<span>{message}</span>
 			<button type="button" aria-label="关闭错误提示" title="关闭" onClick={onDismiss}>
-				×
+				<X size={14} aria-hidden="true" />
 			</button>
 		</div>
 	);
@@ -1730,7 +1733,7 @@ export function AgentPage({
 											aria-label={`移除 ${attachment.name}`}
 											onClick={() => setAttachments((current) => current.filter((entry) => entry.path !== attachment.path))}
 										>
-											×
+											<X size={12} aria-hidden="true" />
 										</button>
 									</span>
 								))}

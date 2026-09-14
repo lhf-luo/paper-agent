@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, jsonBody } from "./api";
 import { requiresWebOperationConfirmation, useConfirmationPolicy } from "./confirmation-policy";
@@ -419,7 +420,7 @@ export function CollectionSidebar({
 					<div className="collection-child-editor">
 						<input ref={childInputRef} value={childName} placeholder="子分类名称" onChange={(event) => setChildName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createCollection(childName, id); }} />
 						<button type="button" disabled={!childName.trim() || busy} onClick={() => void createCollection(childName, id)}>新建</button>
-						<button type="button" aria-label="取消" onClick={() => setChildParentId(undefined)}>×</button>
+						<button type="button" aria-label="取消" onClick={() => setChildParentId(undefined)}><X size={13} aria-hidden="true" /></button>
 					</div>
 				)}
 				{hasChildren && isExpanded && <ul className="collection-children">{node.children.map(renderNode)}</ul>}

@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, jsonBody } from "./api";
 import { ConsentCard, confirmOperation, JobProgress, useJob } from "./components";
@@ -153,7 +154,7 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 							</small>
 						</div>
 						<button type="button" className="icon-button" aria-label="关闭" onClick={() => setOpen(false)}>
-							×
+							<X size={14} aria-hidden="true" />
 						</button>
 					</div>
 					{status && !status.available && <p className="error-text">{status.reason}</p>}

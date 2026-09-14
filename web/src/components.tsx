@@ -521,7 +521,7 @@ export function PaperDetailDrawer({ paper, onClose }: { paper: PaperRecord; onCl
 				<header className="paper-detail-head">
 					<strong>论文详情</strong>
 					<button type="button" className="paper-detail-close" aria-label="关闭" onClick={onClose}>
-						×
+						<X size={16} aria-hidden="true" />
 					</button>
 				</header>
 				<div className="paper-detail-body">

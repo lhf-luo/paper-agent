@@ -44,13 +44,13 @@
 }
 
 .collab-tab-btn:hover:not(.active) {
-	color: var(--green-900);
+	color: var(--text-primary);
 	background: var(--surface-hover);
 }
 
 .collab-tab-btn.active {
 	background: var(--surface-card);
-	color: var(--green-950);
+	color: var(--text-primary);
 	box-shadow: 0 2px 8px rgba(16, 44, 37, 0.08);
 }
 
@@ -69,7 +69,7 @@
 	background: var(--accent-amber-soft);
 	color: var(--accent-amber);
 	border: 1px solid var(--accent-amber-border);
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: 800;
 	font-variant-numeric: tabular-nums;
 }
@@ -246,7 +246,7 @@
 	font-size: 14.5px;
 	font-weight: 700;
 	letter-spacing: -0.01em;
-	color: var(--green-950);
+	color: var(--text-primary);
 	line-height: 1.35;
 }
 
@@ -275,7 +275,7 @@
 	gap: 4px;
 	padding: 2px 8px;
 	border-radius: 10px;
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: 700;
 	letter-spacing: 0.03em;
 }
@@ -353,7 +353,7 @@
 
 .team-collaboration-comment strong {
 	font-size: 12.5px;
-	color: var(--green-950);
+	color: var(--text-primary);
 }
 
 .team-collaboration-comment small {
@@ -423,7 +423,7 @@
 .collab-version-history summary {
 	cursor: pointer;
 	font-weight: 700;
-	color: var(--green-900);
+	color: var(--text-primary);
 }
 
 .collab-version-history p {

@@ -168,6 +168,7 @@ function AppShell() {
 				<div
 					className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}${page === "reader" ? " reader-active" : ""}`}
 				>
+					<div className="ambient-canvas" aria-hidden="true" />
 					{page !== "reader" && (
 						<aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
 							<button
@@ -265,6 +266,7 @@ function AppShell() {
 							</div>
 						)}
 						<div
+							key={page}
 							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : ""}`}
 						>
 							{error && <div className="error-banner">{error}</div>}

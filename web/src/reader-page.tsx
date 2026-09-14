@@ -329,7 +329,7 @@ export function ReaderPage({ reader, onBack }: ReaderPageProps) {
 							: undefined
 					}
 				/>
-				<a className="paper-reader-open" href={activeReader.url} target="_blank" rel="noreferrer">
+				<a className="paper-reader-open" href={activeReader.url} target="_blank" rel="noreferrer" aria-label="在新标签页打开" title="在新标签页打开">
 					在新标签页打开 <ExternalLink size={13} style={{ display: "inline", verticalAlign: "middle" }} />
 				</a>
 			</header>

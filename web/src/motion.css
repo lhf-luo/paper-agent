@@ -1,0 +1,118 @@
+/* ========================================================================= */
+/* MOTION & AMBIENT CANVAS — physics-flavored, GPU-friendly                  */
+/* ========================================================================= */
+
+/* --- Ambient aurora + film grain layer (fixed, behind all content) ------- */
+.ambient-canvas {
+	position: fixed;
+	inset: 0;
+	z-index: 0;
+	overflow: hidden;
+	pointer-events: none;
+	background: var(--ambient-aurora);
+}
+
+.ambient-canvas::before {
+	position: absolute;
+	inset: -20%;
+	background: var(--ambient-beam);
+	content: "";
+	animation: ambient-drift 26s var(--ease-in-out) infinite alternate;
+}
+
+.ambient-canvas::after {
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	opacity: var(--grain-opacity);
+	content: "";
+}
+
+@keyframes ambient-drift {
+	0% {
+		transform: translate3d(-6%, -3%, 0) rotate(-2deg);
+	}
+	100% {
+		transform: translate3d(5%, 4%, 0) rotate(2deg);
+	}
+}
+
+/* --- Scroll reveal --------------------------------------------------------*/
+[data-reveal] {
+	opacity: 0;
+	transform: translate3d(0, 22px, 0);
+	transition:
+		opacity 640ms var(--ease-standard),
+		transform 640ms var(--ease-standard);
+	transition-delay: var(--reveal-delay, 0ms);
+	will-change: opacity, transform;
+}
+
+[data-reveal].is-revealed {
+	opacity: 1;
+	transform: translate3d(0, 0, 0);
+}
+
+/* --- Route transition -----------------------------------------------------*/
+@keyframes page-enter {
+	from {
+		opacity: 0;
+		transform: translate3d(0, 14px, 0);
+	}
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+.page-content {
+	animation: page-enter 320ms var(--ease-standard);
+}
+
+/* --- Living status indicator ----------------------------------------------*/
+@keyframes health-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 rgba(79, 157, 138, 0.45);
+	}
+	55% {
+		box-shadow: 0 0 0 6px rgba(79, 157, 138, 0);
+	}
+}
+
+.health-dot {
+	animation: health-pulse 2.6s var(--ease-in-out) infinite;
+}
+
+/* --- Hero ornament: slow float --------------------------------------------*/
+@keyframes hero-float {
+	0%,
+	100% {
+		transform: translate3d(0, 0, 0) rotate(0deg);
+	}
+	50% {
+		transform: translate3d(0, -12px, 0) rotate(1.2deg);
+	}
+}
+
+/* --- Reduced motion: everything settles instantly --------------------------*/
+/* 注：reduced-motion 强制覆盖需依赖 !important（与 team-page.css 既有写法一致，biome 仅告警不报错） */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+
+	[data-reveal] {
+		opacity: 1;
+		transform: none;
+	}
+
+	.ambient-canvas::before {
+		animation: none;
+	}
+}
