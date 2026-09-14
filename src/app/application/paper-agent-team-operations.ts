@@ -10,6 +10,7 @@ import {
 	TeamCorpusHttpError,
 } from "../../team/application/team-corpus-client.ts";
 import { executeTeamPull, previewTeamPull, type TeamPullPreview } from "../../team/application/team-pull.ts";
+import { resolveRequestedTopics } from "../../team/application/team-topic-membership.ts";
 import type { TeamPageSnapshot, TeamReviewVersions } from "../../team/domain/team-corpus-types.ts";
 import type { WikiWorkspace } from "../../wiki/application/wiki-workspace.ts";
 import { absolutePathLocations, createWikiWorkspaceForStore } from "../../team/application/team-personal-sources.ts";
@@ -42,7 +43,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 
 	protected async teamPaperProposalPlan(
 		input: TeamPaperProposalInput,
-	): Promise<{ records: PaperRecord[]; plan: OperationPlan }> {
+	): Promise<{ records: PaperRecord[]; requestedTopicIds?: string[]; plan: OperationPlan }> {
 		if (!input.paperIds.length || input.paperIds.length > 500)
 			throw new Error("Select between 1 and 500 personal papers");
 		const namespace = input.personalNamespace ?? this.defaultNamespace;
@@ -55,9 +56,11 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 			.filter((record): record is PaperRecord => Boolean(record))
 			.map(sanitizePaperRecordForTeamProposal);
 		const team = await this.configuredTeam();
+		const requestedTopicIds = await resolveRequestedTopics(team.client, team.namespace, input.topicIds);
 		const preview = records;
 		return {
 			records,
+			requestedTopicIds,
 			plan: {
 				kind: "team-proposal",
 				summary: `Propose ${records.length} personal paper record(s) to the team knowledge base`,
@@ -73,6 +76,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					teamNamespace: team.namespace,
 					personalNamespace: namespace,
 					privacy: "Personal notes and screening decisions are removed; tags and source provenance remain.",
+					// The confirmation manifest must disclose the categories a reviewer will apply.
+					...(requestedTopicIds ? { requestedTopicIds } : {}),
 					preview,
 				},
 			},
@@ -87,7 +92,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 		const prepared = await this.teamPaperProposalPlan(input);
 		await this.consent.consume(grant, prepared.plan);
 		const { client, namespace } = await this.configuredTeam(prepared.plan.details.connectionFingerprint as string);
-		return client.proposePapers(namespace, prepared.records);
+		return client.proposePapers(namespace, prepared.records, { topicIds: prepared.requestedTopicIds });
 	}
 
 	/**

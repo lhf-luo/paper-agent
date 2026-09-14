@@ -107,6 +107,8 @@ export interface AuthorizedCorpusImportJob extends CorpusImportInput {
 export interface TeamPaperProposalInput {
 	paperIds: string[];
 	personalNamespace?: string;
+	/** Existing shared categories to request; a reviewer applies them when approving the papers. */
+	topicIds?: string[];
 }
 
 export interface TeamPullInput {

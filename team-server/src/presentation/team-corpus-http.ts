@@ -195,6 +195,24 @@ export function validRecord(record: unknown): record is PaperRecord {
 	);
 }
 
+/**
+ * Optional categories a proposal asks its records to join. Only a reviewer may write categories, so this is
+ * recorded on the review envelope and applied when a reviewer approves the record.
+ */
+export function topicIdsBody(value: unknown): string[] | undefined {
+	const body = objectBody(value, "proposal request must be a JSON object");
+	if (body.topicIds === undefined) return undefined;
+	if (!Array.isArray(body.topicIds)) rejectRequest("topicIds must be an array of category ids");
+	if (body.topicIds.length > 50) rejectRequest("a proposal may request at most 50 categories");
+	if (
+		!body.topicIds.every(
+			(id: unknown) => typeof id === "string" && id.trim().length > 0 && (id as string).length <= 128,
+		)
+	)
+		rejectRequest("every topicIds entry must be a non-empty bounded string");
+	return [...new Set((body.topicIds as string[]).map((id) => id.trim()))];
+}
+
 export function recordsBody(value: unknown): PaperRecord[] {
 	const body = objectBody(value, "proposal request must be a JSON object");
 	if (!Array.isArray(body.records)) rejectRequest("records[] is required");

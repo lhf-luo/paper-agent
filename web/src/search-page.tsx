@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, jsonBody } from "./api";
 import {
+	AccessibleModal,
 	ConsentCard,
 	confirmOperation,
 	EmptyState,
@@ -233,8 +234,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
 
-	const runIdBody = () =>
-		selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id };
+	const runIdBody = () => (selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id });
 
 	const prepareSave = async () => {
 		if (!job && !selectedRun) return;
@@ -244,10 +244,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		try {
 			setPendingPaperIds(undefined);
 			setPending(
-				await api(
-					"/api/library/import/prepare",
-					jsonBody({ ...runIdBody(), paperIds: [...selected], namespace }),
-				),
+				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [...selected], namespace })),
 			);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -265,10 +262,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		try {
 			setPendingPaperIds([paper.id]);
 			setPending(
-				await api(
-					"/api/library/import/prepare",
-					jsonBody({ ...runIdBody(), paperIds: [paper.id], namespace }),
-				),
+				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [paper.id], namespace })),
 			);
 		} catch (reason) {
 			setPendingPaperIds(undefined);
@@ -476,7 +470,16 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				</div>
 			)}
 			{pending && (
-				<div ref={consentCardRef}>
+				<AccessibleModal
+					title="确认保存文献到个人库"
+					onClose={() => {
+						if (!busy) {
+							setPending(undefined);
+							setPendingPaperIds(undefined);
+						}
+					}}
+					maxWidth={640}
+				>
 					<ConsentCard
 						operation={pending}
 						busy={busy}
@@ -486,7 +489,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 						}}
 						onConfirm={confirmSave}
 					/>
-				</div>
+				</AccessibleModal>
 			)}
 			{agentRuns.length > 0 && (
 				<div className="agent-run-picker">
@@ -525,7 +528,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 					tips={[
 						"尝试精确研究课题：如 speculative decoding in large language models",
 						"直接输入目标论文 DOI (例如 10.1145/...) 或 arXiv ID 即可一键精确定位",
-						"在展开的筛选器中指定 CCF 等级、年份范围或开放获取状态"
+						"在展开的筛选器中指定 CCF 等级、年份范围或开放获取状态",
 					]}
 				/>
 			)}

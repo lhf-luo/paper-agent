@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, apiBytes, jsonBody } from "./api";
 import {
+	AccessibleModal,
 	ConsentCard,
 	confirmOperation,
 	EmptyState,
@@ -113,7 +114,6 @@ export function LibraryPage({
 	const [exportPayload, setExportPayload] = useState<Record<string, unknown>>();
 	const [removalPending, setRemovalPending] = useState<PreparedOperation>();
 	const [removalPayload, setRemovalPayload] = useState<Record<string, unknown>>();
-	const [removalCardCollapsed, setRemovalCardCollapsed] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
@@ -289,9 +289,6 @@ export function LibraryPage({
 	useEffect(() => {
 		if (!selected.size) setActiveLibraryTool(undefined);
 	}, [selected.size]);
-	useEffect(() => {
-		if (!removalPending) setRemovalCardCollapsed(false);
-	}, [removalPending]);
 	useEffect(() => {
 		if (!activeLibraryTool || annotationPending || exportPending) return;
 		const timer = window.setTimeout(() => {
@@ -1501,19 +1498,49 @@ export function LibraryPage({
 						)}
 					</section>
 				)}
-				{annotationPending ? (
-					<ConsentCard
-						operation={annotationPending}
-						busy={busy}
-						onCancel={() => {
-							setAnnotationPending(undefined);
-							setAnnotationPayload(undefined);
-							setActiveLibraryTool("curation");
+				{annotationPending && (
+					<AccessibleModal
+						title="确认更新文献标签与注释"
+						onClose={() => {
+							if (!busy) {
+								setAnnotationPending(undefined);
+								setAnnotationPayload(undefined);
+								setActiveLibraryTool("curation");
+							}
 						}}
-						onConfirm={executeAnnotation}
-					/>
-				) : exportPending ? (
-					<>
+						maxWidth={640}
+					>
+						<ConsentCard
+							operation={annotationPending}
+							busy={busy}
+							onCancel={() => {
+								setAnnotationPending(undefined);
+								setAnnotationPayload(undefined);
+								setActiveLibraryTool("curation");
+							}}
+							onConfirm={executeAnnotation}
+						/>
+					</AccessibleModal>
+				)}
+				{exportPending && (
+					<AccessibleModal
+						title="确认导出文献"
+						onClose={() => {
+							if (!busy) {
+								if (zoteroExportPrepared) {
+									void api(
+										`/api/zotero/exports/${encodeURIComponent(zoteroExportPrepared.operation.operationId)}`,
+										{ method: "DELETE" },
+									).catch(() => undefined);
+								}
+								setExportPending(undefined);
+								setExportPayload(undefined);
+								setZoteroExportPrepared(undefined);
+								setActiveLibraryTool("export");
+							}
+						}}
+						maxWidth={720}
+					>
 						{zoteroExportPrepared && (
 							<ul className="library-import-list" aria-label="Zotero 导出预览">
 								{zoteroExportPrepared.items.map((item) => (
@@ -1557,8 +1584,9 @@ export function LibraryPage({
 							}}
 							onConfirm={executeExport}
 						/>
-					</>
-				) : activeLibraryTool === "curation" ? (
+					</AccessibleModal>
+				)}
+				{activeLibraryTool === "curation" ? (
 					<section
 						id="library-curation-tool"
 						ref={inlineToolRef}
@@ -1716,15 +1744,32 @@ export function LibraryPage({
 					</section>
 				) : null}
 				{pending && (
-					<ConsentCard
-						operation={pending}
-						busy={busy}
-						onCancel={() => setPending(undefined)}
-						onConfirm={executeDownload}
-					/>
+					<AccessibleModal
+						title="确认下载 PDF"
+						onClose={() => {
+							if (!busy) setPending(undefined);
+						}}
+						maxWidth={620}
+					>
+						<ConsentCard
+							operation={pending}
+							busy={busy}
+							onCancel={() => setPending(undefined)}
+							onConfirm={executeDownload}
+						/>
+					</AccessibleModal>
 				)}
 				{removalPending && (
-					<div className={`library-removal-consent${removalCardCollapsed ? " is-collapsed" : ""}`}>
+					<AccessibleModal
+						title="确认删除文献"
+						onClose={() => {
+							if (!busy) {
+								setRemovalPending(undefined);
+								setRemovalPayload(undefined);
+							}
+						}}
+						maxWidth={620}
+					>
 						<ConsentCard
 							operation={removalPending}
 							busy={busy}
@@ -1734,17 +1779,10 @@ export function LibraryPage({
 							}}
 							onConfirm={executePaperRemoval}
 						/>
-					</div>
+					</AccessibleModal>
 				)}
 				<div className="library-layout">
-					<div
-						className="library-paper-pane"
-						onScroll={(event) => {
-							if (!removalPending) return;
-							const collapsed = event.currentTarget.scrollTop > 8;
-							setRemovalCardCollapsed((current) => (current === collapsed ? current : collapsed));
-						}}
-					>
+					<div className="library-paper-pane">
 						{loading ? (
 							<SkeletonList count={4} />
 						) : papers.length ? (

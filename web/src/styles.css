@@ -775,7 +775,9 @@ code {
 	font-size: 32px;
 	font-weight: 500;
 	font-variant-numeric: tabular-nums;
-	font-feature-settings: "lnum" 1, "tnum" 1;
+	font-feature-settings:
+		"lnum" 1,
+		"tnum" 1;
 	letter-spacing: -0.01em;
 }
 
@@ -5951,13 +5953,20 @@ body.paper-reader-resizing .browser-pdf-frame {
 	background: var(--surface-base);
 	border: 1px solid var(--brand-300);
 	border-radius: 16px;
-	box-shadow: 0 4px 20px -2px rgba(30, 59, 50, 0.07), 0 2px 6px -1px rgba(30, 59, 50, 0.03);
-	transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+	box-shadow:
+		0 4px 20px -2px rgba(30, 59, 50, 0.07),
+		0 2px 6px -1px rgba(30, 59, 50, 0.03);
+	transition:
+		border-color 0.2s ease,
+		box-shadow 0.2s ease,
+		background 0.2s ease;
 }
 
 .agent-composer-card:focus-within {
 	border-color: var(--green-600);
-	box-shadow: 0 6px 24px -2px rgba(45, 107, 92, 0.13), 0 0 0 3px rgba(45, 107, 92, 0.12);
+	box-shadow:
+		0 6px 24px -2px rgba(45, 107, 92, 0.13),
+		0 0 0 3px rgba(45, 107, 92, 0.12);
 }
 
 /* 无边框沉浸式文本框 */
@@ -6151,7 +6160,10 @@ body.paper-reader-resizing .browser-pdf-frame {
 	color: var(--brand-800);
 	font-size: 12px;
 	cursor: pointer;
-	transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease,
+		color 0.15s ease;
 }
 
 .agent-composer-pill:hover {
@@ -7638,7 +7650,10 @@ body.paper-reader-resizing .browser-pdf-frame {
 	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-sm);
 	background: var(--surface-card);
-	transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+	transition:
+		border-color var(--transition-fast),
+		box-shadow var(--transition-fast),
+		background var(--transition-fast);
 }
 .collection-new-input-wrap:hover {
 	border-color: var(--border-medium);
@@ -9711,6 +9726,36 @@ strong.research-note-title {
 	overflow-y: auto;
 }
 
+.accessible-modal-body .consent-card {
+	margin: 0;
+	padding: 16px 20px;
+	border-radius: var(--radius-md);
+	background: var(--surface-soft);
+	border: 1px solid var(--border-subtle);
+	border-left: 4px solid var(--amber);
+}
+
+.accessible-modal-body .consent-card h3 {
+	font-size: 16px;
+	margin: 4px 0 6px;
+}
+
+.accessible-modal-body .consent-targets {
+	max-height: 180px;
+}
+
+.accessible-modal-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	padding: 16px 26px;
+	border-top: 1px solid var(--border-subtle);
+	background: var(--surface-card);
+	flex-shrink: 0;
+	z-index: 2;
+}
+
 /* Empty State Onboarding Tips */
 .empty-onboarding-tips {
 	margin-top: 18px;
@@ -9812,7 +9857,10 @@ strong.research-note-title {
 	font-size: 12px;
 	line-height: 1.4;
 	cursor: pointer;
-	transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+	transition:
+		background 0.15s ease,
+		color 0.15s ease,
+		border-color 0.15s ease;
 }
 
 .paper-card-save-btn:hover:not(:disabled) {
@@ -10048,7 +10096,11 @@ strong.research-note-title {
 	background: var(--surface-card);
 	cursor: pointer;
 	position: relative;
-	transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+	transition:
+		border-color 0.2s ease,
+		background 0.2s ease,
+		box-shadow 0.2s ease,
+		transform 0.2s ease;
 	outline: none;
 	user-select: none;
 }

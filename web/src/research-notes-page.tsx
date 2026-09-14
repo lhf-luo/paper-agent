@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, jsonBody } from "./api";
-import { ConsentCard, confirmOperation, EmptyState, LoadingBlock } from "./components";
+import { AccessibleModal, ConsentCard, confirmOperation, EmptyState, LoadingBlock } from "./components";
 import { useAutomaticOperationConfirmation } from "./confirmation-policy";
 import type {
 	ConfirmationGrant,
@@ -696,12 +696,20 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 			)}
 			{message && <div className="success-banner research-note-banner">{message}</div>}
 			{pending && automaticConfirmation.confirmationRequired && (
-				<ConsentCard
-					operation={pending.operation}
-					busy={busy}
-					onCancel={() => setPending(undefined)}
-					onConfirm={executePending}
-				/>
+				<AccessibleModal
+					title="确认笔记操作"
+					onClose={() => {
+						if (!busy) setPending(undefined);
+					}}
+					maxWidth={620}
+				>
+					<ConsentCard
+						operation={pending.operation}
+						busy={busy}
+						onCancel={() => setPending(undefined)}
+						onConfirm={executePending}
+					/>
+				</AccessibleModal>
 			)}
 			<div className="research-notebook-layout">
 				<aside className={`research-note-sidebar${active || createOpen ? " has-active-note" : ""}`}>

@@ -119,6 +119,7 @@ export function AccessibleModal({
 	description,
 	onClose,
 	children,
+	footer,
 	className = "",
 	maxWidth = 640,
 }: {
@@ -126,6 +127,7 @@ export function AccessibleModal({
 	description?: string;
 	onClose: () => void;
 	children: React.ReactNode;
+	footer?: React.ReactNode;
 	className?: string;
 	maxWidth?: number | string;
 }) {
@@ -210,6 +212,7 @@ export function AccessibleModal({
 					</button>
 				</div>
 				<div className="accessible-modal-body">{children}</div>
+				{footer && <div className="accessible-modal-footer">{footer}</div>}
 			</div>
 		</div>
 	);

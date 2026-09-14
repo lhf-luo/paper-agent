@@ -55,6 +55,9 @@ export async function previewTeamPull(
 export function sanitizePulledRecord(record: PaperRecord): PaperRecord {
 	const pulled: PaperRecord = {
 		...record,
+		// Team categories are `TeamTopic` records, not personal `collectionIds`. Records stored before the
+		// upward strip existed can still carry foreign ids, so drop them here as well.
+		collectionIds: undefined,
 		curation: {
 			tags: [...(record.curation?.tags ?? [])],
 			userNotes: [],

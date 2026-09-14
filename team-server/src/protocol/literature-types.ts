@@ -103,6 +103,11 @@ export interface PaperCuration {
 		reason?: string;
 		/** Pending revision of a currently approved record: approving replaces that record, rejecting discards this. */
 		revision?: true;
+		/**
+		 * Shared categories the proposer asked this record to join. Only a reviewer may write categories, so
+		 * this is a request recorded on the review envelope and applied when a reviewer approves the record.
+		 */
+		requestedTopicIds?: string[];
 	};
 }
 

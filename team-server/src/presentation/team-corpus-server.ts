@@ -11,11 +11,89 @@ export type { TeamIdentitySeed as TeamIdentity, TeamRole } from "../domain/team-
 import { canAccessTeamNamespace, publicTeamIdentity, TeamIdentityError } from "../domain/team-identity.ts";
 import { proposedByIdentity, TeamPaperConflictError } from "../domain/team-literature-repository.ts";
 import { TeamStateError } from "../domain/team-state-error.ts";
-import type { SharedReviewStatus } from "../protocol/team-corpus-types.ts";
+import type { SharedReviewStatus, TeamActor, TeamTopic } from "../protocol/team-corpus-types.ts";
+import type { PaperRecord } from "../protocol/literature-types.ts";
 import { handleTeamIdentityRoutes } from "./team-identity-routes.ts";
 import { handleTeamContentRoutes } from "./team-content-routes.ts";
 
 const sharedReviewStatuses: SharedReviewStatus[] = ["team-proposed", "team-approved", "team-rejected"];
+
+/**
+ * Paper ids referenced by the requested categories. Unknown ids contribute nothing, so a stale or foreign
+ * category filter yields an empty page instead of an error that would confirm whether the category exists.
+ * An empty result is still a filter, not "no filter": the caller passes `[]` and gets no records.
+ */
+export function paperIdsForTopics(topics: TeamTopic[], requested: string[]): string[] {
+	const wanted = new Set(requested);
+	const ids = new Set<string>();
+	for (const topic of topics) {
+		if (!wanted.has(topic.id)) continue;
+		for (const entry of topic.entries) if (entry.resource === "papers") ids.add(entry.id);
+	}
+	return [...ids];
+}
+
+/**
+ * Honours the categories an approved proposal asked its records to join. The caller is the reviewer whose
+ * decision published those records, so the category write carries the authority of that approval rather than
+ * the proposer's. Each category is written at most once per call, and a category that no longer exists or was
+ * changed concurrently is reported as skipped instead of failing a review that already happened.
+ */
+async function applyRequestedCategories(
+	store: TeamKnowledgeService,
+	actor: TeamActor,
+	approved: PaperRecord[],
+): Promise<{ applied: string[]; skipped: string[] }> {
+	const requested = new Map<string, string[]>();
+	for (const record of approved) {
+		if (record.curation?.teamReview?.status !== "team-approved") continue;
+		for (const topicId of record.curation.teamReview.requestedTopicIds ?? []) {
+			requested.set(topicId, [...(requested.get(topicId) ?? []), record.id]);
+		}
+	}
+	const skipped: string[] = [];
+	if (!requested.size) return { applied: [], skipped };
+	const applied: string[] = [];
+	const topics = await store.collaboration.topics();
+	for (const [topicId, paperIds] of requested) {
+		const topic = topics.find((entry) => entry.id === topicId);
+		if (!topic) {
+			skipped.push(topicId);
+			continue;
+		}
+		const entries = [...topic.entries];
+		const seen = new Set(entries.map((entry) => `${entry.resource}:${entry.id}`));
+		for (const paperId of paperIds) {
+			const key = `papers:${paperId}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			entries.push({ resource: "papers", id: paperId });
+		}
+		if (entries.length === topic.entries.length) {
+			// Every approved paper is already filed here: nothing to write, nothing to audit.
+			applied.push(topicId);
+			continue;
+		}
+		try {
+			await store.collaboration.changeTopic(
+				{
+					id: topic.id,
+					title: topic.title,
+					description: topic.description,
+					entries,
+					expectedVersion: topic.version,
+				},
+				actor,
+			);
+			await store.appendAudit(actor, "topic.save", topicId);
+			applied.push(topicId);
+		} catch {
+			// A concurrent category edit wins; retrying later must not require re-approving the paper.
+			skipped.push(topicId);
+		}
+	}
+	return { applied, skipped };
+}
 
 /** Per-IP budget for failed authentication attempts, plus the window those failures are counted over. */
 const AUTH_FAILURE_LIMIT = 20;
@@ -72,6 +150,7 @@ import {
 	rejectRequest,
 	reviewBody,
 	reviewPreviewBody,
+	topicIdsBody,
 	versionHeaders,
 } from "./team-corpus-http.ts";
 
@@ -196,6 +275,12 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 				if (requestedStatuses?.some((status) => status !== "team-approved") && !permits(identity, "reviewer"))
 					rejectForbidden("reviewer role required to read non-approved records");
 				const reviewStatuses = requestedStatuses as SharedReviewStatus[] | undefined;
+				// Category filter: resolve the categories here, because the literature repository cannot read
+				// the collaboration store that owns `topics/`.
+				const requestedTopics = listParameter(url, "topic");
+				const paperIds = requestedTopics
+					? paperIdsForTopics(await store.collaboration.topics(), requestedTopics)
+					: undefined;
 				const searchOptions = {
 					query: url.searchParams.get("q") ?? undefined,
 					yearFrom,
@@ -205,6 +290,7 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 					types: listParameter(url, "type"),
 					openAccess,
 					reviewStatuses,
+					paperIds,
 					offset,
 					limit,
 				};
@@ -304,9 +390,12 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 			}
 			if (request.method === "POST" && route.resource === "proposals") {
 				if (!permits(identity, "contributor")) rejectForbidden("contributor role required");
-				const records = recordsBody(await readJsonBody(request, maxBodyBytes));
-				const promoted = await store.proposePapers(records, actor);
-				json(response, 200, { promoted, contributor: identity.name });
+				const body = await readJsonBody(request, maxBodyBytes);
+				const records = recordsBody(body);
+				// A category request is recorded on the review envelope; a reviewer applies it on approval.
+				const requestedTopicIds = topicIdsBody(body);
+				const promoted = await store.proposePapers(records, actor, requestedTopicIds);
+				json(response, 200, { promoted, contributor: identity.name, requestedTopicIds });
 				return;
 			}
 			if (request.method === "POST" && route.resource === "reviews/preview") {
@@ -325,7 +414,13 @@ export function createTeamCorpusServer(config: TeamCorpusServerConfig) {
 					review.reason,
 					review.expectedVersions,
 				);
-				json(response, 200, { reviewed });
+				// Approval is the only moment a category request can be honoured: only reviewers may write
+				// categories, and approving is what publishes the record those categories will reference.
+				const categories =
+					review.decision === "team-approved"
+						? await applyRequestedCategories(store, actor, reviewed)
+						: { applied: [], skipped: [] };
+				json(response, 200, { reviewed, categories });
 				return;
 			}
 			if (request.method === "GET" && route.resource === "derived") {

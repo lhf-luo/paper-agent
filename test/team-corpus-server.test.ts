@@ -877,4 +877,185 @@ describe("team corpus server", () => {
 			}
 		}
 	});
+
+	it("scopes paper search to shared categories and keeps cursor pagination correct", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-categories-"));
+		temporaryPaths.push(root);
+		const server = createTeamCorpusServer({
+			root: join(root, "corpus"),
+			identities: [
+				{
+					name: "reviewer",
+					tokenSha256: hashTeamToken("reviewer-token"),
+					roles: ["reader", "contributor", "reviewer"],
+					namespaces: ["security"],
+				},
+			],
+		});
+		try {
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+			const address = server.address();
+			if (!address || typeof address === "string") throw new Error("server did not bind a TCP port");
+			const base = `http://127.0.0.1:${address.port}/v1/namespaces/security`;
+			const call = (path: string, token: string, init: RequestInit = {}) =>
+				fetch(base + path, {
+					...init,
+					headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+				});
+			const search = async (query = "") =>
+				(await (await call(`/search${query}`, "reviewer-token")).json()) as {
+					hits: Array<{ record: PaperRecord }>;
+					nextCursor?: string;
+				};
+			const titlesOf = (result: { hits: Array<{ record: PaperRecord }> }) =>
+				result.hits.map((hit) => hit.record.title).sort();
+
+			const variant = (id: string, title: string): PaperRecord => ({ ...paper(), id, title });
+			const proposed = await call("/proposals", "reviewer-token", {
+				method: "POST",
+				body: JSON.stringify({
+					records: [
+						variant("paper-alpha", "Alpha Unsafe Free"),
+						variant("paper-beta", "Beta Use After Free"),
+						variant("paper-gamma", "Gamma Fuzzing"),
+					],
+				}),
+			});
+			expect(proposed.status).toBe(200);
+			const reviewed = await call("/reviews", "reviewer-token", {
+				method: "POST",
+				body: JSON.stringify({
+					paperIds: ["paper-alpha", "paper-beta", "paper-gamma"],
+					decision: "team-approved",
+				}),
+			});
+			expect(reviewed.status).toBe(200);
+
+			// Category entries must use the stored ids, which merging is free to recompute.
+			const approved = await search("?limit=50");
+			const idOf = (title: string) => {
+				const found = approved.hits.find((hit) => hit.record.title === title)?.record.id;
+				if (!found) throw new Error(`the approved paper is missing: ${title}`);
+				return found;
+			};
+			const createTopic = (id: string, title: string, paperIds: string[]) =>
+				call("/topics", "reviewer-token", {
+					method: "POST",
+					body: JSON.stringify({
+						id,
+						title,
+						description: "",
+						entries: paperIds.map((paperId) => ({ resource: "papers", id: paperId })),
+					}),
+				});
+			const uaf = await createTopic("uaf", "UAF 漏洞检测", [idOf("Alpha Unsafe Free"), idOf("Beta Use After Free")]);
+			expect(uaf.status).toBe(200);
+			const fuzzing = await createTopic("fuzzing", "模糊测试", [idOf("Gamma Fuzzing")]);
+			expect(fuzzing.status).toBe(200);
+
+			// One category, the union of two categories, and a category nothing belongs to.
+			expect(titlesOf(await search("?topic=uaf"))).toEqual(["Alpha Unsafe Free", "Beta Use After Free"]);
+			expect(titlesOf(await search("?topic=fuzzing"))).toEqual(["Gamma Fuzzing"]);
+			expect(titlesOf(await search("?topic=uaf&topic=fuzzing"))).toEqual([
+				"Alpha Unsafe Free",
+				"Beta Use After Free",
+				"Gamma Fuzzing",
+			]);
+			// An unknown category yields an empty page, not a 404 that would confirm whether it exists.
+			const unknown = await call("/search?topic=missing", "reviewer-token");
+			expect(unknown.status).toBe(200);
+			expect(((await unknown.json()) as { hits: unknown[] }).hits).toHaveLength(0);
+
+			// The filter must be applied before the offset/limit slice, otherwise page two would be empty.
+			const first = await search("?topic=uaf&limit=1");
+			expect(first.hits).toHaveLength(1);
+			expect(first.nextCursor).toBe("1");
+			const second = await search(`?topic=uaf&limit=1&cursor=${first.nextCursor}`);
+			expect(second.hits).toHaveLength(1);
+			expect(second.nextCursor).toBeUndefined();
+			expect(titlesOf({ hits: [...first.hits, ...second.hits] })).toEqual([
+				"Alpha Unsafe Free",
+				"Beta Use After Free",
+			]);
+		} finally {
+			if (server.listening) {
+				await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+			}
+		}
+	});
+
+	it("files a proposed paper into a requested category only once a reviewer approves it", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-topic-request-"));
+		temporaryPaths.push(root);
+		const server = createTeamCorpusServer({
+			root: join(root, "corpus"),
+			identities: [
+				{
+					name: "contributor",
+					tokenSha256: hashTeamToken("contributor-token"),
+					roles: ["reader", "contributor"],
+					namespaces: ["security"],
+				},
+				{
+					name: "reviewer",
+					tokenSha256: hashTeamToken("reviewer-token"),
+					roles: ["reader", "reviewer"],
+					namespaces: ["security"],
+				},
+			],
+		});
+		try {
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+			const address = server.address();
+			if (!address || typeof address === "string") throw new Error("server did not bind a TCP port");
+			const base = `http://127.0.0.1:${address.port}/v1/namespaces/security`;
+			const call = (path: string, token: string, init: RequestInit = {}) =>
+				fetch(base + path, {
+					...init,
+					headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+				});
+			const hits = async (path: string, token: string) =>
+				((await (await call(path, token)).json()) as { hits: unknown[] }).hits;
+
+			// A curator defines the category first: a proposal may only ask for categories that exist.
+			const created = await call("/topics", "reviewer-token", {
+				method: "POST",
+				body: JSON.stringify({ id: "uaf", title: "UAF 漏洞检测", description: "", entries: [] }),
+			});
+			expect(created.status).toBe(200);
+
+			const proposed = await call("/proposals", "contributor-token", {
+				method: "POST",
+				body: JSON.stringify({ records: [paper()], topicIds: ["uaf", "missing"] }),
+			});
+			expect(proposed.status).toBe(200);
+			expect(await proposed.json()).toMatchObject({ requestedTopicIds: ["uaf", "missing"] });
+
+			// The request is recorded, not applied: nothing is filed while the paper is still pending.
+			expect(await hits("/search?topic=uaf", "reviewer-token")).toHaveLength(0);
+			expect(await hits("/search", "reviewer-token")).toHaveLength(0);
+
+			const reviewed = await call("/reviews", "reviewer-token", {
+				method: "POST",
+				body: JSON.stringify({ paperIds: ["paper-team-server"], decision: "team-approved" }),
+			});
+			expect(reviewed.status).toBe(200);
+			// The existing category receives the paper; the unknown one is reported, never invented.
+			expect(await reviewed.json()).toMatchObject({ categories: { applied: ["uaf"], skipped: ["missing"] } });
+			expect(await hits("/search?topic=uaf", "reviewer-token")).toHaveLength(1);
+			expect(await hits("/search", "reviewer-token")).toHaveLength(1);
+
+			// A published record has no review step left, so a category request for it is refused outright
+			// rather than becoming an unreviewed category write.
+			const repeated = await call("/proposals", "contributor-token", {
+				method: "POST",
+				body: JSON.stringify({ records: [paper()], topicIds: ["uaf"] }),
+			});
+			expect(repeated.status).toBe(400);
+		} finally {
+			if (server.listening) {
+				await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+			}
+		}
+	});
 });
