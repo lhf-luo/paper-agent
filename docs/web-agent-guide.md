@@ -101,6 +101,8 @@ Paper Agent has three related but distinct controls:
 
 The selector beside **New session (`新建会话`)** controls only Web conversation context and currently opens on `persistent`. It does not authorize any corpus write. The `literature-corpus-manager` Skill defaults an unstated research-task lifetime and scope to `once + personal`.
 
+Each `once` turn uses independent in-memory model context. Later turns and service restarts do not reload earlier Pi context. The interface still saves messages for viewing; saved interface history is not sent back to the model in `once` mode.
+
 State task lifetime and scope when they matter. A persistent conversation can still perform disposable research:
 
 ```text

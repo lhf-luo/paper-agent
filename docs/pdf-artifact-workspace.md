@@ -32,7 +32,7 @@ edited region
   -> store correction by PDF SHA-256 and asset ID
 ```
 
-Reanalysis applies the latest matching correction. A different PDF hash does not silently inherit an old correction.
+Web reanalysis and the Agent's `list_paper_assets` tool apply the latest matching correction after automatic region estimation. Both read the configured data root, and the Agent reports the correction's author and ID. Moving or renaming an unchanged PDF preserves its correction; a different PDF hash does not inherit it.
 
 ## Artifact discovery
 
