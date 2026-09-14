@@ -150,6 +150,20 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		return () => controller.abort();
 	}, [namespace]);
 
+	// 新搜索完成后刷新历史记录列表, 让刚完成的检索立即出现在下拉里。
+	useEffect(() => {
+		if (job?.status !== "succeeded") return;
+		const controller = new AbortController();
+		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs?namespace=${encodeURIComponent(namespace)}`, {
+			signal: controller.signal,
+		})
+			.then((response) => {
+				if (!controller.signal.aborted) setAgentRuns(response.runs);
+			})
+			.catch(() => {});
+		return () => controller.abort();
+	}, [job?.status, namespace]);
+
 	const listValues = (value: string) =>
 		value
 			.split(/\r?\n|,/)
@@ -198,8 +212,12 @@ export function SearchPage({ onTask }: SearchPageProps) {
 					reuseCorpus,
 				}),
 			);
+			// 新检索开始前清掉历史记录查看状态, 否则 selectedRun 会一直压住新任务的结果展示。
 			setSearchJobId(created.id);
+			setSelectedRun(undefined);
+			setSelectedRunId("");
 			setSelected(new Set());
+			setDetailPaper(undefined);
 			onTask(created);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
