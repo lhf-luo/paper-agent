@@ -679,3 +679,14 @@ export interface LocalPdfImportIssue {
 	filename: string;
 	message: string;
 }
+
+export type AutomatedResearchDepth = "quick" | "methods" | "full" | "reproduce";
+
+export interface AutomatedResearchPlan {
+	depth: AutomatedResearchDepth;
+	depthLabel: string;
+	stages: Array<{ id: string; label: string; purpose: string }>;
+	unattended: true;
+	readOnly: true;
+	humanGates: string[];
+}

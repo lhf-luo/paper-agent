@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,14 @@ import type {
 	WebAgentServiceApi,
 } from "../../agent/domain/web-agent-contracts.ts";
 import { normalizePermissionMode, normalizeThinkingLevel } from "../../agent/application/web-agent-support.ts";
+import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
+import {
+	automatedResearchDepth,
+	automatedResearchPrompt,
+	automatedResearchThinkingLevel,
+	type AutomatedResearchDepth,
+	type AutomatedResearchPlan,
+} from "../../research/application/research-automation.ts";
 import { ApiError, json, readJson } from "./web-http.ts";
 
 export interface AgentRouteContext {
@@ -20,8 +28,91 @@ export interface AgentRouteContext {
 	openStreams: Set<ServerResponse>;
 }
 
-export async function handleAgentRoutes(context: AgentRouteContext): Promise<void> {
-	const { request, response, url, agentService } = context;
+/**
+ * POST /api/agent/research/start —— 个人库论文"一键研究"入口。
+ * 需要同时访问 application（读论文详情与本地 PDF）和 agentService（创建会话），
+ * 因此在 local-web-server 的 /api/agent/ 分发之前单独调用。
+ */
+export async function handleAgentResearchLaunch(
+	application: PaperAgentApplication,
+	agentService: WebAgentServiceApi,
+	request: IncomingMessage,
+	response: ServerResponse,
+	url: URL,
+): Promise<boolean> {
+	if (request.method !== "POST" || url.pathname !== "/api/agent/research/start") return false;
+	const body = await readJson(request);
+	const paperId = typeof body.paperId === "string" ? body.paperId.trim() : "";
+	const namespace = typeof body.namespace === "string" ? body.namespace.trim() : "";
+	if (!paperId) throw new ApiError(400, "请先选择一篇个人库论文");
+	if (!namespace) throw new ApiError(400, "个人库 namespace 不能为空");
+	const details = await application.paperDetails(paperId, namespace);
+	if (!details) throw new ApiError(404, "个人库中找不到这篇论文，请刷新页面后重试");
+	const version = details.versions
+		.filter((candidate) => candidate.versionKind !== "translation")
+		.sort((left, right) => right.retrievedAt.localeCompare(left.retrievedAt))[0];
+	if (!version) {
+		throw new ApiError(
+			409,
+			"这篇论文还没有本地 PDF。请先在个人库获取 PDF 原文，等待任务完成后再开始自动研究。",
+		);
+	}
+	const pdfFile = await stat(version.blobPath).catch(() => undefined);
+	if (!pdfFile?.isFile()) {
+		throw new ApiError(409, `本地 PDF 原件已丢失（${version.blobPath}），请在个人库重新获取后再开始自动研究`);
+	}
+	const config = await agentService.getConfig();
+	if (!config.configured || !config.credentialsAvailable) {
+		throw new ApiError(
+			409,
+			"自动研究需要可用的模型。请先打开“Agent 对话”，填写 Provider、Model、Base URL 和临时 API key，并应用配置。",
+		);
+	}
+	let depth: AutomatedResearchDepth;
+	try {
+		depth = automatedResearchDepth(body.depth);
+	} catch (error) {
+		throw new ApiError(400, error instanceof Error ? error.message : String(error));
+	}
+	const automationRequest = {
+		paperId,
+		namespace,
+		depth,
+		researchQuestion: typeof body.researchQuestion === "string" ? body.researchQuestion : undefined,
+		discoverArtifacts: body.discoverArtifacts !== false,
+	};
+	let automation: { prompt: string; plan: AutomatedResearchPlan };
+	try {
+		automation = automatedResearchPrompt({
+			request: automationRequest,
+			paper: details.paper,
+			version,
+			localPdfPath: version.blobPath,
+		});
+	} catch (error) {
+		throw new ApiError(400, error instanceof Error ? error.message : String(error));
+	}
+	// 思考强度：请求可显式指定；否则按研究深度给默认（quick→low、methods→medium、full/reproduce→high）。
+	const thinkingLevel =
+		normalizeThinkingLevel(body.thinkingLevel) ?? automatedResearchThinkingLevel(depth);
+	// 不带 paper 作用域 context：general 会话列表会过滤掉带 context 的会话，
+	// 导致从个人库跳转后再回到 Agent 页时看不到研究会话。
+	const session = await agentService.createSession({
+		mode: "persistent",
+		title: `自动研究 · ${details.paper.title}`.slice(0, 120),
+		thinkingLevel,
+	});
+	try {
+		const started = await agentService.sendMessage(session.id, { message: automation.prompt });
+		json(response, 202, { session: started, plan: automation.plan, thinkingLevel });
+	} catch (error) {
+		await Promise.resolve(agentService.deleteSession(session.id)).catch(() => undefined);
+		throw error;
+	}
+	return true;
+}
+
+export async function handleAgentRoutes(context: AgentRouteContext): Promise<void> {	const { request, response, url, agentService } = context;
 	if (!agentService) throw new ApiError(503, "Web Agent service is unavailable");
 	if (request.method === "GET" && url.pathname === "/api/agent/config") {
 		json(response, 200, await agentService.getConfig());

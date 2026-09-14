@@ -1,4 +1,4 @@
-import { ArrowUpRight, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, BookmarkPlus, Check, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree, PAPER_DRAG_TYPE } from "./collection-tree";
@@ -243,6 +243,9 @@ export function PaperCard({
 	deleteLabel = "Delete",
 	deleteBusy,
 	dragPaperIds,
+	onSave,
+	saved,
+	saveBusy,
 }: {
 	paper: PaperRecord;
 	selected?: boolean;
@@ -262,6 +265,9 @@ export function PaperCard({
 	deleteLabel?: string;
 	deleteBusy?: boolean;
 	dragPaperIds?: string[];
+	onSave?: (paper: PaperRecord) => void;
+	saved?: boolean;
+	saveBusy?: boolean;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [menuMode, setMenuMode] = useState<"add" | "move" | "notes" | null>(null);
@@ -344,6 +350,18 @@ export function PaperCard({
 						</a>
 					);
 				})()}
+				{onSave && (
+					<button
+						className={`paper-card-save-btn${saved ? " saved" : ""}`}
+						type="button"
+						disabled={saved || saveBusy}
+						title={saved ? "已保存到个人库" : "保存到个人库"}
+						onClick={() => onSave(paper)}
+					>
+						{saved ? <Check size={13} /> : <BookmarkPlus size={13} />}
+						<span>{saved ? "已保存" : saveBusy ? "保存中…" : "保存"}</span>
+					</button>
+				)}
 				{((collections && onAddToCollection && onMoveToCollection) ||
 					onLoadLocalPdf ||
 					onDelete ||

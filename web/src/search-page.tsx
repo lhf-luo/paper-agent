@@ -51,6 +51,10 @@ export function SearchPage({ onTask }: SearchPageProps) {
 	const [detailPaper, setDetailPaper] = useState<PaperRecord | undefined>();
 	const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 	const [pending, setPending] = useState<PreparedOperation>();
+	const [pendingPaperIds, setPendingPaperIds] = useState<string[]>();
+	const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+	const [savingId, setSavingId] = useState<string>();
+	const consentCardRef = useRef<HTMLDivElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const runRequestSequence = useRef(0);
@@ -229,20 +233,20 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
 
+	const runIdBody = () =>
+		selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id };
+
 	const prepareSave = async () => {
 		if (!job && !selectedRun) return;
 		if (!selected.size) return;
 		setBusy(true);
 		setError("");
 		try {
+			setPendingPaperIds(undefined);
 			setPending(
 				await api(
 					"/api/library/import/prepare",
-					jsonBody({
-						...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
-						paperIds: [...selected],
-						namespace,
-					}),
+					jsonBody({ ...runIdBody(), paperIds: [...selected], namespace }),
 				),
 			);
 		} catch (reason) {
@@ -252,22 +256,43 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		}
 	};
 
+	const saveOne = async (paper: PaperRecord) => {
+		if (!job && !selectedRun) return;
+		if (savedIds.has(paper.id) || savingId) return;
+		setBusy(true);
+		setError("");
+		setSavingId(paper.id);
+		try {
+			setPendingPaperIds([paper.id]);
+			setPending(
+				await api(
+					"/api/library/import/prepare",
+					jsonBody({ ...runIdBody(), paperIds: [paper.id], namespace }),
+				),
+			);
+		} catch (reason) {
+			setPendingPaperIds(undefined);
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setSavingId(undefined);
+			setBusy(false);
+		}
+	};
+
 	const confirmSave = async () => {
 		if (!pending || (!job && !selectedRun)) return;
 		setBusy(true);
 		setError("");
 		try {
+			const paperIds = pendingPaperIds ?? [...selected];
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const created = await api<BackgroundJob>(
 				"/api/library/import/execute",
-				jsonBody({
-					...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
-					paperIds: [...selected],
-					namespace,
-					grant,
-				}),
+				jsonBody({ ...runIdBody(), paperIds, namespace, grant }),
 			);
 			onTask(created);
+			setSavedIds((current) => new Set([...current, ...paperIds]));
+			setPendingPaperIds(undefined);
 			setPending(undefined);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -275,6 +300,10 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			setBusy(false);
 		}
 	};
+
+	useEffect(() => {
+		if (pending) consentCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+	}, [pending]);
 
 	return (
 		<>
@@ -447,12 +476,17 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				</div>
 			)}
 			{pending && (
-				<ConsentCard
-					operation={pending}
-					busy={busy}
-					onCancel={() => setPending(undefined)}
-					onConfirm={confirmSave}
-				/>
+				<div ref={consentCardRef}>
+					<ConsentCard
+						operation={pending}
+						busy={busy}
+						onCancel={() => {
+							setPending(undefined);
+							setPendingPaperIds(undefined);
+						}}
+						onConfirm={confirmSave}
+					/>
+				</div>
 			)}
 			{agentRuns.length > 0 && (
 				<div className="agent-run-picker">
@@ -564,6 +598,9 @@ export function SearchPage({ onTask }: SearchPageProps) {
 										})
 									}
 									onOpen={() => setDetailPaper(paper)}
+									onSave={(target) => void saveOne(target)}
+									saved={savedIds.has(paper.id)}
+									saveBusy={savingId === paper.id}
 								/>
 							))}
 						</div>

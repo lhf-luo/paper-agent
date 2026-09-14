@@ -91,7 +91,7 @@ function AppShell() {
 	const initialPdf = useMemo(() => launchPdfPath(), []);
 	const { resolvedTheme, toggleTheme } = useTheme();
 	const router = useRouter(initialPdf ? "reader" : "dashboard");
-	const { page, navigate } = router;
+	const { page, navigate, params } = router;
 	const { status, refreshStatus, lastTask, trackTask, error } = useWorkspace();
 
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -273,13 +273,14 @@ function AppShell() {
 							<Suspense fallback={<LoadingBlock text="正在加载工作区…" />}>
 								{page === "dashboard" && <DashboardPage status={status} go={go} />}
 								{page === "search" && <SearchPage onTask={trackTask} />}
-								{page === "agent" && <AgentPage />}
+								{page === "agent" && <AgentPage focusSessionId={params.session} />}
 								{page === "library" && (
 									<LibraryPage
 										onOpenReader={openReader}
 										onTask={trackTask}
 										toolbarTarget={libraryToolbarTarget}
 										onOpenResearchNote={openResearchNote}
+										onAgentSession={(sessionId) => navigate("agent", { session: sessionId })}
 									/>
 								)}
 								{page === "tasks" && <TasksPage />}

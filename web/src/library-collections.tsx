@@ -1,15 +1,15 @@
-import { X } from "lucide-react";
+import { FolderPlus, Plus, X } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, jsonBody } from "./api";
-import { requiresWebOperationConfirmation, useConfirmationPolicy } from "./confirmation-policy";
 import {
 	buildCollectionTree,
 	COLLECTION_DRAG_TYPE,
+	type CollectionTreeNode,
 	collectionDescendantIds,
 	flattenCollectionTree,
 	PAPER_DRAG_TYPE,
-	type CollectionTreeNode,
 } from "./collection-tree";
+import { requiresWebOperationConfirmation, useConfirmationPolicy } from "./confirmation-policy";
 import type { PaperCollection } from "./types";
 
 function CollectionSelectionCheckbox({
@@ -195,8 +195,7 @@ export function CollectionSidebar({
 
 	function confirmOrdinaryChange(message: string): boolean {
 		return (
-			!requiresWebOperationConfirmation("personal-corpus-write", confirmationSettings) ||
-			window.confirm(message)
+			!requiresWebOperationConfirmation("personal-corpus-write", confirmationSettings) || window.confirm(message)
 		);
 	}
 
@@ -271,8 +270,7 @@ export function CollectionSidebar({
 
 	function acceptsDrag(event: DragEvent<HTMLElement>) {
 		return (
-			event.dataTransfer.types.includes(COLLECTION_DRAG_TYPE) ||
-			event.dataTransfer.types.includes(PAPER_DRAG_TYPE)
+			event.dataTransfer.types.includes(COLLECTION_DRAG_TYPE) || event.dataTransfer.types.includes(PAPER_DRAG_TYPE)
 		);
 	}
 
@@ -380,9 +378,7 @@ export function CollectionSidebar({
 								title="更多操作"
 								onMouseEnter={cancelMenuClose}
 								onMouseLeave={scheduleMenuClose}
-								onClick={() =>
-									setMenu((current) => (current?.id === id ? undefined : { id, mode: "actions" }))
-								}
+								onClick={() => setMenu((current) => (current?.id === id ? undefined : { id, mode: "actions" }))}
 							>
 								⋯
 							</button>
@@ -395,17 +391,55 @@ export function CollectionSidebar({
 								>
 									{menu.mode === "actions" ? (
 										<>
-											<button type="button" onClick={() => { setChildParentId(id); setChildName(""); setMenu(undefined); updateExpanded((ids) => ids.add(id)); }}>新建子分类</button>
-											<button type="button" onClick={() => { setEditingId(id); setEditName(node.collection.name); setMenu(undefined); }}>重命名</button>
-											<button type="button" onClick={() => setMenu({ id, mode: "move" })}>移动到</button>
-											<button className="danger" type="button" onClick={() => void deleteCollection(node)}>删除</button>
+											<button
+												type="button"
+												onClick={() => {
+													setChildParentId(id);
+													setChildName("");
+													setMenu(undefined);
+													updateExpanded((ids) => ids.add(id));
+												}}
+											>
+												新建子分类
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setEditingId(id);
+													setEditName(node.collection.name);
+													setMenu(undefined);
+												}}
+											>
+												重命名
+											</button>
+											<button type="button" onClick={() => setMenu({ id, mode: "move" })}>
+												移动到
+											</button>
+											<button className="danger" type="button" onClick={() => void deleteCollection(node)}>
+												删除
+											</button>
 										</>
 									) : (
 										<>
-											<button type="button" onClick={() => setMenu({ id, mode: "actions" })}>返回</button>
-											<button type="button" disabled={!node.collection.parentId} onClick={() => void updateCollection(id, { parentId: null })}>顶级分类</button>
+											<button type="button" onClick={() => setMenu({ id, mode: "actions" })}>
+												返回
+											</button>
+											<button
+												type="button"
+												disabled={!node.collection.parentId}
+												onClick={() => void updateCollection(id, { parentId: null })}
+											>
+												顶级分类
+											</button>
 											{moveDestinations.map((destination) => (
-												<button type="button" key={destination.collection.id} disabled={node.collection.parentId === destination.collection.id} onClick={() => void updateCollection(id, { parentId: destination.collection.id })}>
+												<button
+													type="button"
+													key={destination.collection.id}
+													disabled={node.collection.parentId === destination.collection.id}
+													onClick={() =>
+														void updateCollection(id, { parentId: destination.collection.id })
+													}
+												>
 													{destination.path.join(" / ")}
 												</button>
 											))}
@@ -418,9 +452,25 @@ export function CollectionSidebar({
 				</div>
 				{childParentId === id && (
 					<div className="collection-child-editor">
-						<input ref={childInputRef} value={childName} placeholder="子分类名称" onChange={(event) => setChildName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createCollection(childName, id); }} />
-						<button type="button" disabled={!childName.trim() || busy} onClick={() => void createCollection(childName, id)}>新建</button>
-						<button type="button" aria-label="取消" onClick={() => setChildParentId(undefined)}><X size={13} aria-hidden="true" /></button>
+						<input
+							ref={childInputRef}
+							value={childName}
+							placeholder="子分类名称"
+							onChange={(event) => setChildName(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") void createCollection(childName, id);
+							}}
+						/>
+						<button
+							type="button"
+							disabled={!childName.trim() || busy}
+							onClick={() => void createCollection(childName, id)}
+						>
+							新建
+						</button>
+						<button type="button" aria-label="取消" onClick={() => setChildParentId(undefined)}>
+							<X size={13} aria-hidden="true" />
+						</button>
 					</div>
 				)}
 				{hasChildren && isExpanded && <ul className="collection-children">{node.children.map(renderNode)}</ul>}
@@ -443,19 +493,59 @@ export function CollectionSidebar({
 				<strong>分类</strong>
 			</div>
 			<div className="collection-new-row">
-				<input value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createCollection(newName); }} placeholder="新建分类" />
-				<button className="button secondary" type="button" disabled={busy || !newName.trim()} onClick={() => void createCollection(newName)}>新建</button>
+				<div className="collection-new-input-wrap">
+					<FolderPlus size={14} className="collection-new-icon" aria-hidden="true" />
+					<input
+						value={newName}
+						onChange={(event) => setNewName(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && newName.trim()) {
+								void createCollection(newName);
+							}
+						}}
+						placeholder="新建分类..."
+						aria-label="新建分类名称"
+					/>
+				</div>
+				<button
+					className="collection-create-btn"
+					type="button"
+					disabled={busy || !newName.trim()}
+					onClick={() => void createCollection(newName)}
+					title={newName.trim() ? "点击创建新分类" : "请输入分类名称"}
+				>
+					<Plus size={13} strokeWidth={2.5} aria-hidden="true" />
+					<span>新建</span>
+				</button>
 			</div>
 
 			<div className={`collection-node collection-system-node${activeCollection === "all" ? " active" : ""}`}>
 				<span className="collection-system-spacer" />
-				<CollectionSelectionCheckbox label="全部论文" paperIds={membershipPaperIds.all ?? []} selected={selectedPaperIds} disabled={membershipLoading} onToggle={onToggleSelection} />
-				<button className="collection-item" type="button" onClick={() => onSelect("all")}><span className="collection-name">全部论文</span></button>
+				<CollectionSelectionCheckbox
+					label="全部论文"
+					paperIds={membershipPaperIds.all ?? []}
+					selected={selectedPaperIds}
+					disabled={membershipLoading}
+					onToggle={onToggleSelection}
+				/>
+				<button className="collection-item" type="button" onClick={() => onSelect("all")}>
+					<span className="collection-name">全部论文</span>
+				</button>
 			</div>
-			<div className={`collection-node collection-system-node${activeCollection === "__uncategorized__" ? " active" : ""}`}>
+			<div
+				className={`collection-node collection-system-node${activeCollection === "__uncategorized__" ? " active" : ""}`}
+			>
 				<span className="collection-system-spacer" />
-				<CollectionSelectionCheckbox label="未分类" paperIds={membershipPaperIds.__uncategorized__ ?? []} selected={selectedPaperIds} disabled={membershipLoading} onToggle={onToggleSelection} />
-				<button className="collection-item" type="button" onClick={() => onSelect("__uncategorized__")}><span className="collection-name">未分类</span></button>
+				<CollectionSelectionCheckbox
+					label="未分类"
+					paperIds={membershipPaperIds.__uncategorized__ ?? []}
+					selected={selectedPaperIds}
+					disabled={membershipLoading}
+					onToggle={onToggleSelection}
+				/>
+				<button className="collection-item" type="button" onClick={() => onSelect("__uncategorized__")}>
+					<span className="collection-name">未分类</span>
+				</button>
 			</div>
 
 			<ul className="collection-tree" aria-label="论文分类">

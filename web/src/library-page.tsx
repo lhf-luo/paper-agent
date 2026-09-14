@@ -2,7 +2,15 @@ import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, apiBytes, jsonBody } from "./api";
-import { ConsentCard, confirmOperation, EmptyState, formatFileSize, LoadingBlock, PaperCard, SkeletonList } from "./components";
+import {
+	ConsentCard,
+	confirmOperation,
+	EmptyState,
+	formatFileSize,
+	LoadingBlock,
+	PaperCard,
+	SkeletonList,
+} from "./components";
 import {
 	requiresWebOperationConfirmation,
 	useAutomaticOperationConfirmation,
@@ -10,6 +18,7 @@ import {
 } from "./confirmation-policy";
 import { CollectionSidebar } from "./library-collections";
 import { MineruControl } from "./mineru-control";
+import { type AutomatedResearchLaunchInput, ResearchLauncher } from "./research-launcher";
 import type {
 	BackgroundJob,
 	CollectionMembershipIndex,
@@ -83,11 +92,13 @@ export function LibraryPage({
 	onTask,
 	toolbarTarget,
 	onOpenResearchNote,
+	onAgentSession,
 }: {
 	onOpenReader: (state: ReaderState) => void;
 	onTask: (job: BackgroundJob) => void;
 	toolbarTarget: HTMLDivElement | null;
 	onOpenResearchNote: (target: ResearchNoteNavigation) => void;
+	onAgentSession: (sessionId: string) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
 	const [query, setQuery] = useState("");
@@ -546,12 +557,12 @@ export function LibraryPage({
 			);
 		}
 	}, [namespace]);
-	const prepareDownload = async () => {
+	const prepareDownload = async (paperIds: string[]) => {
 		setActiveLibraryTool(undefined);
 		setBusy(true);
 		setError("");
 		try {
-			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds: [...selected], namespace })));
+			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds, namespace })));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -575,6 +586,15 @@ export function LibraryPage({
 		} finally {
 			setBusy(false);
 		}
+	};
+	const prepareDownloadForCurrentPaper = async () => {
+		if (!details?.paper?.id) return;
+		setSelected(new Set([details.paper.id]));
+		await prepareDownload([details.paper.id]);
+	};
+	const startAutomatedResearch = async (input: AutomatedResearchLaunchInput) => {
+		const response = await api<{ session: { id: string } }>("/api/agent/research/start", jsonBody(input));
+		onAgentSession(response.session.id);
 	};
 	const prepareAnnotation = async () => {
 		if (!selected.size) return;
@@ -1044,7 +1064,7 @@ export function LibraryPage({
 					className="button primary"
 					type="button"
 					disabled={!selected.size || libraryActionLocked}
-					onClick={() => void prepareDownload()}
+					onClick={() => void prepareDownload([...selected])}
 				>
 					下载所选 PDF
 				</button>
@@ -1777,7 +1797,7 @@ export function LibraryPage({
 								tips={[
 									"前往「检索与收集」页面按关键词、DOI 或 arXiv ID 搜索收录",
 									"点击上方「导入」按钮，批量解析本地 PDF 论文或导入 Zotero 库",
-									"在「Agent 对话」中向智能研究员描述您的科研选题与综述目标"
+									"在「Agent 对话」中向智能研究员描述您的科研选题与综述目标",
 								]}
 							/>
 						)}
@@ -1814,6 +1834,15 @@ export function LibraryPage({
 										compact
 									/>
 								</div>
+								<ResearchLauncher
+									paperId={details.paper.id}
+									paperTitle={details.paper.title}
+									versions={details.versions ?? []}
+									namespace={namespace}
+									busy={busy}
+									onPreparePdf={prepareDownloadForCurrentPaper}
+									onStart={startAutomatedResearch}
+								/>
 								<h3>PDF 版本</h3>
 								{details.versions.length ? (
 									details.versions.map((version: any) => (
