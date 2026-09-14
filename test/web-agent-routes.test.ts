@@ -46,6 +46,7 @@ describe("local Web Agent routes", () => {
 			messages: [],
 			tools: [],
 			uiRequests: [],
+			permissionMode: "ask",
 		};
 		let closed = false;
 		let createdContext: unknown;
@@ -66,7 +67,20 @@ describe("local Web Agent routes", () => {
 			},
 			createSession: (input) => {
 				createdContext = input.context;
-				snapshot = { ...snapshot, context: input.context };
+				snapshot = {
+					...snapshot,
+					context: input.context,
+					thinkingLevel: input.thinkingLevel,
+					permissionMode: input.permissionMode ?? snapshot.permissionMode,
+				};
+				return snapshot;
+			},
+			updateSessionSettings: (_id, input) => {
+				snapshot = {
+					...snapshot,
+					thinkingLevel: input.thinkingLevel ?? snapshot.thinkingLevel,
+					permissionMode: input.permissionMode ?? snapshot.permissionMode,
+				};
 				return snapshot;
 			},
 			getSession: () => snapshot,
@@ -128,6 +142,17 @@ describe("local Web Agent routes", () => {
 			});
 			expect(createdResponse.status).toBe(201);
 			expect(createdContext).toEqual({ kind: "paper", namespace: "alternate", paperId: "paper-one" });
+			const settingsResponse = await authenticated("/api/agent/sessions/session-one/settings", {
+				method: "POST",
+				body: JSON.stringify({ thinkingLevel: "high", permissionMode: "auto" }),
+			});
+			expect(settingsResponse.status).toBe(200);
+			expect(await settingsResponse.json()).toMatchObject({ thinkingLevel: "high", permissionMode: "auto" });
+			const invalidSettingsResponse = await authenticated("/api/agent/sessions/session-one/settings", {
+				method: "POST",
+				body: JSON.stringify({ thinkingLevel: "loud" }),
+			});
+			expect(invalidSettingsResponse.status).toBe(400);
 			const messageResponse = await authenticated("/api/agent/sessions/session-one/messages", {
 				method: "POST",
 				body: JSON.stringify({ message: "route hello" }),

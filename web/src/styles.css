@@ -5516,6 +5516,70 @@ body.paper-reader-resizing .browser-pdf-frame {
 	color: var(--muted);
 }
 
+/* composer 控制药丸: 思考强度 / 权限模式 (ZCode 风格) */
+.agent-composer-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 30px;
+	flex-shrink: 0;
+	padding: 0 6px 0 10px;
+	border: 1px solid #c9d5d0;
+	border-radius: 999px;
+	background: #fff;
+	color: #2d5c4d;
+	font-size: 12px;
+	cursor: pointer;
+	transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.agent-composer-pill:hover {
+	border-color: #8db5a6;
+	background: #f2f8f5;
+}
+
+.agent-composer-pill:focus-within {
+	border-color: var(--green-700);
+	box-shadow: 0 0 0 3px rgba(45, 107, 92, 0.12);
+}
+
+.agent-composer-pill.auto {
+	border-color: #dfc07f;
+	background: #fdf6e7;
+	color: #8a6116;
+}
+
+.agent-composer-pill.auto:hover {
+	border-color: #cfa54f;
+	background: #faf0d8;
+}
+
+.agent-composer-pill-select {
+	appearance: none;
+	-webkit-appearance: none;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-weight: 650;
+	padding-right: 14px;
+	cursor: pointer;
+	outline: none;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236f8d81' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right center;
+}
+
+.agent-composer-pill.auto .agent-composer-pill-select {
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a6116' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.agent-composer-pill-select:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+
 .agent-attach-button {
 	width: 30px;
 	height: 30px;
@@ -5554,6 +5618,11 @@ body.paper-reader-resizing .browser-pdf-frame {
 
 	.agent-composer-actions-left {
 		flex: 0 0 auto;
+		flex-wrap: wrap;
+	}
+
+	.agent-composer-hint {
+		display: none;
 	}
 
 	.agent-composer-actions-right {

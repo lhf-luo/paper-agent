@@ -116,7 +116,7 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				cwd: this.projectRoot,
 				agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
 				model,
-				thinkingLevel: "low",
+				thinkingLevel: session.thinkingLevel ?? "low",
 				modelRuntime,
 				resourceLoader,
 				sessionManager,

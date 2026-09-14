@@ -9,6 +9,7 @@ import type {
 	WebAgentSessionFilter,
 	WebAgentServiceApi,
 } from "../../agent/domain/web-agent-contracts.ts";
+import { normalizePermissionMode, normalizeThinkingLevel } from "../../agent/application/web-agent-support.ts";
 import { ApiError, json, readJson } from "./web-http.ts";
 
 export interface AgentRouteContext {
@@ -63,6 +64,8 @@ export async function handleAgentRoutes(context: AgentRouteContext): Promise<voi
 				mode: body.mode as WebAgentMode,
 				title: typeof body.title === "string" ? body.title : undefined,
 				context,
+				thinkingLevel: normalizeThinkingLevel(body.thinkingLevel),
+				permissionMode: normalizePermissionMode(body.permissionMode),
 			}),
 		);
 		return;
@@ -131,6 +134,24 @@ async function handleSessionAction(context: AgentRouteContext, agentService: Web
 		return true;
 	}
 	if (await handleSessionEvents(context, agentService)) return true;
+	const settings = /^\/api\/agent\/sessions\/([^/]+)\/settings$/.exec(url.pathname);
+	if (request.method === "POST" && settings) {
+		const body = await readJson(request);
+		const thinkingLevel = normalizeThinkingLevel(body.thinkingLevel);
+		const permissionMode = normalizePermissionMode(body.permissionMode);
+		if (!thinkingLevel && !permissionMode) {
+			throw new ApiError(400, "settings requires a valid thinkingLevel or permissionMode");
+		}
+		json(
+			response,
+			200,
+			await agentService.updateSessionSettings(decodeURIComponent(settings[1]), {
+				thinkingLevel,
+				permissionMode,
+			}),
+		);
+		return true;
+	}
 	const ui = /^\/api\/agent\/sessions\/([^/]+)\/ui\/([^/]+)\/respond$/.exec(url.pathname);
 	if (request.method === "POST" && ui) {
 		const body = await readJson(request);

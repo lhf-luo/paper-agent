@@ -1,4 +1,4 @@
-import { Menu, Sparkles } from "lucide-react";
+import { Brain, Menu, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,12 +16,28 @@ import type {
 	AgentConfigView,
 	AgentEvent,
 	AgentMode,
+	AgentPermissionMode,
 	AgentSessionSnapshot,
 	AgentSessionSummary,
+	AgentThinkingLevel,
 	AgentToolView,
 	AgentUIRequestView,
 	PaperCollection,
 } from "./types";
+
+const thinkingLevelOptions: Array<{ value: AgentThinkingLevel; label: string }> = [
+	{ value: "off", label: "思考：关闭" },
+	{ value: "minimal", label: "思考：极简" },
+	{ value: "low", label: "思考：低" },
+	{ value: "medium", label: "思考：中" },
+	{ value: "high", label: "思考：高" },
+	{ value: "xhigh", label: "思考：极高" },
+];
+
+const permissionModeOptions: Array<{ value: AgentPermissionMode; label: string }> = [
+	{ value: "ask", label: "权限：确认后执行" },
+	{ value: "auto", label: "权限：自动批准" },
+];
 
 const taskTemplates = [
 	{
@@ -892,6 +908,45 @@ export function AgentPage({
 	const [newMode, _setNewMode] = useState<AgentMode>("persistent");
 	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
+	const [thinkingLevel, setThinkingLevel] = useState<AgentThinkingLevel>("low");
+	const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("ask");
+	const syncedSettingsSessionId = useRef<string | undefined>(undefined);
+	// 切换会话时, 用会话自己的设置同步选择器; 平时的变更不回写, 避免打断用户操作。
+	useEffect(() => {
+		if (active?.id === syncedSettingsSessionId.current) return;
+		syncedSettingsSessionId.current = active?.id;
+		setThinkingLevel(active?.thinkingLevel ?? "low");
+		setPermissionMode(active?.permissionMode ?? "ask");
+	}, [active]);
+	/** 会话存在时把 composer 设置持久化到服务端; 失败时返回 false 供调用方回滚。 */
+	const applySessionSettings = useCallback(
+		async (patch: { thinkingLevel?: AgentThinkingLevel; permissionMode?: AgentPermissionMode }) => {
+			if (!active) return true;
+			try {
+				const snapshot = await api<AgentSessionSnapshot>(
+					`/api/agent/sessions/${encodeURIComponent(active.id)}/settings`,
+					jsonBody(patch),
+				);
+				setActive(snapshot);
+				setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
+				return true;
+			} catch (reason) {
+				setError(reason instanceof Error ? reason.message : String(reason));
+				return false;
+			}
+		},
+		[active],
+	);
+	const changeThinkingLevel = async (level: AgentThinkingLevel) => {
+		const previous = thinkingLevel;
+		setThinkingLevel(level);
+		if (!(await applySessionSettings({ thinkingLevel: level }))) setThinkingLevel(previous);
+	};
+	const changePermissionMode = async (mode: AgentPermissionMode) => {
+		const previous = permissionMode;
+		setPermissionMode(mode);
+		if (!(await applySessionSettings({ permissionMode: mode }))) setPermissionMode(previous);
+	};
 	useEffect(() => {
 		if (initialPrompt) {
 			setPrompt(initialPrompt);
@@ -1205,6 +1260,8 @@ export function AgentPage({
 				body: JSON.stringify({
 					mode: paperContext ? "persistent" : newMode,
 					...(title ? { title } : {}),
+					thinkingLevel,
+					permissionMode,
 					...(paperContext
 						? { context: { kind: "paper", namespace: paperContext.namespace, paperId: paperContext.paperId } }
 						: {}),
@@ -1697,6 +1754,41 @@ export function AgentPage({
 									style={{ display: "none" }}
 									onChange={(event) => void handleFiles(event.target.files)}
 								/>
+								<label className="agent-composer-pill" title="思考强度：控制模型推理深度">
+									<Brain size={13} />
+									<select
+										className="agent-composer-pill-select"
+										aria-label="思考强度"
+										value={thinkingLevel}
+										disabled={busy}
+										onChange={(event) => void changeThinkingLevel(event.target.value as AgentThinkingLevel)}
+									>
+										{thinkingLevelOptions.map((option) => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								</label>
+								<label
+									className={`agent-composer-pill${permissionMode === "auto" ? " auto" : ""}`}
+									title={permissionMode === "auto" ? "自动批准所有确认请求（写入、下载、团队提议等不再逐项询问）" : "写入、下载等敏感操作会先弹出确认卡片"}
+								>
+									<ShieldCheck size={13} />
+									<select
+										className="agent-composer-pill-select"
+										aria-label="权限模式"
+										value={permissionMode}
+										disabled={busy}
+										onChange={(event) => void changePermissionMode(event.target.value as AgentPermissionMode)}
+									>
+										{permissionModeOptions.map((option) => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								</label>
 								<small className="agent-composer-hint">写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
 							</div>
 							<div className="agent-composer-actions-right">

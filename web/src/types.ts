@@ -525,6 +525,8 @@ export type AgentApiKind = "openai-completions" | "openai-responses" | "anthropi
 
 export type AgentMode = "once" | "persistent";
 export type AgentSessionStatus = "idle" | "running" | "stopping" | "error";
+export type AgentThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type AgentPermissionMode = "ask" | "auto";
 
 export interface AgentConfiguredModelView {
 	key: string;
@@ -598,6 +600,8 @@ export interface AgentSessionSummary {
 	updatedAt: string;
 	error?: string;
 	pendingUIRequests: number;
+	thinkingLevel?: AgentThinkingLevel;
+	permissionMode?: AgentPermissionMode;
 }
 
 export interface AgentSessionSnapshot extends AgentSessionSummary {

@@ -105,10 +105,12 @@ export abstract class WebAgentServiceBase {
 				pendingUI: new Map(),
 				listeners: new Set(),
 				eventId: 0,
-				toolMessageAnchors: new Map(
-					view.tools.flatMap((tool) => (tool.assistantMessageId ? [[tool.id, tool.assistantMessageId]] : [])),
-				),
-				abortRequested: false,
+					toolMessageAnchors: new Map(
+						view.tools.flatMap((tool) => (tool.assistantMessageId ? [[tool.id, tool.assistantMessageId]] : [])),
+					),
+					abortRequested: false,
+					thinkingLevel: view.thinkingLevel,
+					permissionMode: view.permissionMode ?? "ask",
 			});
 		}
 	}
@@ -124,6 +126,8 @@ export abstract class WebAgentServiceBase {
 			error: session.error,
 			messages: session.messages.map(cloneMessage),
 			tools: session.tools.map(cloneTool),
+			thinkingLevel: session.thinkingLevel,
+			permissionMode: session.permissionMode,
 		};
 	}
 
