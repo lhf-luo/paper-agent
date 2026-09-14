@@ -3481,50 +3481,159 @@ export function TeamPage() {
 							</div>
 						</div>
 
-						<div className="sub-section-header">
-							<FileStack size={15} />
-							<div>
-								<h4>备份与恢复演练</h4>
-								<small>在服务端临时沙箱中校验备份包完整性与统计，绝不覆盖当前团队库。</small>
+						<div className="restore-drill-section">
+							<div className="sub-section-header">
+								<div className="sub-section-icon-box">
+									<FileStack size={16} />
+								</div>
+								<div className="sub-section-titles">
+									<h4>备份与恢复演练</h4>
+									<small>在服务端临时沙箱中校验备份包完整性与统计，绝不覆盖当前团队库。</small>
+								</div>
 							</div>
-						</div>
 
-						<div className="restore-drill-bar" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-							<input
-								className="avant-input"
-								style={{ flex: "1", minWidth: "220px" }}
-								value={backupPath}
-								onChange={(e) => setBackupPath(e.target.value)}
-								placeholder="先创建备份，或粘贴服务端 backupPath…"
-							/>
-							<button
-								className="avant-btn avant-btn-secondary"
-								type="button"
-								disabled={!backupPath.trim() || busy}
-								onClick={() =>
-									void prepare("/api/team/restore-drill/prepare", "/api/team/restore-drill/execute", {
-										backupPath: backupPath.trim(),
-									})
-								}
-							>
-								<ShieldCheck size={14} />
-								预览恢复演练
-							</button>
-						</div>
+							<div className="restore-drill-bar">
+								<div className="restore-input-group">
+									<input
+										className="avant-input"
+										value={backupPath}
+										onChange={(e) => setBackupPath(e.target.value)}
+										placeholder="先创建备份，或粘贴服务端 backupPath…"
+									/>
+									{backupPath && (
+										<button
+											type="button"
+											className="restore-clear-btn"
+											onClick={() => setBackupPath("")}
+											title="清空输入"
+											aria-label="清空备份路径"
+										>
+											<X size={14} />
+										</button>
+									)}
+								</div>
+								<button
+									className="avant-btn avant-btn-secondary"
+									type="button"
+									disabled={!backupPath.trim() || busy}
+									onClick={() =>
+										void prepare("/api/team/restore-drill/prepare", "/api/team/restore-drill/execute", {
+											backupPath: backupPath.trim(),
+										})
+									}
+								>
+									<ShieldCheck size={14} />
+									预览恢复演练
+								</button>
+							</div>
 
-						<p>
-							附件存储：{stats.blobCount ?? 0} 个文件 · {((stats.blobBytes ?? 0) / 1024 / 1024).toFixed(1)} MiB
-						</p>
-						{Object.entries(overview.maintenance ?? {}).map(([operation, value]) => {
-							const result = value as { status: string; at: string; backupPath?: string; message?: string };
-							return (
-								<p key={operation} role={result.status === "failed" ? "alert" : undefined}>
-									{operation === "backup" ? "最近备份" : "最近恢复演练"}：
-									{result.status === "succeeded" ? "成功" : "失败"} · {new Date(result.at).toLocaleString()}{" "}
-									{result.message} {result.backupPath}
-								</p>
-							);
-						})}
+							<div className="maintenance-telemetry-strip">
+								<div className="maintenance-storage-badge">
+									<Database size={13} className="badge-icon" />
+									<span>附件存储池</span>
+									<span className="badge-sep">/</span>
+									<strong>{stats.blobCount ?? 0} 个文件</strong>
+									<span className="badge-sep">·</span>
+									<span>{((stats.blobBytes ?? 0) / 1024 / 1024).toFixed(1)} MiB</span>
+								</div>
+							</div>
+
+							{overview.maintenance && Object.keys(overview.maintenance).length > 0 && (
+								<div className="maintenance-records-block">
+									<div className="maintenance-records-header">
+										<span>
+											<Activity size={12} />
+											最近运维与演练记录
+										</span>
+									</div>
+									{Object.entries(overview.maintenance).map(([operation, value]) => {
+										const result = value as {
+											status: string;
+											at: string;
+											backupPath?: string;
+											message?: string;
+										};
+										const isBackup = operation === "backup";
+										const isSuccess = result.status === "succeeded";
+										return (
+											<div
+												key={operation}
+												className={`maintenance-record-card ${!isSuccess ? "has-error" : ""}`}
+												role={!isSuccess ? "alert" : undefined}
+											>
+												<div className="record-header-row">
+													<div className="record-main-info">
+														<div className="record-icon-badge">
+															{isBackup ? <Database size={13} /> : <RotateCcw size={13} />}
+														</div>
+														<span className="record-name">
+															{isBackup
+																? "最近备份"
+																: operation === "restore_drill"
+																	? "最近恢复演练"
+																	: operation}
+														</span>
+														<span className={`record-status-pill ${isSuccess ? "succeeded" : "failed"}`}>
+															{isSuccess ? (
+																<>
+																	<CheckCircle2 size={11} />
+																	<span>成功</span>
+																</>
+															) : (
+																<>
+																	<AlertCircle size={11} />
+																	<span>失败</span>
+																</>
+															)}
+														</span>
+													</div>
+													<div className="record-time-meta">
+														<Clock size={11} />
+														<time dateTime={result.at}>{new Date(result.at).toLocaleString()}</time>
+													</div>
+												</div>
+
+												{result.message && (
+													<div className="record-error-message">
+														<Info size={13} />
+														<span>{result.message}</span>
+													</div>
+												)}
+
+												{result.backupPath && (
+													<div className="record-path-box">
+														<span className="path-prefix">路径</span>
+														<code className="record-path-code" title={result.backupPath}>
+															{result.backupPath}
+														</code>
+														<div className="record-path-actions">
+															<button
+																type="button"
+																className="avant-btn avant-btn-xs avant-btn-secondary"
+																title="将此路径填入演练输入框"
+																onClick={() => setBackupPath(result.backupPath!)}
+															>
+																<ArrowUpRight size={11} />
+																<span>填入演练</span>
+															</button>
+															<button
+																type="button"
+																className="avant-btn avant-btn-xs avant-btn-secondary"
+																title="复制完整路径"
+																onClick={() => copyText(result.backupPath!, "备份路径已复制")}
+															>
+																<Copy size={11} />
+																<span>复制</span>
+															</button>
+														</div>
+													</div>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</div>
 						<TeamMembersPanel
 							identities={overview.identities ?? []}
 							selfId={overview.identity?.id}

@@ -3412,13 +3412,27 @@
 	animation: canvasSectionIn 420ms var(--ease-standard) backwards;
 }
 
-.team-page-canvas > *:nth-child(1) { animation-delay: 0ms; }
-.team-page-canvas > *:nth-child(2) { animation-delay: 50ms; }
-.team-page-canvas > *:nth-child(3) { animation-delay: 100ms; }
-.team-page-canvas > *:nth-child(4) { animation-delay: 150ms; }
-.team-page-canvas > *:nth-child(5) { animation-delay: 200ms; }
-.team-page-canvas > *:nth-child(6) { animation-delay: 250ms; }
-.team-page-canvas > *:nth-child(n + 7) { animation-delay: 300ms; }
+.team-page-canvas > *:nth-child(1) {
+	animation-delay: 0ms;
+}
+.team-page-canvas > *:nth-child(2) {
+	animation-delay: 50ms;
+}
+.team-page-canvas > *:nth-child(3) {
+	animation-delay: 100ms;
+}
+.team-page-canvas > *:nth-child(4) {
+	animation-delay: 150ms;
+}
+.team-page-canvas > *:nth-child(5) {
+	animation-delay: 200ms;
+}
+.team-page-canvas > *:nth-child(6) {
+	animation-delay: 250ms;
+}
+.team-page-canvas > *:nth-child(n + 7) {
+	animation-delay: 300ms;
+}
 
 @keyframes canvasSectionIn {
 	from {
@@ -3553,6 +3567,266 @@
 .audit-trail-list::-webkit-scrollbar-thumb:hover {
 	background: var(--border-strong);
 	background-clip: content-box;
+}
+
+/* --- 备份与恢复演练及运维记录 ---------------------------------- */
+.restore-drill-section {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 20px 22px;
+	border-radius: var(--radius-lg);
+	background: linear-gradient(180deg, var(--surface-card) 0%, var(--surface-soft) 100%);
+	border: 1px solid var(--border-subtle);
+	box-shadow: var(--shadow-sm);
+	margin-bottom: 24px;
+}
+
+.restore-drill-bar {
+	display: flex;
+	gap: 10px;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+.restore-input-group {
+	display: flex;
+	flex: 1;
+	min-width: 240px;
+	position: relative;
+	align-items: center;
+}
+
+.restore-input-group .avant-input {
+	width: 100%;
+	padding-right: 32px;
+}
+
+.restore-clear-btn {
+	position: absolute;
+	right: 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: none;
+	background: transparent;
+	color: var(--text-muted);
+	border-radius: var(--radius-xs);
+	cursor: pointer;
+	transition:
+		color 150ms ease,
+		background 150ms ease;
+}
+
+.restore-clear-btn:hover {
+	color: var(--text-primary);
+	background: var(--surface-hover);
+}
+
+.maintenance-telemetry-strip {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding-top: 2px;
+}
+
+.maintenance-storage-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	font-size: 12px;
+	color: var(--text-secondary);
+	background: var(--surface-card);
+	padding: 5px 12px;
+	border-radius: var(--radius-full);
+	border: 1px solid var(--border-subtle);
+	box-shadow: var(--shadow-subtle);
+}
+
+.maintenance-storage-badge .badge-icon {
+	color: var(--brand-700);
+}
+
+.maintenance-storage-badge strong {
+	color: var(--text-primary);
+	font-weight: 600;
+}
+
+.maintenance-storage-badge .badge-sep {
+	color: var(--border-strong);
+	margin: 0 1px;
+}
+
+.maintenance-records-block {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 4px;
+}
+
+.maintenance-records-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+}
+
+.maintenance-records-header span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.maintenance-record-card {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+	padding: 13px 15px;
+	border-radius: var(--radius-md);
+	background: var(--surface-card);
+	border: 1px solid var(--border-subtle);
+	box-shadow: var(--shadow-subtle);
+	transition:
+		border-color 180ms var(--ease-standard),
+		box-shadow 180ms var(--ease-standard);
+}
+
+.maintenance-record-card:hover {
+	border-color: var(--border-medium);
+	box-shadow: var(--shadow-sm);
+}
+
+.maintenance-record-card.has-error {
+	border-color: var(--accent-red-border);
+	background: var(--accent-red-soft);
+}
+
+.record-header-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.record-main-info {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.record-icon-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 6px;
+	background: var(--surface-soft);
+	color: var(--brand-800);
+	border: 1px solid var(--border-subtle);
+}
+
+.maintenance-record-card.has-error .record-icon-badge {
+	background: var(--surface-card);
+	color: var(--accent-red);
+	border-color: var(--accent-red-border);
+}
+
+.record-name {
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--text-primary);
+}
+
+.record-status-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	border-radius: 9999px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.record-status-pill.succeeded {
+	background: var(--brand-50);
+	color: var(--brand-700);
+	border: 1px solid var(--brand-200);
+}
+
+.record-status-pill.failed {
+	background: var(--accent-red-soft);
+	color: var(--accent-red-text);
+	border: 1px solid var(--accent-red-border);
+}
+
+.record-time-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 11.5px;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.record-path-box {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-code);
+	border: 1px solid var(--border-subtle);
+	overflow: hidden;
+}
+
+.record-path-box .path-prefix {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted);
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.record-path-code {
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	color: var(--text-primary);
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	user-select: all;
+}
+
+.record-path-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.record-error-message {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--accent-red-text);
+	padding: 6px 10px;
+	border-radius: var(--radius-sm);
+	background: rgba(175, 67, 61, 0.06);
 }
 
 /* --- 成员管理面板（TeamMembersPanel 新结构） ---------------------------------- */
