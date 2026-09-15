@@ -164,6 +164,9 @@ export async function discoverModelEndpointModels(input: ModelDiscoveryInput): P
 	if (!["openai-completions", "openai-responses"].includes(input.api)) {
 		throw new Error("Automatic model discovery currently requires an OpenAI-compatible /models endpoint");
 	}
+	if (typeof input.apiKey !== "string" || !input.apiKey.trim()) {
+		throw new Error("API key 不能为空。请在 API key 提示处粘贴完整密钥后按 Enter。");
+	}
 	const config = validatePaperAgentConfig(
 		{
 			...defaultPaperAgentConfig(),
