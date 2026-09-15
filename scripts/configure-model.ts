@@ -1,6 +1,5 @@
 import { dirname, resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import {
 	loadPaperAgentConfig,
@@ -16,6 +15,7 @@ import {
 	mergeDiscoveredModels,
 	probeModelImageInput,
 } from "../src/config/application/model-service.ts";
+import { ModelPrompts } from "./model-prompts.ts";
 
 interface ParsedArguments {
 	command: "add" | "list" | "probe-image";
@@ -102,33 +102,9 @@ function usage(): string {
 	].join("\n");
 }
 
-const rl = createInterface({ input, output });
-const runtimeRl = rl as typeof rl & { stdoutMuted?: boolean; _writeToOutput?: (value: string) => void };
-const originalWriteToOutput = runtimeRl._writeToOutput?.bind(rl);
-if (originalWriteToOutput) {
-	runtimeRl._writeToOutput = (value: string) => {
-		if (runtimeRl.stdoutMuted) output.write(value.includes("\n") ? value : "*");
-		else originalWriteToOutput(value);
-	};
-}
-
-async function ask(label: string, current = ""): Promise<string> {
-	const suffix = current ? ` [${current}]` : "";
-	const answer = (await rl.question(`${label}${suffix}: `)).trim();
-	return answer || current;
-}
-
-async function askSecret(label: string): Promise<string> {
-	output.write(`${label}: `);
-	runtimeRl.stdoutMuted = true;
-	try {
-		const answer = (await rl.question("")).trim();
-		output.write("\n");
-		return answer;
-	} finally {
-		runtimeRl.stdoutMuted = false;
-	}
-}
+const prompts = new ModelPrompts(input, output);
+const ask = prompts.ask.bind(prompts);
+const askSecret = prompts.askSecret.bind(prompts);
 
 async function chooseActive(discovered: PaperAgentModelConfig[], requested?: string, assumeYes = false) {
 	if (requested) {
@@ -244,5 +220,5 @@ try {
 		process.exitCode = 1;
 	}
 } finally {
-	rl.close();
+	prompts.close();
 }
