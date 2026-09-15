@@ -1,6 +1,6 @@
 ---
 name: paper-research
-description: "Read and investigate a research paper with Paper Agent through four evidence-traceable research contracts: bounded skim, method close reading, full-paper research, and reproduction preparation. Use for paper triage, close reading, method or experiment analysis, critical review, and reproduction planning."
+description: "Read and investigate a research paper with Paper Agent through four evidence-traceable research contracts: bounded skim, method close reading, full-paper research, and reproduction preparation. Use for paper triage, close reading, method or experiment analysis, critical review, reproduction planning, and creating Markdown research notes when requested."
 ---
 
 # Paper Research
@@ -8,6 +8,8 @@ description: "Read and investigate a research paper with Paper Agent through fou
 使用 Paper Agent 已注册的个人库、PDF、MinerU、图表和 Artifact 工具研究论文。不得用模型记忆、临时 Shell 下载、手工编辑 manifest 或 Provider 元数据代替一手证据。
 
 本 Skill 负责研究方式、阅读流程和报告结构。系统提示词只负责全局证据、安全和人工边界。
+
+用户明确要求“创建笔记”“保存研究结果”“精读并记笔记”或保存比较矩阵时，将笔记作为本次研究的交付物，按下方“创建研究笔记”执行；只要求阅读或分析时，默认在对话中报告。
 
 ## 选择研究方式
 
@@ -56,9 +58,19 @@ description: "Read and investigate a research paper with Paper Agent through fou
 7. **完成覆盖检查**
    - 全文研究和复现准备在报告前必须调用 `paper_progress`，补齐缺页、资产索引和主要对象核验。
    - 无法完成的关卡必须进入报告开头的“证据边界”，不得伪装成已完成。
-8. **只在对话中报告**
-   - 本研究流程只输出到当前会话，不调用 `manage_research_note`，也不调用 `manage_literature_memory` 的记录动作。
-   - 用户审阅后另行要求保存时，才作为新的写入操作使用现有笔记或记忆工具；如果明确要求沉淀到 Wiki，切换到 `research-wiki` Skill，先发现工具并按证据契约 preview，不直接写文件。
+8. **报告并按请求保存笔记**
+   - 未要求保存时，本研究流程只输出到当前会话，不调用 `manage_research_note`，也不调用 `manage_literature_memory` 的记录动作。
+   - 用户在开始研究时或审阅报告后要求保存，都可按下方流程创建笔记，不要求重复提出保存请求。
+   - 如果明确要求沉淀到 Wiki，切换到 `research-wiki` Skill，先发现工具并按证据契约 preview，不直接写文件。
+
+## 创建研究笔记
+
+1. 用 `inspect_agent_tools` 确认当前会话的 `search_research_notes`、`manage_research_note` 及参数；能力不可用时报告尚未保存，不绕过工具直接写 Markdown 或 SQLite。
+2. 确定用户指定的个人 namespace。先用 `search_research_notes` 按 `paper_id` 或标题查询已有笔记，避免重复创建。已有笔记不代表用户授权覆盖；仅在明确要求更新时读取其 `note_id` 和全文，保留人工内容。
+3. 选择模板：快速略读用 `skim`；方法精读、全文研究和复现准备用 `deep-reading`；跨论文比较用 `comparison-matrix`。用户指定模板时优先遵从。用 `search_research_notes` 的 `template_id` 和 `namespace` 读取当前本地模板。模板位于 `.paper-agent/templates/research-notes/`，初始内容随 Skill 的 [模板资源](assets/research-notes/) 分发。
+4. 按模板填写完整 Markdown 正文，保留证据边界、物理页码、章节、图表或公式定位、Artifact commit、工具失败和 `[未知]`。方法精读只填写实际覆盖范围，未研究的全文章节注明“未覆盖（方法精读范围之外）”；全文研究和复现准备保留完整 12 节。比较矩阵逐篇标明证据和实验条件，不将不同预算或数据集的数字直接排名。不要把模板提示或未填占位符当成研究结果。
+5. 调用 `manage_research_note`，传入 `action="create"`、`namespace`、具体 `title`、`template_id` 和已填写的 `markdown`。仅传 `template_id` 会创建模板骨架，不能声称已保存分析。`paper_ids` 只能使用同一 namespace 内已存在的个人库 ID；只有本地 PDF 时可省略关联，在正文记录来源，不自动导入论文或猜测 ID。需要已有目录时使用查询返回的 `folderId` 作为 `folder_id`。
+6. 遵守工具现有确认策略。只有工具成功返回后才报告笔记 ID、标题和实际路径；取消、失败或不可用时明确“尚未保存”。更新使用 `action="update"` 和已核实的 `note_id`，不另建副本代替用户指定的更新。保存个人笔记不自动创建派生记忆、Wiki 页面或团队共享内容。
 
 ## 强制研究关卡
 

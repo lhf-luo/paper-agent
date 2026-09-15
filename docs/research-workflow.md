@@ -59,6 +59,8 @@ Inside Pi:
 
 For example, `/paper "D:\papers\example.pdf" 精读这篇论文` selects full-paper research, while `/paper "D:\papers\example.pdf" 只分析方法和公式` selects method close reading.
 
+Add “并创建笔记” or “并保存研究结果” to request a Markdown note as part of the same workflow. The Skill reads the current skim, deep-reading, or comparison template, fills it with the verified analysis, and saves it through `manage_research_note` under the configured confirmation policy. Without a save request, the report stays in the conversation. A later explicit save request can also persist the completed report.
+
 ## Evidence gates
 
 For complete work, Paper Agent:

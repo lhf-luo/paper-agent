@@ -123,6 +123,8 @@ PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Ag
 
 - 使用可分层的 Markdown 笔记记录略读、精读和比较材料；正文和真实目录保存在 `.paper-agent/notes/{namespace}/`，SQLite 保存目录树、索引、修订和论文关系。
 - 一篇笔记可关联零篇或多篇个人库论文，删除论文只解除关联，不删除笔记。
+- `paper-research` 支持在用户明确要求创建笔记或保存研究结果时，读取当前模板并调用 `manage_research_note` 保存填写后的 Markdown；普通阅读请求只在对话中报告，写入遵守现有确认策略。
+- 略读、精读和比较矩阵模板位于 `.paper-agent/templates/research-notes/`，初始内容随 `.agents/skills/paper-research/assets/research-notes/` 分发。原有空模板会补齐，已有内容的模板和历史笔记保留。
 - 团队服务支持搜索、提案、审核、审计、令牌管理和备份。
 - 本地单人团队演示仅监听 loopback，不等同于生产部署。
 
