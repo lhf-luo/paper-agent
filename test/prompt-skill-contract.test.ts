@@ -37,7 +37,6 @@ describe("prompt and skill contracts", () => {
 		expect(skill).toContain("challenge -> design -> evaluation");
 		expect(skill).toContain("不得合并、缺省或用其他章节替代");
 		expect(skill).toContain("12. **非增量 follow-up idea**");
-		expect(skill).toContain("本研究流程只输出到当前会话");
 		expect(skill).not.toContain("Do not force a fixed number of report sections");
 		expect(subtaskContracts).toContain("普通“精读”");
 		expect(subtaskContracts).toContain("12 节均存在且职责不被合并");

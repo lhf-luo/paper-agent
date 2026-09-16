@@ -1,6 +1,6 @@
 ---
 name: paper-research
-description: "Read and investigate a research paper with Paper Agent through four evidence-traceable research contracts: bounded skim, method close reading, full-paper research, and reproduction preparation. Use for paper triage, close reading, method or experiment analysis, critical review, and reproduction planning."
+description: "Read, investigate, and compare research papers with Paper Agent through five evidence-traceable research contracts: bounded skim, method close reading, full-paper research, reproduction preparation, and cross-paper comparison. Use for paper triage, close reading, method or experiment analysis, critical review, reproduction planning, paper comparison, and creating Markdown research notes when requested."
 ---
 
 # Paper Research
@@ -8,6 +8,8 @@ description: "Read and investigate a research paper with Paper Agent through fou
 使用 Paper Agent 已注册的个人库、PDF、MinerU、图表和 Artifact 工具研究论文。不得用模型记忆、临时 Shell 下载、手工编辑 manifest 或 Provider 元数据代替一手证据。
 
 本 Skill 负责研究方式、阅读流程和报告结构。系统提示词只负责全局证据、安全和人工边界。
+
+用户明确要求“创建笔记”“保存研究结果”“精读并记笔记”或保存比较矩阵时，将笔记作为本次研究的交付物，按下方“创建研究笔记”执行；只要求阅读或分析时，默认在对话中报告。
 
 ## 选择研究方式
 
@@ -25,10 +27,14 @@ description: "Read and investigate a research paper with Paper Agent through fou
 4. **复现准备**
    - 用户说“复现”“实现论文”“复现准备”或要求核对代码与实验配置时使用。
    - 先完成全文研究，再检查公开 Artifact、代码、配置、数据、环境和复现缺口；不得自动执行第三方代码。
+5. **跨论文比较**
+   - 用户要求“比较两篇论文”“对比这些方法”“论文差异”或跨论文综合时使用，适用于两篇及以上指定论文。
+   - 先固定比较问题、分析单位和维度，再对每篇论文按同一结构独立取证，最后判断共同点、分歧、取舍和证据缺口。
+   - 不把逐篇摘要拼接成比较，不用实验条件不同的数字直接排名。
 
-意图同时命中多种方式时采用更深且能覆盖用户目标的方式；复现准备优先于全文研究，明确的方法限定优先于普通“精读”。
+意图同时命中多种方式时采用更深且能覆盖用户目标的方式；复现准备优先于全文研究，明确的方法限定优先于普通“精读”。只要目标是两篇及以上论文之间的差异或综合，就采用跨论文比较；用户另行要求逐篇全文研究或复现核验时，再把相应单篇契约叠加到每篇论文。
 
-开始前读取与当前交付物对应的 [子任务契约](references/subtask-contracts.md)。方法精读、全文研究、复现准备以及任何技术 claim 核验都必须读取 [证据契约](references/evidence-contract.md)。涉及文献收集、保存、下载或团队库时，还必须遵守相邻 Skill 的 [工作流契约](../literature-corpus-manager/references/workflow-contract.md) 和 [语料策略](../literature-corpus-manager/references/corpus-policy.md)。
+开始前读取与当前交付物对应的 [子任务契约](references/subtask-contracts.md)。方法精读、全文研究、复现准备、跨论文比较以及任何技术 claim 核验都必须读取 [证据契约](references/evidence-contract.md)。涉及文献收集、保存、下载或团队库时，还必须遵守相邻 Skill 的 [工作流契约](../literature-corpus-manager/references/workflow-contract.md) 和 [语料策略](../literature-corpus-manager/references/corpus-policy.md)。
 
 ## 研究顺序
 
@@ -37,6 +43,7 @@ description: "Read and investigate a research paper with Paper Agent through fou
 1. **确认身份和版本**
    - 确认 PDF 路径或个人库论文、标题、作者、版本、总物理页数和当前 PDF 版本。
    - 披露版本不一致、页面不可读、材料缺失和工具失败。
+   - 跨论文比较要为每篇论文分别记录身份、版本和来源，使用稳定短标签贯穿矩阵，不能混用同名模型、数据集或不同 release。
 2. **复用已验证的本地材料**
    - 有 `paper_id` 时先查询个人库中的论文、PDF、MinerU 和 Artifact 状态。
    - 既有 AI 摘要只能作为定位线索；材料 hash 或版本不一致时不得作为当前论文证据。
@@ -56,9 +63,20 @@ description: "Read and investigate a research paper with Paper Agent through fou
 7. **完成覆盖检查**
    - 全文研究和复现准备在报告前必须调用 `paper_progress`，补齐缺页、资产索引和主要对象核验。
    - 无法完成的关卡必须进入报告开头的“证据边界”，不得伪装成已完成。
-8. **只在对话中报告**
-   - 本研究流程只输出到当前会话，不调用 `manage_research_note`，也不调用 `manage_literature_memory` 的记录动作。
-   - 用户审阅后另行要求保存时，才作为新的写入操作使用现有笔记或记忆工具；如果明确要求沉淀到 Wiki，切换到 `research-wiki` Skill，先发现工具并按证据契约 preview，不直接写文件。
+   - 跨论文比较逐篇检查与预先确定的比较维度相关的阅读范围和关键证据；只有用户要求逐篇全文研究时，才要求每篇满足全文覆盖与 `paper_progress` 关卡。
+8. **报告并按请求保存笔记**
+   - 未要求保存时，本研究流程只输出到当前会话，不调用 `manage_research_note`，也不调用 `manage_literature_memory` 的记录动作。
+   - 用户在开始研究时或审阅报告后要求保存，都可按下方流程创建笔记，不要求重复提出保存请求。
+   - 如果明确要求沉淀到 Wiki，切换到 `research-wiki` Skill，先发现工具并按证据契约 preview，不直接写文件。
+
+## 创建研究笔记
+
+1. 用 `inspect_agent_tools` 确认当前会话的 `search_research_notes`、`manage_research_note` 及参数；能力不可用时报告尚未保存，不绕过工具直接写 Markdown 或 SQLite。
+2. 确定用户指定的个人 namespace。先用 `search_research_notes` 按 `paper_id` 或标题查询已有笔记，避免重复创建。已有笔记不代表用户授权覆盖；仅在明确要求更新时读取其 `note_id` 和全文，保留人工内容。
+3. 选择模板。本条是研究方式与模板对应关系的唯一规则：快速略读用 `skim`；方法精读、全文研究和复现准备用 `deep-reading`；跨论文比较用 `comparison-matrix`。用户指定模板时优先遵从。用 `search_research_notes` 的 `template_id` 和 `namespace` 读取当前本地模板。模板位于 `.paper-agent/templates/research-notes/`，初始内容随 Skill 的 [模板资源](assets/research-notes/) 分发。下方各输出契约只规定正文结构，不另行覆盖模板选择。
+4. 按当前研究方式填写实际分析正文，保留证据边界、物理页码、章节、图表或公式定位、Artifact commit、工具失败和 `[未知]`。方法精读采用下方的方法输出契约，不保留范围外的全文章节；全文研究和复现准备保留完整 12 节，复现准备另补 Artifact 核验和人工执行步骤。模板是保存格式参考，不能扩大实际研究范围；本地模板仍为旧的 12 节骨架时，方法精读应重组标题并移除不适用章节。比较矩阵逐篇标明证据和实验条件，不将不同预算或数据集的数字直接排名。不要把模板提示或未填占位符当成研究结果。
+5. 调用 `manage_research_note`，传入 `action="create"`、`namespace`、具体 `title`、`template_id` 和已填写的 `markdown`。仅传 `template_id` 会创建模板骨架，不能声称已保存分析。`paper_ids` 只能使用同一 namespace 内已存在的个人库 ID；只有本地 PDF 时可省略关联，在正文记录来源，不自动导入论文或猜测 ID。需要已有目录时使用查询返回的 `folderId` 作为 `folder_id`。
+6. 遵守工具现有确认策略。只有工具成功返回后才报告笔记 ID、标题和实际路径；取消、失败或不可用时明确“尚未保存”。更新使用 `action="update"` 和已核实的 `note_id`，不另建副本代替用户指定的更新。保存个人笔记不自动创建派生记忆、Wiki 页面或团队共享内容。
 
 ## 强制研究关卡
 
@@ -74,15 +92,32 @@ description: "Read and investigate a research paper with Paper Agent through fou
 
 复现准备还必须核对 Artifact 与论文是否实现同一机制，并区分论文报告值、代码最终生效值、示例或默认值、需要用户决定的建议值和未公开值。
 
+跨论文比较必须同时满足：
+
+- 开始取证前已经写明比较问题、分析单位、论文集合以及比较维度；用户已指定论文和目标时不重复确认；
+- 每篇论文按相同字段独立记录证据边界和“问题 -> 方法 -> 实验 -> 结论”链条，缺失字段保留为 `[未知]`；
+- 每个重要矩阵单元格能追溯到对应论文的物理页码、图表、公式或代码位置，不能用一篇论文的描述代替另一篇的证据；
+- 直接数字比较前检查任务、数据集、版本、split、预处理、baseline、预算、指标定义与方向、单位、seed/方差和硬件；任一关键条件不一致或未知时标为“不可直接比较”或“条件性比较”；
+- 综合结论说明共同点、分歧、结构性取舍、适用边界和缺口，不能只并列逐篇摘要，也不能把相关性或 leaderboard 差异当作机制因果证据。
+
 ## 分析框架
 
-先建立一条简短因果链：已有系统在什么条件下失败，失败暴露哪个 challenge，论文的哪个 design 针对它，哪个 evaluation 提供证据，discussion 留下什么边界。不要按目录机械改写摘要。
+精读和比较的目标是检查“问题 -> 方法 -> 实验 -> 结论”的链条是否成立，而不是重新总结论文。方法精读、全文研究、复现准备和跨论文比较共用以下核验原则，但核验范围由当前研究方式决定。
+
+先建立一条简短因果链：已有系统在什么条件下失败，失败暴露哪个 challenge，论文的哪个 design 针对它，哪个 evaluation 提供证据，discussion 留下什么边界。对重要结论说明证据支持到什么程度、仍有哪些替代解释，不按目录机械改写摘要。
+
+### 问题、边界与核心假设
+
+- 核对问题、实际场景、目标和适用边界是否清楚；涉及安全或对抗问题时核对威胁模型，不适用时说明原因，不强行补造。
+- 区分论文假定的场景与实验实际覆盖的场景，不能将局部结果推广为普遍结论。
+- 选择最脆弱的核心假设，说明失效后会破坏哪个机制、实验解释或结论，以及现有证据是否检验了它。
 
 ### 方法与实现
 
 - 用一个真实输入解释从加载、处理到输出的路径。
 - 将论文概念映射到可验证的模块、类、函数或数据结构；没有 Artifact 时明确写未知。
 - 区分算法描述、代码抽象、默认配置、示例命令和论文真实实验配置。
+- 有可用代码时，核对论文方法与实际实现是否一致，并核对 Artifact 的版本、配置、数据和环境是否对应论文宣称的需求。未获取、无法读取或未公开时标为 `[未知]`，不能推定一致或不一致。
 - 涉及学习系统时区分训练与推理路径，并解释关键状态或张量的现实语义。
 
 ### 数学与理论
@@ -95,7 +130,28 @@ description: "Read and investigate a research paper with Paper Agent through fou
 
 - 对每个实验先问“它试图排除哪个替代解释”。
 - 检查数据与 split、预处理、初始化、baseline 公平性、训练预算、超参数、seed/方差、指标、推理设置和硬件。
+- 检查数据是否代表目标真实场景，baseline 的数据、预处理和计算预算是否可比，指标是否真正测量论文目标。
 - 转录图表数字时核对行列、单位、方向、强调样式、误差和脚注；文本层与页面图像冲突时以可视页面为准并披露歧义。
+- 关键数字必须保留单位与实验条件，记录论文报告的误差或不确定性；未报告的误差、seed 或条件标为 `[未知]`，不得自行补全。
+- 检查消融和反例是否隔离了核心机制、排除了其他解释；区分已排除的解释、仍可能的解释和建议开展但尚未执行的反例实验。
+
+### 复现条件
+
+- 检查已获得的代码、数据、参数、依赖和环境是否足以支持复现；存在代码仓库不等于结果可复现。
+- 区分论文报告值、代码最终生效值、默认或示例值、建议值和未公开值；说明缺失条件会影响哪些结果或步骤。
+- 全文研究可仅依据论文公开信息形成复现计划；复现准备还须核验 Artifact 并列出人工执行步骤、预算、成功判据和停止条件。发现或获取材料遵守用户限制和现有确认策略，不自动执行第三方代码。
+
+### 重要结论的来源标记
+
+重要结论就近标记来源，具体要求以证据契约为准：
+
+- `[论文]`：原始 PDF 物理页码及章节、图、表、算法或公式定位。
+- `[代码]`：来源地址、实际核验的 commit 与文件位置；未核验版本时披露缺口。
+- `[公开资料]`：作者项目页、正式文档等实际访问的来源地址。
+- `[推断]`：列出依据的证据和推导过程，不作为论文已证实的事实。
+- `[未知]`：材料未报告、未读取、不可获得或存在冲突，说明缺口，不自行补全。
+
+MinerU、OCR、元数据和已有摘要只用于导航；关键判断仍须回到原始材料核验。
 
 ### 推断与后续研究
 
@@ -119,13 +175,23 @@ description: "Read and investigate a research paper with Paper Agent through fou
 
 ### 方法精读
 
-围绕用户问题输出：核心 intuition、输入到输出的数据流、公式或算法、实现映射、直接支撑实验、最脆弱假设、证据缺口和仍未知事项。只对实际覆盖的方法范围负责，不使用 12 节格式冒充全文研究。
+围绕用户指定的方法问题组织以下内容，可按解释需要安排标题：
+
+- 核心 intuition，以及它针对的问题和适用边界；
+- 用真实输入解释从输入到输出的数据流；
+- 公式或算法、变量含义及成立所依赖的假设；
+- 实现映射与论文到代码的一致性（材料不可用时标为 `[未知]`）；
+- 直接支撑实验、条件与公平性、消融，以及仍未排除的解释；
+- 最脆弱的核心假设及其失效影响；
+- 证据缺口和仍未知事项。
+
+只对实际覆盖的方法范围负责，不使用 12 节格式冒充全文研究；保存笔记时也遵守这一范围。
 
 ### 全文研究与复现准备
 
 证据边界之后必须严格按以下 12 节输出，不得合并、缺省或用其他章节替代：
 
-1. **研究问题、重要性与价值**：精确定义问题、必要背景、重要性和实际价值。
+1. **研究问题、重要性与价值**：精确定义问题、必要背景、重要性和实际价值，核对场景、威胁模型（适用时）和适用边界。
 2. **之前如何解决，以及缺口在哪里**：按方法假设组织 prior work，解释不足出现的条件。
 3. **重建作者可能的思考路径**：遵守历史约束，整节标为 `[推断]`。
 4. **核心 intuition**：用一到三句话给出本质，再解释为什么可能有效。
@@ -133,12 +199,26 @@ description: "Read and investigate a research paper with Paper Agent through fou
 6. **核心数学与理论背景**：从零解释；没有核心推导时说明原因。
 7. **实验如何验证 claim**：先给 challenge-evidence matrix，再按“问题 -> 实验 -> 答案 -> 未排除解释”分析，并检查 setup 与公开复现参数。
 8. **Takeaways**：区分可靠结论、条件性结论和容易误读的结论。
-9. **最脆弱的假设**：只选最关键一项，指出它影响的因果链与现有实验覆盖。
+9. **最脆弱的假设**：只选最关键一项，指出失效后会破坏哪些机制或结论，以及现有实验覆盖。
 10. **一周最小复现实验**：目标、最小数据或模型、入口、预算、成功判据和停止条件。
 11. **反例设计**：给出能区分论文机制与替代解释的分布、对照和可证伪结果。
 12. **非增量 follow-up idea**：从 limitation 与需求推出新问题，说明机制、结构性区别、最小实验和失败条件。
 
-结尾附紧凑的“复现参数表”，列出参数、最终值、证据位置和置信度；再列出“仍然未知的问题”。全文研究的复现内容可以停留在论文公开信息；复现准备还必须加入 Artifact provenance、paper-to-code 映射、缺失前置条件和可由人工执行的步骤。
+结尾附紧凑的“复现参数表”，列出参数、最终值、证据位置和置信度；再列出“仍然未知的问题”。全文研究的复现内容可以停留在论文公开信息；复现准备还必须加入 Artifact provenance、paper-to-code 映射及不一致、数据与环境需求、缺失前置条件及其影响，以及可由人工执行的步骤、预算、成功判据和停止条件。计划不代表已经运行实验或复现成功。
+
+
+### 跨论文比较
+
+证据边界之后按以下结构输出：
+
+1. **比较问题与范围**：说明为什么比较这些论文、分析单位、纳入的论文与版本、预先确定的比较维度，以及未覆盖的范围。
+2. **逐篇证据卡**：按同一字段分别概括每篇论文的问题、场景、核心机制、关键假设、直接证据和主要边界；每项就近标注该论文的一手证据。
+3. **统一比较矩阵**：至少覆盖问题与场景、方法与假设、数据与实验设计、baseline 与预算、指标与结果、局限和复现条件；仅保留与用户问题有关的维度。
+4. **可比性审计**：逐项区分可直接比较、条件性比较和不可直接比较，并给出造成差异的实验条件或缺失证据。
+5. **跨论文综合**：说明有证据支持的共同点、分歧、结构性取舍和各自适用边界；分歧可能来自问题定义或实验设置时，不强行判断谁更好。
+6. **缺口与后续验证**：列出相互矛盾、未披露或尚未对齐的证据，并给出能够区分方法机制与实验条件影响的最小验证方案；未执行的方案标为 `[推断]`。
+
+比较默认只承诺覆盖预先声明的维度，不冒充每篇论文的全文研究。若用户要求逐篇完整精读后再比较，则每篇先满足全文研究契约，再形成比较矩阵与综合结论。
 
 ## 写作要求
 

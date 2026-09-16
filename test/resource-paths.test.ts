@@ -22,6 +22,9 @@ describe("runtime resource paths", () => {
 			join("agents", "openai.yaml"),
 			join("references", "evidence-contract.md"),
 			join("references", "subtask-contracts.md"),
+			join("assets", "research-notes", "skim.md"),
+			join("assets", "research-notes", "deep-reading.md"),
+			join("assets", "research-notes", "comparison-matrix.md"),
 		];
 		await Promise.all(requiredFiles.map((path) => access(resolve(skillRoot, path))));
 
@@ -33,7 +36,6 @@ describe("runtime resource paths", () => {
 		expect(skill).toContain("## 选择研究方式");
 		expect(skill).toContain("MinerU Markdown、OCR、layout 和 model 输出是派生导航材料");
 		expect(skill).toContain("不会截断的小页段覆盖全部物理页");
-		expect(skill).toContain("不调用 `manage_research_note`");
 		expect(skill).toContain("12. **非增量 follow-up idea**");
 		expect(evidence).toContain("`[论文]`");
 		expect(evidence).toContain("`[未知]`");

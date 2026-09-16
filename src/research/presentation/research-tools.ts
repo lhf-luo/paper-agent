@@ -17,22 +17,32 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 		name: "search_research_notes",
 		label: "Search research notes",
 		description:
-			"List or read Markdown research notes in one personal namespace. Filter by note id, title query, or an associated personal-library paper id.",
+			"List or read Markdown research notes in one personal namespace, or read a note template by template_id. Filter notes by note id, title query, or an associated personal-library paper id.",
 		promptSnippet: "Find existing Markdown research notes before creating another note",
 		promptGuidelines: [
 			"Search by paper_id before creating a new paper-specific note.",
 			"A note may cite zero, one, or many personal-library papers; do not infer unrecorded associations.",
 			"Use the returned folderId and folderPath when the user asks to organize notes in an existing folder.",
+			"Pass template_id alone with namespace to read the current local template before filling a new note.",
 		],
 		parameters: Type.Object({
 			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
 			note_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			query: Type.Optional(Type.String({ maxLength: 300 })),
 			paper_id: Type.Optional(Type.String({ maxLength: 512 })),
+			template_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const namespace = params.namespace ?? "default";
 			const workspace = notebook(ctx.cwd, namespace);
+			if (params.template_id) {
+				const template = await workspace.templateStore.get(params.template_id);
+				if (!template) throw new Error(`Research note template not found: ${params.template_id}`);
+				return {
+					content: [{ type: "text", text: template.markdown }],
+					details: { namespace, template },
+				};
+			}
 			if (params.note_id) {
 				const note = await workspace.get(params.note_id);
 				if (!note) throw new Error(`Research note not found: ${params.note_id}`);

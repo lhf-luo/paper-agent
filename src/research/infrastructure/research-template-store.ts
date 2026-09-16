@@ -7,6 +7,10 @@ const BUILT_IN_TEMPLATES = new Map([
 	["deep-reading", { filename: "deep-reading.md", name: "精读" }],
 	["comparison-matrix", { filename: "comparison-matrix.md", name: "比较矩阵" }],
 ]);
+const BUILT_IN_TEMPLATE_DIRECTORY = new URL(
+	"../../../.agents/skills/paper-research/assets/research-notes/",
+	import.meta.url,
+);
 
 export class ResearchTemplateStore {
 	readonly directory: string;
@@ -19,9 +23,13 @@ export class ResearchTemplateStore {
 		await mkdir(this.directory, { recursive: true });
 		await Promise.all(
 			[...BUILT_IN_TEMPLATES.values()].map(async ({ filename }) => {
-				await writeFile(join(this.directory, filename), "", { encoding: "utf8", flag: "wx" }).catch(
-					(error: NodeJS.ErrnoException) => {
+				const markdown = await readFile(new URL(filename, BUILT_IN_TEMPLATE_DIRECTORY), "utf8");
+				const path = join(this.directory, filename);
+				await writeFile(path, markdown, { encoding: "utf8", flag: "wx" }).catch(
+					async (error: NodeJS.ErrnoException) => {
 						if (error.code !== "EEXIST") throw error;
+						// Upgrade the original empty defaults while preserving user-edited templates.
+						if ((await readFile(path, "utf8")) === "") await writeFile(path, markdown, "utf8");
 					},
 				);
 			}),

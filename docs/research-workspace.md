@@ -17,7 +17,7 @@ The research workspace is a Markdown notebook connected to the personal paper li
 
 ## Templates
 
-Templates live in `.paper-agent/templates/research-notes/`. The built-in `skim.md`, `deep-reading.md`, and `comparison-matrix.md` templates start empty. Any top-level Markdown file added to this directory becomes available after the template list is refreshed.
+Templates live in `.paper-agent/templates/research-notes/`. The built-in `skim.md`, `deep-reading.md`, and `comparison-matrix.md` templates contain an evidence-traceable skim card, a 12-section close-reading report, and a cross-paper comparison matrix. Their defaults ship under `.agents/skills/paper-research/assets/research-notes/` and are copied into the local template directory on initialization. Original zero-byte built-in templates are filled on refresh; nonempty user-edited templates are preserved. Any top-level Markdown file added to this directory becomes available after the template list is refreshed.
 
 A template is copied only when the note is created. Later template edits do not change existing notes. The Blank option creates an empty note without a template file.
 
@@ -31,7 +31,9 @@ Creating and deleting notes or folders follows the research confirmation setting
 
 ## Agent tools
 
-- `search_research_notes` searches by title, note ID, or linked paper ID and can return the Markdown body.
+- `search_research_notes` searches by title, note ID, or linked paper ID and can return the Markdown body. Pass `template_id` to read the current local template before filling a note.
 - `manage_research_note` creates, updates, deletes, links, or unlinks notes. Agent mutations continue to use the configured confirmation policy.
 
 Agent-written skim cards and close-reading notes should be saved as Markdown. Evidence locators such as paper ID, PDF version, page, section, figure, table, and quotation belong in the Markdown body rather than in separate structured research tables.
+
+The `paper-research` Skill creates notes when explicitly requested, including a combined request such as “精读这篇论文并保存笔记”. It reads the chosen template and passes the completed analysis as `markdown` to `manage_research_note`; passing only `template_id` creates a skeleton. Ordinary reading requests stay in the conversation. Existing human notes are updated only when requested, and note writes retain the configured confirmation policy.

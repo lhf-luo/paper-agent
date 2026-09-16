@@ -35,17 +35,50 @@ async function workspace(namespace = "default") {
 }
 
 describe("Markdown research notebook", () => {
-	it("creates empty built-in templates and a note without papers", async () => {
+	it("seeds built-in templates and copies each into a note without papers", async () => {
 		const { root, notebook } = await workspace();
 		const templates = await notebook.templates();
 		expect(templates.map((template) => template.name)).toEqual(["空白", "比较矩阵", "精读", "略读"]);
-		for (const filename of ["skim.md", "deep-reading.md", "comparison-matrix.md"]) {
-			expect(await readFile(join(root, ".paper-agent", "templates", "research-notes", filename), "utf8")).toBe("");
+		for (const templateId of ["skim", "deep-reading", "comparison-matrix"]) {
+			const template = templates.find((value) => value.id === templateId)!;
+			expect(template.markdown.trim().length).toBeGreaterThan(0);
+			expect(
+				await readFile(join(root, ".paper-agent", "templates", "research-notes", template.filename!), "utf8"),
+			).toBe(template.markdown);
+			const note = await notebook.create({ title: `UAF 调研 ${templateId}`, templateId });
+			expect(note).toMatchObject({ revision: 1, markdown: template.markdown, papers: [], templateId });
+			expect(await readFile(resolve(root, ".paper-agent", note.relativePath), "utf8")).toBe(template.markdown);
 		}
+	});
 
-		const note = await notebook.create({ title: "UAF 调研", templateId: "skim" });
-		expect(note).toMatchObject({ title: "UAF 调研", revision: 1, markdown: "", papers: [] });
-		expect(await readFile(resolve(root, ".paper-agent", note.relativePath), "utf8")).toBe("");
+	it("fills old zero-byte defaults while preserving custom templates and existing notes", async () => {
+		const { notebook } = await workspace();
+		const existing = await notebook.create({ title: "Old blank note", markdown: "" });
+		await mkdir(notebook.templateStore.directory, { recursive: true });
+		await writeFile(join(notebook.templateStore.directory, "skim.md"), "", "utf8");
+		await writeFile(join(notebook.templateStore.directory, "deep-reading.md"), "# 我的自定义精读\n", "utf8");
+
+		const templates = await notebook.templates();
+		expect(templates.find((value) => value.id === "skim")!.markdown.length).toBeGreaterThan(0);
+		expect(templates.find((value) => value.id === "deep-reading")!.markdown).toBe("# 我的自定义精读\n");
+		expect((await notebook.get(existing.id))!.markdown).toBe("");
+		expect((await notebook.create({ title: "Custom", templateId: "deep-reading" })).markdown).toBe(
+			"# 我的自定义精读\n",
+		);
+	});
+
+	it("keeps blank notes empty and saves supplied analysis instead of the template skeleton", async () => {
+		const { notebook } = await workspace();
+		expect((await notebook.create({ title: "Blank", templateId: "blank" })).markdown).toBe("");
+		const note = await notebook.create({
+			title: "Reviewed skim",
+			templateId: "skim",
+			markdown: "# Verified findings\n",
+		});
+		expect(note.markdown).toBe("# Verified findings\n");
+		expect((await notebook.create({ title: "Intentionally empty", templateId: "skim", markdown: "" })).markdown).toBe(
+			"",
+		);
 	});
 
 	it("links multiple personal papers and keeps the note when a paper is deleted", async () => {

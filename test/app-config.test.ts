@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { ensureObsidianVault } from "../src/app/application/paper-agent-wiki.ts";
 import {
@@ -363,6 +363,20 @@ describe("Paper Agent local configuration", () => {
 		} finally {
 			await application.close();
 		}
+	});
+
+	it.each(["", "   ", "\n\t"])("rejects a blank model discovery key before making a request (%j)", async (apiKey) => {
+		const fetcher = vi.fn();
+		await expect(
+			discoverModelEndpointModels({
+				providerId: "fixture",
+				api: "openai-completions",
+				baseUrl: "https://provider.example/v1",
+				apiKey,
+				fetcher,
+			}),
+		).rejects.toThrow("API key 不能为空");
+		expect(fetcher).not.toHaveBeenCalled();
 	});
 
 	it("discovers OpenAI-compatible models from a provider endpoint", async () => {
