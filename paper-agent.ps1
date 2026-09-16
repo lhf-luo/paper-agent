@@ -59,6 +59,8 @@ Management:
   paper-agent --doctor --probe-model       Send a small tool-calling capability probe
   paper-agent init                         Run the first-use configuration wizard
   paper-agent models add                   Add a model key and discover available models
+  paper-agent models remove --model P/M    Remove one configured model
+  paper-agent models remove --provider P   Remove a provider and all of its models
   paper-agent models list                  List configured models without showing keys
   paper-agent --setup                      Install exact project dependencies
   paper-agent --status                     Show local corpus and team status

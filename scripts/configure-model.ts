@@ -14,16 +14,21 @@ import {
 	discoverModelEndpointModels,
 	mergeDiscoveredModels,
 	probeModelImageInput,
+	removeConfiguredModel,
+	removeConfiguredProvider,
+	resolveConfiguredModel,
 } from "../src/config/application/model-service.ts";
 import { ModelPrompts } from "./model-prompts.ts";
 
 interface ParsedArguments {
-	command: "add" | "list" | "probe-image";
+	command: "add" | "list" | "probe-image" | "remove";
 	providerId?: string;
 	baseUrl?: string;
 	api?: ModelApiKind;
 	apiKey?: string;
 	active?: string;
+	model?: string;
+	reasoning?: boolean;
 	json: boolean;
 	yes: boolean;
 }
@@ -35,10 +40,13 @@ const SUPPORTED_APIS: ModelApiKind[] = ["openai-completions", "openai-responses"
 function parseArguments(argv: string[]): ParsedArguments {
 	const args = [...argv];
 	const first = args[0]?.toLowerCase();
-	const command =
-		first === "list" || first === "add" || first === "probe-image"
-			? (args.shift()!.toLowerCase() as ParsedArguments["command"])
-			: "add";
+	const recognized = ["list", "add", "probe-image", "remove", "delete"].includes(first ?? "");
+	const command: ParsedArguments["command"] = recognized
+		? first === "delete"
+			? "remove"
+			: (first as ParsedArguments["command"])
+		: "add";
+	if (recognized) args.shift();
 	const parsed: ParsedArguments = { command, json: false, yes: false };
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
@@ -63,8 +71,18 @@ function parseArguments(argv: string[]): ParsedArguments {
 				parsed.apiKey = value();
 				break;
 			case "--active":
-			case "--model":
 				parsed.active = value();
+				break;
+			case "--model":
+				parsed.model = value();
+				break;
+			case "--reasoning":
+				if (parsed.reasoning === false) throw new Error("--reasoning and --no-reasoning cannot be combined");
+				parsed.reasoning = true;
+				break;
+			case "--no-reasoning":
+				if (parsed.reasoning === true) throw new Error("--reasoning and --no-reasoning cannot be combined");
+				parsed.reasoning = false;
 				break;
 			case "--json":
 				parsed.json = true;
@@ -91,13 +109,20 @@ function usage(): string {
 		"Usage:",
 		"  paper-agent models add --base-url https://provider.example/v1 --api-key sk-...",
 		"  paper-agent models add --provider deepseek --base-url https://api.deepseek.com/v1",
+		"  paper-agent models remove --model provider/model-id",
+		"  paper-agent models remove --provider provider-id",
+		"  paper-agent models remove --model provider/model-id --active provider/replacement-id",
 		"  paper-agent models list",
 		"  paper-agent models probe-image --model deepseek/deepseek-flash",
 		"",
 		"Options:",
 		"  --api openai-completions|openai-responses  API adapter, default openai-completions",
 		"                                            Relay-compatible client headers are applied",
-		"  --active <model-id>                       Set the active model after discovery",
+		"  --active <model-id>                       Explicitly set an active or replacement model",
+		"  --model <provider/model-id>               Select a model for probe or removal",
+		"  --reasoning                               Enable reasoning for all discovered models (default)",
+		"  --no-reasoning                            Disable reasoning for all discovered models",
+		"  --yes                                     Accept defaults without interactive questions",
 		"  --json                                    Print machine-readable output",
 	].join("\n");
 }
@@ -105,27 +130,6 @@ function usage(): string {
 const prompts = new ModelPrompts(input, output);
 const ask = prompts.ask.bind(prompts);
 const askSecret = prompts.askSecret.bind(prompts);
-
-async function chooseActive(discovered: PaperAgentModelConfig[], requested?: string, assumeYes = false) {
-	if (requested) {
-		const selected = discovered.find(
-			(model) => model.modelId === requested || `${model.providerId}/${model.modelId}` === requested,
-		);
-		if (!selected) throw new Error(`Discovered models do not include: ${requested}`);
-		return selected;
-	}
-	if (assumeYes || discovered.length === 1 || !input.isTTY) return discovered[0];
-	const preview = discovered
-		.slice(0, 20)
-		.map((model, index) => `  ${index + 1}. ${model.providerId}/${model.modelId}`)
-		.join("\n");
-	output.write(`\nDiscovered models:\n${preview}${discovered.length > 20 ? "\n  ..." : ""}\n`);
-	const raw = await ask("Choose active model number", "1");
-	const index = Number(raw);
-	if (!Number.isInteger(index) || index < 1 || index > discovered.length)
-		throw new Error("Invalid active model number");
-	return discovered[index - 1];
-}
 
 try {
 	const parsed = parseArguments(process.argv.slice(2));
@@ -141,13 +145,19 @@ try {
 		else {
 			console.log(`Model config: ${report.configPath}`);
 			console.log(`Active: ${report.active ?? "(not configured)"}`);
-			for (const model of report.models) console.log(`- ${model.providerId}/${model.modelId} (${model.api})`);
+			for (const model of report.models) {
+				console.log(
+					`- ${model.providerId}/${model.modelId} (${model.api}, reasoning=${model.reasoning ? "yes" : "no"})`,
+				);
+			}
 		}
 		throw new CommandComplete();
 	}
 	if (parsed.command === "probe-image") {
 		const requested =
-			parsed.active ?? (config.model ? `${config.model.providerId}/${config.model.modelId}` : undefined);
+			parsed.model ??
+			parsed.active ??
+			(config.model ? `${config.model.providerId}/${config.model.modelId}` : undefined);
 		if (!requested) throw new Error("--model is required when no active model is configured");
 		const model = (config.models ?? []).find(
 			(entry) => entry.modelId === requested || `${entry.providerId}/${entry.modelId}` === requested,
@@ -177,6 +187,53 @@ try {
 		process.exitCode = 0;
 		throw new CommandComplete();
 	}
+	if (parsed.command === "remove") {
+		if (Boolean(parsed.model) === Boolean(parsed.providerId)) {
+			throw new Error("models remove requires exactly one of --model or --provider");
+		}
+		const result = parsed.providerId
+			? removeConfiguredProvider(config.models ?? [], config.model, parsed.providerId, parsed.active)
+			: removeConfiguredModel(config.models ?? [], config.model, parsed.model!, parsed.active);
+		const removedModels = Array.isArray(result.removed) ? result.removed : [result.removed];
+		const removedKeys = new Set(removedModels.map((model) => `${model.providerId}/${model.modelId}`));
+		const clearsPdfTranslationModel = Boolean(
+			config.pdfTranslation.modelKey && removedKeys.has(config.pdfTranslation.modelKey),
+		);
+		await savePaperAgentConfig(projectRoot, {
+			...config,
+			model: result.active,
+			models: result.models,
+			pdfTranslation: clearsPdfTranslationModel
+				? { ...config.pdfTranslation, modelKey: undefined }
+				: config.pdfTranslation,
+		});
+		const report = {
+			removed: removedModels.map((model) => `${model.providerId}/${model.modelId}`),
+			active: result.active ? `${result.active.providerId}/${result.active.modelId}` : undefined,
+			remaining: result.models.length,
+			providerCredentialsRemoved: [
+				...new Set(
+					removedModels
+						.map((model) => model.providerId)
+						.filter((providerId) => !result.models.some((model) => model.providerId === providerId)),
+				),
+			],
+			pdfTranslationModelCleared: clearsPdfTranslationModel,
+			configPath: resolvePaperAgentConfigPaths(projectRoot).modelsFile,
+		};
+		if (parsed.json) console.log(JSON.stringify(report, null, 2));
+		else {
+			console.log(`Removed model(s): ${report.removed.join(", ")}`);
+			console.log(`Active model: ${report.active ?? "(not configured)"}`);
+			console.log(`Remaining models: ${report.remaining}`);
+			if (report.providerCredentialsRemoved.length) {
+				console.log(`Removed unused credential(s): ${report.providerCredentialsRemoved.join(", ")}`);
+			}
+			if (report.pdfTranslationModelCleared) console.log("Cleared the removed PDF translation model reference.");
+			console.log(`Saved: ${report.configPath}`);
+		}
+		throw new CommandComplete();
+	}
 
 	const api = parsed.api ?? "openai-completions";
 	const providerId =
@@ -190,23 +247,40 @@ try {
 		apiKey,
 		headers: relayHeadersForModelApi(api),
 	});
-	const active = await chooseActive(discovered, parsed.active, parsed.yes);
+	let models = mergeDiscoveredModels(config.models ?? (config.model ? [config.model] : []), discovered);
+	models = models.map((model) =>
+		model.providerId === discovered[0].providerId
+			? {
+					...model,
+					...(parsed.reasoning !== undefined ? { reasoning: parsed.reasoning } : {}),
+					input: ["text", "image"] as PaperAgentModelConfig["input"],
+				}
+			: model,
+	);
+	const previousActive = config.model ? `${config.model.providerId}/${config.model.modelId}` : undefined;
+	const activeKey =
+		parsed.active ??
+		(previousActive && models.some((model) => `${model.providerId}/${model.modelId}` === previousActive)
+			? previousActive
+			: undefined);
+	const active = activeKey ? resolveConfiguredModel(models, activeKey) : undefined;
 	const next = {
 		...config,
 		model: active,
-		models: mergeDiscoveredModels(config.models ?? (config.model ? [config.model] : []), discovered),
+		models,
 	};
 	const saved = await savePaperAgentConfig(projectRoot, next);
 	const report = {
 		configPath: resolvePaperAgentConfigPaths(projectRoot).modelsFile,
 		discovered: discovered.length,
-		active: `${active.providerId}/${active.modelId}`,
+		active: active ? `${active.providerId}/${active.modelId}` : undefined,
 		config: redactPaperAgentConfig(saved.config),
 	};
 	if (parsed.json) console.log(JSON.stringify(report, null, 2));
 	else {
 		console.log(`Discovered ${discovered.length} model(s).`);
-		console.log(`Active model: ${report.active}`);
+		console.log(`Active model: ${report.active ?? "(select in Agent chat)"}`);
+		console.log(`Image-capable models: ${models.filter((model) => model.input.includes("image")).length}`);
 		console.log(`Saved: ${report.configPath}`);
 	}
 } catch (error) {

@@ -1,7 +1,7 @@
 # Paper Agent 系统指南
 
 > 本文描述当前源码版本的系统定位、运行架构、工具能力、配置拆分、数据存储和安全边界。
-> 更新日期：2026-08-26。
+> 更新日期：2026-09-12。
 
 相关文档：[命令手册](command-manual.md) | [模型配置](model-configuration.md) | [Web 界面](web-interface.md) | [研究流程](research-workflow.md)
 
@@ -40,12 +40,14 @@ paper-agent CLI
         +-- Agent 工具调用
 
 应用与 Agent 共用
-  +-- 38 个确定性工具
+  +-- 42 个注册工具
   +-- 文献 Provider 层
   +-- Poppler PDF 工具链
   +-- 个人语料库与研究工作区
   +-- 可选团队知识服务
 ```
+
+扩展从 `src/SYSTEM.md` 加载系统提示词；根目录同名文件不是该入口的运行时提示词。当前内置 `literature-corpus-manager`、`paper-research`、`research-wiki` 三个 Skill，工具清单以运行时注册表及生成的 [Agent 工具文档](agent-tools.md) 为准。
 
 职责边界：
 
@@ -181,7 +183,7 @@ paper-agent init
 paper-agent models add
 ```
 
-`models add` 会询问 Base URL 和 API key，访问兼容端点的 `/models`，让用户选择活动模型，然后分别写入 `.paper-agent/config/models.json` 和 `.paper-agent/config/auth.json`。模型发现不会根据名称猜测视觉能力；使用 `models probe-image --model <provider/model>` 发送 PNG 挑战进行验证。项目目录下的 `.paper-agent/` 已被 Git 忽略，但仍应限制本机文件访问权限，不要在日志、截图或提交中暴露密钥。
+`models add` 会询问 Base URL 和 API key，访问兼容端点的 `/models`，分别写入 `.paper-agent/config/models.json` 和 `.paper-agent/config/auth.json`。新模型的推理配置默认开启，已有声明会保留；活动模型在 Agent 对话页面自行选择。新添加和重新发现的模型默认标记为 `text + image` 输入，这只是声明，可用 `models probe-image --model <provider/model>` 实际验证。使用 `models remove --model <provider/model>` 删除单个模型，或使用 `models remove --provider <provider>` 删除整个 Provider；不再使用的 Provider 凭据会同步删除。项目目录下的 `.paper-agent/` 已被 Git 忽略，但仍应限制本机文件访问权限，不要在日志、截图或提交中暴露密钥。
 
 可用 `PAPER_AGENT_CONFIG_DIR` 将整个拆分配置目录指向其他绝对或相对位置。只有测试或本地演示需要改用其他接入文件位置时，才使用 `PAPER_AGENT_TEAM_ACCESS_FILE`。
 
@@ -231,8 +233,9 @@ Artifact 不再增加“论文标题 + PDF SHA”目录层。Git 仓库直接以
 
 ## 8. 安全边界
 
-- Web 服务只监听 loopback，并使用启动时生成的临时会话 token。
+- Web 服务只监听 loopback，本地工作区和 API 不要求会话 token；团队服务独立使用身份凭据认证。
 - 关键写操作执行 `prepare -> fingerprint -> one-time grant -> execute` 完整性流程；“设置与诊断”中的操作确认开关只控制是否展示人工确认，关闭后由本地策略签发同样的一次性授权。
+- 可选的 Pi 内置工具由 `app.json` 的 `agent.builtinTools` 白名单控制；未配置或为空时禁用，`config.example/app.json` 则显式启用了七个内置工具。启用 `bash`、`edit`、`write` 等高信任工具后，其文件和命令操作不经过 Paper Agent 的操作确认卡片，不能把上述门控描述为覆盖所有内置工具。
 - Agent 普通写入和 Web 个人库普通操作默认不询问；个人库删除、调研区、研究 Wiki、PDF 与 Artifact 默认询问。团队、令牌、备份恢复、配置、模型探测和系统文件操作始终询问。
 - 私网地址、携带凭据的 URL、重定向到私网的下载会被拒绝。
 - 下载和 Git 获取都有大小、超时和范围限制，获取内容不会自动执行。

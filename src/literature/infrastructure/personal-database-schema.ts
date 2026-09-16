@@ -84,6 +84,24 @@ function removeStructuredResearchSchema(database: DatabaseSync, appliedAt: strin
 		);
 }
 
+function addPublicationVersions(database: DatabaseSync, appliedAt: string): void {
+	const applied = database.prepare("SELECT 1 FROM schema_migrations WHERE version = 9").get();
+	if (applied) return;
+	const columns = database.prepare("PRAGMA table_info(paper_versions)").all() as unknown as Array<{ name: string }>;
+	if (!columns.some((column) => column.name === "publication_version_id")) {
+		database.exec(
+			"ALTER TABLE paper_versions ADD COLUMN publication_version_id TEXT REFERENCES publication_versions(id) ON DELETE SET NULL",
+		);
+	}
+	database
+		.prepare("INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (9, ?, ?, ?)")
+		.run(
+			"paper-publication-versions",
+			createHash("sha256").update("personal-paper-publication-versions-v9").digest("hex"),
+			appliedAt,
+		);
+}
+
 export function ensurePersonalDatabaseSchema(database: DatabaseSync): void {
 	ensurePersonalCoreSchema(database);
 	ensurePersonalResearchSchema(database);
@@ -129,4 +147,5 @@ export function ensurePersonalDatabaseSchema(database: DatabaseSync): void {
 			createHash("sha256").update("personal-research-note-folders-v8").digest("hex"),
 			appliedAt,
 		);
+	addPublicationVersions(database, appliedAt);
 }

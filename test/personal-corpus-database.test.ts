@@ -26,6 +26,47 @@ afterEach(async () => {
 });
 
 describe("personal SQLite corpus", () => {
+	it("keeps the persisted paper id stable and resolves the incoming id as an alias", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-stable-id-"));
+		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const original = { ...paper("paper-original", "Stable Paper"), identifiers: { arxivId: "2501.12345" } };
+		await store.upsertPaper(original);
+		const enriched = {
+			...original,
+			id: "doi-new-id",
+			identifiers: { doi: "10.1000/stable", arxivId: "2501.12345" },
+		};
+		await store.upsertPaper(enriched);
+
+		expect((await store.getPaper(original.id))?.id).toBe(original.id);
+		expect((await store.getPaper(enriched.id))?.id).toBe(original.id);
+	});
+
+	it("keeps formal and preprint publication versions with the formal version preferred", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-publication-versions-"));
+		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const record = {
+			...paper("paper-versions", "Versioned Paper"),
+			identifiers: { doi: "10.1000/versioned", arxivId: "2501.12345" },
+			links: [
+				{ url: "https://arxiv.org/pdf/2501.12345.pdf", kind: "pdf" as const },
+				{ url: "https://publisher.example/paper.pdf", kind: "pdf" as const },
+			],
+		};
+		await store.upsertPaper(record);
+
+		const versions = await store.listPublicationVersions(record.id);
+		expect(versions.map(({ kind, isPreferred }) => ({ kind, isPreferred }))).toEqual([
+			{ kind: "published", isPreferred: true },
+			{ kind: "preprint", isPreferred: false },
+		]);
+		expect(versions.find((version) => version.kind === "preprint")?.links).toEqual([
+			{ url: "https://arxiv.org/pdf/2501.12345.pdf", kind: "pdf" },
+		]);
+	});
+
 	it("deduplicates repeated paper URLs before writing SQLite link rows", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-link-deduplication-"));
 		temporaryPaths.push(root);

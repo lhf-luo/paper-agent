@@ -100,7 +100,9 @@ The source launcher remains available as `./run.sh`; rerun `./run.sh install` if
 | `paper-agent --no-open` | Keep the local service running and print a session URL instead of opening it |
 | `paper-agent --port 43127` | Use the Browser Connector's default fixed loopback port |
 | `paper-agent init` | Run the first-use configuration wizard |
-| `paper-agent models add` | Add a model key, fetch available models, and set the active model |
+| `paper-agent models add` | Add discovered models; choose one later in Agent chat |
+| `paper-agent models remove --model <provider/model>` | Remove one configured model |
+| `paper-agent models remove --provider <provider>` | Remove a provider and all of its models |
 | `paper-agent models list` | List configured models without showing keys |
 | `paper-agent --doctor` | Check runtime, Web assets, models, Poppler, and OCR |
 | `paper-agent --doctor --probe-model` | Probe OpenAI-compatible tool calls or report that Pi-session verification is required |

@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	editLiteratureSidebar,
-	type SidebarEditOperation,
-} from "../src/literature/application/literature-sidebar-editor.ts";
-import {
 	parseSidebarResultMetadata,
 	resolveSidebarSelection,
 } from "../src/literature/application/literature-sidebar.ts";
+import {
+	editLiteratureSidebar,
+	type SidebarEditOperation,
+} from "../src/literature/application/literature-sidebar-editor.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
 
@@ -117,7 +117,15 @@ describe("editLiteratureSidebar", () => {
 			"session-1",
 		);
 
-		expect(result).toMatchObject({ resultUrl: test.resultUrl, revision: 2, rowCount: 1, changed: 1 });
+		expect(result).toMatchObject({
+			resultUrl: test.resultUrl,
+			revision: 2,
+			rowCount: 1,
+			changed: 1,
+			addedPaperIds: ["paper-correct"],
+			removedPaperIds: ["paper-old"],
+			updatedPaperIds: [],
+		});
 		const updated = await readFile(test.path, "utf8");
 		const metadata = parseSidebarResultMetadata(updated);
 		expect(metadata.headers).toEqual(["摘要", "作者"]);
@@ -151,7 +159,13 @@ describe("editLiteratureSidebar", () => {
 
 		const result = await editLiteratureSidebar(test.store, test.root, test.resultUrl, 1, operations);
 
-		expect(result).toMatchObject({ revision: 2, rowCount: 2, changed: 4 });
+		expect(result).toMatchObject({
+			revision: 2,
+			rowCount: 2,
+			changed: 4,
+			addedPaperIds: ["paper-new"],
+			removedPaperIds: ["paper-old"],
+		});
 		const metadata = parseSidebarResultMetadata(await readFile(test.path, "utf8"));
 		expect(metadata.rows).toEqual([
 			expect.objectContaining({ paper_id: "paper-new", search_run_id: "run-new", focus: "new" }),

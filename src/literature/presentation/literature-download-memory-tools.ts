@@ -12,7 +12,7 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 		name: "download_literature_pdfs",
 		label: "Download literature PDFs",
 		description:
-			"Download selected papers from saved PDF links first, then query DOI providers only when no saved link exists or all saved links fail. Successful fallback links are retained for later downloads. Redirects are revalidated, size is bounded, and files are never executed.",
+			"Download one PDF per selected paper, preferring a formal publication and falling back to a preprint. Papers with an existing local PDF are skipped unless an explicit publication version is requested. Successful fallback links are retained for later downloads.",
 		promptSnippet: "Safely batch-download paper PDFs into the corpus",
 		promptGuidelines: [
 			"Download only records selected for the corpus; the tool automatically tries confirmed arXiv and DOI-derived open-access fallbacks after the primary PDF link fails.",
@@ -20,6 +20,9 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 100 })),
+			publication_version_id: Type.Optional(
+				Type.String({ description: "Exact publication version; requires exactly one paper_id" }),
+			),
 			max_files: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			max_megabytes_per_file: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			concurrency: Type.Optional(Type.Integer({ minimum: 1, maximum: 5, description: "Default: 3" })),
@@ -37,6 +40,7 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 			);
 			const request = {
 				paperIds: params.paper_ids,
+				publicationVersionId: params.publication_version_id,
 				maxFiles: params.max_files ?? 20,
 				maxBytesPerFile: (params.max_megabytes_per_file ?? 50) * 1024 * 1024,
 				concurrency: params.concurrency ?? 3,
@@ -46,7 +50,8 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 			const preparedDownload = await prepareLiteraturePdfDownload(store, request);
 			const authorization = await requestInteractiveOperationAuthorization(ctx, preparedDownload.plan, {
 				title: "Download selected PDFs?",
-				unavailableMessage: "PDF downloads require interactive confirmation. Use the Paper Agent UI or interactive Pi.",
+				unavailableMessage:
+					"PDF downloads require interactive confirmation. Use the Paper Agent UI or interactive Pi.",
 				details: (prepared) => [
 					`Corpus: ${store.root}`,
 					`Papers: ${preparedDownload.papers.length}`,
@@ -57,18 +62,15 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 					`Maximum bytes per file: ${request.maxBytesPerFile}`,
 				],
 			});
-			const { downloaded, failures, missingPaperIds, attempts, discoveryWarnings } = await downloadLiteraturePdfs(
-				store,
-				request,
-				preparedDownload,
-				authorization,
-			);
+			const { downloaded, failures, missingPaperIds, alreadyAvailablePaperIds, attempts, discoveryWarnings } =
+				await downloadLiteraturePdfs(store, request, preparedDownload, authorization);
 			return {
 				content: [
 					{
 						type: "text",
 						text: [
 							`Downloaded PDFs: ${downloaded.length}`,
+							`Already available: ${alreadyAvailablePaperIds.length}`,
 							`Failures/skips: ${failures.length}`,
 							`Corpus: ${store.root}`,
 							...downloaded.map(
@@ -92,7 +94,15 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 						].join("\n"),
 					},
 				],
-				details: { downloaded, failures, missingPaperIds, attempts, discoveryWarnings, corpusPath: store.root },
+				details: {
+					downloaded,
+					failures,
+					missingPaperIds,
+					alreadyAvailablePaperIds,
+					attempts,
+					discoveryWarnings,
+					corpusPath: store.root,
+				},
 			};
 		},
 	});

@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CommandExecutor } from "../src/shared/infrastructure/command-executor.ts";
-import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
-import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
+import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
+import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
+import type { CommandExecutor } from "../src/shared/infrastructure/command-executor.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -245,9 +245,7 @@ describe("library collections API", () => {
 					body: JSON.stringify(body),
 				});
 			const confirm = async (prepared: { operationId: string; manifestFingerprint: string }) =>
-				(
-					await api("/api/operations/confirm", prepared)
-				).json();
+				(await api("/api/operations/confirm", prepared)).json();
 
 			const removePreparedResponse = await api("/api/library/papers/remove/prepare", {
 				paperId: record.id,
@@ -386,7 +384,10 @@ describe("library collections API", () => {
 				});
 
 			// 建分类。
-			const created = await api("/api/library/collections", { method: "POST", body: JSON.stringify({ name: "Saved" }) });
+			const created = await api("/api/library/collections", {
+				method: "POST",
+				body: JSON.stringify({ name: "Saved" }),
+			});
 			const collection = (await created.json()) as { id: string };
 
 			// 免确认保存到分类。
@@ -430,18 +431,19 @@ describe("library collections API", () => {
 		const candidate = (id: string): PaperRecord => ({
 			id,
 			title: id,
+			abstract: `${id} abstract`,
 			authors: ["Researcher"],
 			identifiers: {},
 			links: [],
 			provenance: [],
 			mergedFrom: [],
 		});
-		await application.personalStore("default").saveSearchRun(
-			searchRun("run-default", "default", [candidate("paper-default")]),
-		);
-		await application.personalStore("research").saveSearchRun(
-			searchRun("run-research", "research", [candidate("paper-research")]),
-		);
+		await application
+			.personalStore("default")
+			.saveSearchRun(searchRun("run-default", "default", [candidate("paper-default")]));
+		await application
+			.personalStore("research")
+			.saveSearchRun(searchRun("run-research", "research", [candidate("paper-research")]));
 		await expect(
 			application.prepareCorpusImport({ searchRunId: "run-research", namespace: "default" }),
 		).rejects.toThrow("namespace default");
@@ -466,6 +468,9 @@ describe("library collections API", () => {
 			const detail = await api("/api/search/runs/run-research?namespace=research");
 			expect(detail.status).toBe(200);
 			expect(((await detail.json()) as { run: SearchRun }).run.results[0]?.id).toBe("paper-research");
+			const abstract = await api("/api/search/runs/run-research/papers/paper-research?namespace=research");
+			expect(await abstract.json()).toEqual({ paperId: "paper-research", abstract: "paper-research abstract" });
+			expect((await api("/api/search/runs/run-research/papers/missing?namespace=research")).status).toBe(404);
 			expect((await api("/api/search/runs/run-default?namespace=research")).status).toBe(404);
 		} finally {
 			await server.close();
@@ -495,11 +500,13 @@ describe("library collections API", () => {
 			mergedFrom: [],
 			collectionIds,
 		});
-		await application.personalStore(namespace).upsertPapers([
-			paper("paper-first", [firstCollection.id]),
-			paper("paper-overlap", [firstCollection.id, secondCollection.id]),
-			paper("paper-uncategorized"),
-		]);
+		await application
+			.personalStore(namespace)
+			.upsertPapers([
+				paper("paper-first", [firstCollection.id]),
+				paper("paper-overlap", [firstCollection.id, secondCollection.id]),
+				paper("paper-uncategorized"),
+			]);
 		await application.personalStore().upsertPaper(paper("paper-default-only"));
 
 		const server = await startLocalWebServer(application, { staticRoot });
@@ -522,24 +529,18 @@ describe("library collections API", () => {
 			expect(index.collectionPaperIds[emptyCollection.id]).toEqual([]);
 			expect(index.allPaperIds).not.toContain("paper-default-only");
 
-			const wrongMethod = await fetch(
-				`${server.url}/api/papers/paper-first/collections`,
-				{
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
-				},
-			);
+			const wrongMethod = await fetch(`${server.url}/api/papers/paper-first/collections`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
+			});
 			expect(wrongMethod.status).toBe(404);
 
-			const assignment = await fetch(
-				`${server.url}/api/papers/paper-first/collections`,
-				{
-					method: "PATCH",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
-				},
-			);
+			const assignment = await fetch(`${server.url}/api/papers/paper-first/collections`, {
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
+			});
 			expect(assignment.status, await assignment.text()).toBe(200);
 			expect((await application.personalStore(namespace).getPaper("paper-first"))?.collectionIds).toEqual([
 				secondCollection.id,
@@ -588,6 +589,11 @@ describe("library collections API", () => {
 
 			const versions = await application.personalStore(namespace).listPaperVersions(record.id);
 			expect(versions).toHaveLength(1);
+			expect(versions[0]).toMatchObject({ versionKind: "published", isPreferred: true });
+			const publicationVersions = await application.personalStore(namespace).listPublicationVersions(record.id);
+			expect(publicationVersions).toMatchObject([
+				{ id: versions[0].publicationVersionId, kind: "published", isPreferred: true },
+			]);
 			const pdfUrl = `${server.url}/api/papers/${encodeURIComponent(record.id)}/pdf/${versions[0].sha256}?namespace=${encodeURIComponent(namespace)}`;
 			const full = await fetch(pdfUrl);
 			expect(full.status).toBe(200);

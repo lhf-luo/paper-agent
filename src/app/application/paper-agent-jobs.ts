@@ -165,6 +165,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		const store = this.personalStore(namespace);
 		const request: LiteraturePdfDownloadRequest = {
 			paperIds: input.paperIds,
+			publicationVersionId: input.publicationVersionId,
 			maxFiles: input.maxFiles ?? 20,
 			maxBytesPerFile: (input.maxMegabytesPerFile ?? 50) * 1024 * 1024,
 			concurrency: input.concurrency ?? 3,
@@ -302,6 +303,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		const namespace = input.namespace ?? this.defaultNamespace;
 		const request: LiteraturePdfDownloadRequest = {
 			paperIds: input.paperIds,
+			publicationVersionId: input.publicationVersionId,
 			maxFiles: input.maxFiles ?? 20,
 			maxBytesPerFile: (input.maxMegabytesPerFile ?? 50) * 1024 * 1024,
 			concurrency: input.concurrency ?? 3,
@@ -403,8 +405,12 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		const alreadySaved = existingVersions.some((item) => item.sha256 === blob.sha256);
 		let storedVersion = existingVersions.find((item) => item.sha256 === blob.sha256);
 		if (!alreadySaved) {
+			const publicationVersion = (await store.ensurePublicationVersions(paperId, true)).find(
+				(item) => item.kind === "published",
+			);
 			const version: PaperVersion = {
 				paperId,
+				publicationVersionId: publicationVersion?.id,
 				sourceUrl: localUrl,
 				finalUrl: localUrl,
 				retrievedAt: new Date().toISOString(),
@@ -430,6 +436,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 				bytes: data.length,
 				blobPath: blob.path,
 				contentType: "application/pdf",
+				versionKind: "published",
 				isPreferred: true,
 			}
 		);

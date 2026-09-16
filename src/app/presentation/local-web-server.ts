@@ -20,8 +20,8 @@ import { handleLibraryRoutes } from "./library-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
 import { handleSearchRoutes } from "./search-routes.ts";
 import { handleTeamRoutes } from "./team-routes.ts";
-import { handleWikiRoutes } from "./wiki-routes.ts";
 import { ApiError, grantFromBody, json, numberValue, readJson, stringArray } from "./web-http.ts";
+import { handleWikiRoutes } from "./wiki-routes.ts";
 
 export interface LocalWebServerOptions {
 	host?: string;
@@ -189,6 +189,8 @@ export async function startLocalWebServer(
 				const body = await readJson(request);
 				const input: PdfDownloadPreparationInput = {
 					paperIds: stringArray(body.paperIds),
+					publicationVersionId:
+						typeof body.publicationVersionId === "string" ? body.publicationVersionId : undefined,
 					maxFiles: numberValue(body.maxFiles),
 					maxMegabytesPerFile: numberValue(body.maxMegabytesPerFile),
 					concurrency: numberValue(body.concurrency),
@@ -283,6 +285,8 @@ export async function startLocalWebServer(
 				const body = await readJson(request);
 				const input: PdfDownloadPreparationInput = {
 					paperIds: stringArray(body.paperIds),
+					publicationVersionId:
+						typeof body.publicationVersionId === "string" ? body.publicationVersionId : undefined,
 					maxFiles: numberValue(body.maxFiles),
 					maxMegabytesPerFile: numberValue(body.maxMegabytesPerFile),
 					concurrency: numberValue(body.concurrency),

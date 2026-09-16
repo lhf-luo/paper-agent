@@ -3,7 +3,6 @@ import { copyFile, link, mkdir, readFile, rename, unlink, writeFile } from "node
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { PaperVersion } from "../domain/literature-types.ts";
-import { PersonalPdfMaterialRepository } from "./personal-pdf-material-repository.ts";
 import {
 	inferredVersionKind,
 	json,
@@ -17,24 +16,27 @@ import {
 	safePathSegment,
 	versionSuffix,
 } from "./personal-database-support.ts";
+import { PersonalPdfMaterialRepository } from "./personal-pdf-material-repository.ts";
 
 export abstract class PersonalFileRepository extends PersonalPdfMaterialRepository {
 	protected versionRows(database: DatabaseSync, paperId: string): StoredVersionRow[] {
+		const paper = this.paperRow(database, paperId);
+		if (!paper) return [];
 		return database
 			.prepare(`SELECT
-				pv.id AS version_id, pv.file_id, pv.version_json,
+				pv.id AS version_id, pv.publication_version_id, pv.file_id, pv.version_json,
 				sf.relative_path, sf.filename, sf.sha256, sf.bytes, sf.content_type
 			FROM paper_versions pv
-			JOIN papers p ON p.row_id = pv.paper_row_id
 			JOIN stored_files sf ON sf.id = pv.file_id
-			WHERE p.namespace_id = ? AND p.paper_id = ?
+			WHERE pv.paper_row_id = ?
 			ORDER BY pv.retrieved_at DESC, pv.id DESC`)
-			.all(this.namespace, paperId) as unknown as StoredVersionRow[];
+			.all(paper.row_id) as unknown as StoredVersionRow[];
 	}
 
 	protected hydrateVersion(row: StoredVersionRow): PaperVersion {
 		return {
 			...parseJson<PaperVersion>(row.version_json),
+			publicationVersionId: row.publication_version_id ?? undefined,
 			sha256: row.sha256,
 			bytes: row.bytes,
 			contentType: row.content_type,
@@ -122,7 +124,14 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 			relativePath,
 			absolutePath,
 			originalFilename: basename(source),
-			version: { ...version, versionKind: kind, blobPath: absolutePath, bytes: body.byteLength, sha256 },
+			version: {
+				...version,
+				paperId: paper.paper_id,
+				versionKind: kind,
+				blobPath: absolutePath,
+				bytes: body.byteLength,
+				sha256,
+			},
 		};
 	}
 
@@ -154,6 +163,12 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 						.get(paperRowId, file.version.relatedVersionSha256) as { id: string } | undefined
 				)?.id ?? null)
 			: null;
+		if (file.version.publicationVersionId) {
+			const linked = database
+				.prepare("SELECT 1 FROM publication_versions WHERE id = ? AND paper_row_id = ?")
+				.get(file.version.publicationVersionId, paperRowId);
+			if (!linked) throw new Error("Publication version does not belong to this paper");
+		}
 		database
 			.prepare(
 				"INSERT INTO stored_files(id, namespace_id, relative_path, filename, original_filename, sha256, bytes, content_type, created_at, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -172,12 +187,13 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 			);
 		database
 			.prepare(`INSERT INTO paper_versions(
-				id, paper_row_id, file_id, source_url, final_url, retrieved_at, version_kind,
+				id, paper_row_id, publication_version_id, file_id, source_url, final_url, retrieved_at, version_kind,
 				version_label, related_version_id, is_preferred, version_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 			.run(
 				file.versionId,
 				paperRowId,
+				file.version.publicationVersionId ?? null,
 				file.fileId,
 				file.version.sourceUrl,
 				file.version.finalUrl,
@@ -192,12 +208,29 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 
 	async savePaperVersion(version: PaperVersion): Promise<void> {
 		await this.initialize();
+		const requestedVersion = version;
 		const database = this.open();
 		let prepared: PreparedFile | undefined;
 		try {
 			database.exec("BEGIN IMMEDIATE");
 			const paper = this.paperRow(database, version.paperId);
 			if (!paper) throw new Error(`Paper not found in corpus: ${version.paperId}`);
+			if (!version.publicationVersionId && ["published", "preprint"].includes(inferredVersionKind(version))) {
+				const kind = inferredVersionKind(version);
+				const publicationVersion = this.syncPublicationVersions(
+					database,
+					paper.row_id,
+					parseJson(paper.record_json),
+					kind === "published",
+				).find((candidate) => candidate.kind === kind);
+				if (publicationVersion) {
+					version = {
+						...version,
+						publicationVersionId: publicationVersion.id,
+						isPreferred: version.isPreferred ?? publicationVersion.isPreferred,
+					};
+				}
+			}
 			try {
 				prepared = await this.allocateVersionFile(database, paper, version, version.blobPath);
 			} catch (error) {
@@ -210,10 +243,11 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 			await this.materializeFile(version.blobPath, prepared.absolutePath);
 			this.insertPreparedFile(database, paper.row_id, prepared);
 			database.exec("COMMIT");
-			version.blobPath = prepared.absolutePath;
-			version.bytes = prepared.bytes;
-			version.sha256 = prepared.sha256;
-			version.versionKind = prepared.version.versionKind;
+			Object.assign(requestedVersion, prepared.version, {
+				blobPath: prepared.absolutePath,
+				bytes: prepared.bytes,
+				sha256: prepared.sha256,
+			});
 		} catch (error) {
 			try {
 				database.exec("ROLLBACK");

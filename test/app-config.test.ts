@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { ensureObsidianVault } from "../src/app/application/paper-agent-wiki.ts";
@@ -20,6 +22,9 @@ import {
 	mergeDiscoveredModels,
 	probeModelImageInput,
 	probeModelToolCalling,
+	removeConfiguredModel,
+	removeConfiguredProvider,
+	resolveConfiguredModel,
 } from "../src/config/application/model-service.ts";
 import type { PaperAgentModelConfig } from "../src/config/domain/config-types.ts";
 
@@ -411,6 +416,66 @@ describe("Paper Agent local configuration", () => {
 		}
 	});
 
+	it("defaults discovered and refreshed models to text and image without selecting an active model", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-add-"));
+		const server = createServer((_request, response) => {
+			response.writeHead(200, { "content-type": "application/json" });
+			response.end(
+				JSON.stringify({
+					data: [{ id: "alpha", input_modalities: ["text", "image"] }, { id: "beta" }, { id: "gamma" }],
+				}),
+			);
+		});
+		await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+		try {
+			const port = (server.address() as AddressInfo).port;
+			const argumentsForAdd = [
+				"scripts/configure-model.ts",
+				"add",
+				"--provider",
+				"fixture",
+				"--base-url",
+				`http://127.0.0.1:${port}/v1`,
+				"--api-key",
+				"test-key",
+				"--yes",
+			];
+			const executionOptions = {
+				cwd: process.cwd(),
+				env: { ...process.env, PAPER_AGENT_CONFIG_DIR: join(root, ".paper-agent", "config") },
+			};
+			await promisify(execFile)(process.execPath, argumentsForAdd, executionOptions);
+			const stored = JSON.parse(await readFile(join(root, ".paper-agent", "config", "models.json"), "utf8"));
+			expect(stored.active).toBeUndefined();
+			expect(
+				stored.providers.fixture.models.map((model: { id: string; reasoning: boolean; input: string[] }) => ({
+					id: model.id,
+					reasoning: model.reasoning,
+					input: model.input,
+				})),
+			).toEqual([
+				{ id: "alpha", reasoning: true, input: ["text", "image"] },
+				{ id: "beta", reasoning: true, input: ["text", "image"] },
+				{ id: "gamma", reasoning: true, input: ["text", "image"] },
+			]);
+			const loaded = await loadPaperAgentConfig(root);
+			expect(loaded.model).toBeUndefined();
+			expect(loaded.models).toHaveLength(3);
+			await savePaperAgentConfig(root, {
+				...loaded,
+				models: loaded.models?.map((model) => ({ ...model, input: ["text"] })),
+			});
+			await promisify(execFile)(process.execPath, argumentsForAdd, executionOptions);
+			const refreshed = await loadPaperAgentConfig(root);
+			expect(refreshed.models?.every((model) => model.input.includes("image"))).toBe(true);
+		} finally {
+			await new Promise<void>((resolveClose, rejectClose) =>
+				server.close((error) => (error ? rejectClose(error) : resolveClose())),
+			);
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it("verifies image input with an actual PNG challenge", async () => {
 		const requests: unknown[] = [];
 		const result = await probeModelImageInput(
@@ -497,6 +562,74 @@ describe("Paper Agent local configuration", () => {
 			apiKey: "new-key",
 		});
 		expect(merged.find((model) => model.providerId === "relay")?.toolCallingProbe).toBeUndefined();
+	});
+
+	it("removes a configured model and selects an explicit active replacement", () => {
+		const first: PaperAgentModelConfig = {
+			...modelCapabilities(),
+			providerId: "relay",
+			modelId: "first",
+			api: "openai-completions",
+			baseUrl: "https://relay.example.com/v1",
+		};
+		const second: PaperAgentModelConfig = { ...first, modelId: "second", reasoning: true };
+		const result = removeConfiguredModel([first, second], first, "relay/first", "relay/second");
+
+		expect(result.removed).toBe(first);
+		expect(result.models).toEqual([second]);
+		expect(result.active).toBe(second);
+	});
+
+	it("clears the active model when it is removed without a replacement", () => {
+		const active: PaperAgentModelConfig = {
+			...modelCapabilities(),
+			providerId: "relay",
+			modelId: "active",
+			api: "openai-completions",
+			baseUrl: "https://relay.example.com/v1",
+		};
+		const remaining: PaperAgentModelConfig = { ...active, modelId: "remaining" };
+		const result = removeConfiguredModel([active, remaining], active, "active");
+
+		expect(result.models).toEqual([remaining]);
+		expect(result.active).toBeUndefined();
+	});
+
+	it("removes a provider with all of its models and preserves an unrelated active model", () => {
+		const kept: PaperAgentModelConfig = {
+			...modelCapabilities(),
+			providerId: "kept",
+			modelId: "active",
+			api: "openai-completions",
+			baseUrl: "https://kept.example.com/v1",
+		};
+		const removed = [
+			{ ...kept, providerId: "relay", modelId: "one" },
+			{ ...kept, providerId: "relay", modelId: "two" },
+		];
+		const result = removeConfiguredProvider([kept, ...removed], kept, "relay");
+
+		expect(result.removed).toEqual(removed);
+		expect(result.models).toEqual([kept]);
+		expect(result.active).toBe(kept);
+	});
+
+	it("requires provider/model when a bare model id is ambiguous", () => {
+		const shared = {
+			...modelCapabilities(),
+			modelId: "shared",
+			api: "openai-completions" as const,
+			baseUrl: "https://relay.example.com/v1",
+		};
+		expect(() =>
+			resolveConfiguredModel(
+				[
+					{ ...shared, providerId: "one" },
+					{ ...shared, providerId: "two" },
+				],
+				"shared",
+			),
+		).toThrow("ambiguous");
 	});
 
 	it("rejects duplicate provider/model identities across protocols", async () => {

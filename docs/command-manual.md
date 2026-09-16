@@ -34,6 +34,8 @@ paper-agent [command] [options] [PDF]
 | `paper-agent --agent <paper.pdf> [要求]` | 在 Pi 中使用论文研究 Skill，并可追加自然语言要求 |
 | `paper-agent init` | 运行首次配置向导 |
 | `paper-agent models add` | 添加模型端点、拉取模型并设置活动模型 |
+| `paper-agent models remove --model <provider/model>` | 删除一个已配置模型 |
+| `paper-agent models remove --provider <provider>` | 删除 Provider、它的全部模型和未再使用的凭据 |
 | `paper-agent models probe-image --model <provider/model>` | 使用生成的 PNG 验证模型图片输入能力 |
 | `paper-agent models list` | 列出已配置模型，不显示密钥 |
 | `paper-agent --doctor` | 运行环境与配置诊断 |
@@ -83,7 +85,7 @@ paper-agent init
 paper-agent
 ```
 
-默认监听 loopback 随机可用端口，并按配置决定是否自动打开浏览器。
+默认监听 loopback，使用 `.paper-agent/config/app.json` 的 `interface.port`（默认 `43127`），并按配置决定是否自动打开浏览器。命令行 `--port` 可以覆盖该端口。
 
 ### 打开 PDF
 
@@ -99,7 +101,7 @@ paper-agent "D:\papers\example.pdf"
 paper-agent --no-open
 ```
 
-终端会打印带临时会话 token 的完整 URL。应打开该完整 URL，而不是只打开主机和端口。
+终端会打印本地访问 URL，直接打开即可。本地 Web 工作区和 API 不要求会话 token。
 
 ### 指定端口
 
@@ -108,7 +110,7 @@ paper-agent --port 43127
 paper-agent --no-open --port 43127
 ```
 
-端口范围是 `0` 到 `65535`；`0` 表示由系统选择可用端口。
+端口范围是 `0` 到 `65535`；`0` 表示由系统选择可用端口。Browser Connector 固定连接 `127.0.0.1:43127`，使用该扩展时应保留端口 `43127`。
 
 ## 5. Pi Agent
 
@@ -140,8 +142,7 @@ paper-agent models add
 
 1. 读取 Provider ID、Base URL 和 API key。
 2. 请求兼容服务的 `/models` 端点。
-3. 显示发现的模型并选择活动模型。
-4. 将模型元数据写入 `.paper-agent/config/models.json`，将 Provider 认证写入 `.paper-agent/config/auth.json`。
+3. 将发现的模型统一设为 `text + image` 输入，并将全部模型元数据写入 `.paper-agent/config/models.json`，将 Provider 认证写入 `.paper-agent/config/auth.json`。新添加模型默认开启推理配置，不在此时选择活动模型；在 Agent 对话页面自行选择。
 
 交互输入会遮蔽 API key。除自动化环境外，不建议把密钥直接写进命令行历史。
 
@@ -152,7 +153,6 @@ paper-agent models add `
   --provider deepseek `
   --base-url https://api.deepseek.com/v1 `
   --api openai-completions `
-  --active deepseek-flash `
   --yes
 ```
 
@@ -162,11 +162,24 @@ paper-agent models add `
 | `--base-url <url>` | 设置兼容 API 的基础 URL |
 | `--api <kind>` | `openai-completions` 或 `openai-responses` |
 | `--api-key <key>` | 直接传入密钥；可能进入 shell 历史 |
-| `--active <model-id>` | 指定发现列表中的活动模型 |
+| `--active <model-id>` | 可选：明确设置活动模型，不传则保留已有活动模型或等待用户在 Agent 对话选择 |
+| `--reasoning` | 为此次发现的所有模型开启推理配置（新模型默认开启） |
+| `--no-reasoning` | 为此次发现的所有模型关闭推理配置 |
 | `--yes` | 自动选择默认模型，不进行交互确认 |
 | `--json` | 输出机器可读 JSON |
 
 未指定 `--api` 时，新 Provider 固定使用 `openai-completions`，不会继承当前激活模型的协议。命令会自动写入与 Pi relay 一致的客户端请求头；同一 Provider 再次配置时会替换该 Provider 的旧模型条目。只有中转服务完整支持 Responses API 的工具结果续传时，才应使用 `--api openai-responses`。OpenOX 当前应使用 `openai-completions`。
+
+`/models` 通常不能可靠报告推理能力；新模型默认开启推理配置，重新发现相同端点时保留已有声明。`models add` 对新模型和重新发现的模型默认标记 `text + image`，但这并非图片能力的实际验证；可运行 `models probe-image --model <provider/model>` 检查。推理 token 计数并不保证中转站返回可展示的思考内容。
+
+### 删除模型或 Provider
+
+```powershell
+paper-agent models remove --model deepseek/deepseek-flash
+paper-agent models remove --provider deepseek
+```
+
+删除活动模型时，默认清空活动模型；可用 `--active <provider/model>` 指定剩余模型作为替代。删除 Provider 会删除它的全部模型；最后一个模型被删除后，对应的存储凭据也会自动删除。若 PDF 翻译配置引用了被删模型，该引用会一并清除。
 
 ### 查看模型
 
@@ -221,9 +234,13 @@ paper-agent --verify live
 
 | Profile | 内容 |
 | --- | --- |
-| `quick` | lint、类型检查、Web 构建、测试和本地冒烟检查 |
-| `full` | 在 quick 基础上加入固定真实 PDF 发布门禁 |
-| `live` | 加入真实 Provider 和公开 Git 网络检查 |
+| `quick` | lint、主项目与 Web 类型检查、Web 构建、主测试套件、CLI/Web 与团队服务备份恢复冒烟检查 |
+| `full` | 当前与 `quick` 执行相同检查，没有额外的固定真实 PDF 门禁 |
+| `live` | 在 `quick` 基础上加入真实 Provider 和公开 Git 网络检查 |
+
+上述 profile 以 `scripts/verify.ts` 为准，不包含独立的团队服务类型检查、团队服务 Vitest 套件和工具文档一致性检查；`npm run check` 包含这三项，但不包含 CLI/Web 冒烟检查或真实 Provider 网络检查。
+
+当前 CI 和发布工作流仍引用 `package.json` 中不存在的 `eval:pdf-assets:fetch` / `eval:pdf-assets:check`，发布打包也引用旧的 `skills/` 等路径。实际项目 Skill 位于 `.agents/skills/`。因此，本地检查通过不能证明这些工作流或发布包可用；不能把 `full` 或 `release:check` 描述为已经覆盖真实 PDF 发布门禁。
 
 `live` 会访问外部服务，可能需要 Provider 凭据和可用网络。
 
@@ -304,9 +321,10 @@ paper-agent --uninstall
 | `npm run typecheck:web` | 检查 Web TypeScript |
 | `npm test` | 运行 Vitest 测试套件 |
 | `npm run test:cli-smoke` | 运行 CLI 和本地 Web 冒烟检查 |
-| `npm run test:team-server` | 运行团队服务冒烟检查 |
-| `npm run check` | 运行 lint、类型检查、Web 构建和测试 |
-| `npm run release:check` | 运行完整检查和 PDF 资产评估门禁 |
+| `npm run test:team-server` | 运行独立团队服务 Vitest 套件及备份恢复冒烟检查 |
+| `npm run docs:tools:check` | 检查工具文档与运行时注册表是否一致 |
+| `npm run check` | 运行 lint、主项目/Web/团队服务类型检查、Web 构建、主测试套件、团队服务测试及工具文档检查 |
+| `npm run release:check` | 当前等同于 `npm run check`，不包含额外 PDF 资产评估门禁 |
 
 
 ## 13. 退出状态与排错

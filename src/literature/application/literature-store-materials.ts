@@ -5,6 +5,7 @@ import type {
 	ArtifactManifest,
 	DerivedRecord,
 	PaperCuration,
+	PaperPublicationVersion,
 	PaperRecord,
 	PaperVersion,
 	ReadingStatus,
@@ -14,6 +15,16 @@ import { LiteratureStoreRecords } from "./literature-store-records.ts";
 import { pathExists, readJson, safeSegment, uniqueNormalized, writeJsonAtomic } from "./literature-store-support.ts";
 
 export abstract class LiteratureStoreMaterials extends LiteratureStoreRecords {
+	async listPublicationVersions(paperId: string): Promise<PaperPublicationVersion[]> {
+		if (!this.personalDatabase) return [];
+		return this.personalDatabase.listPublicationVersions(paperId);
+	}
+
+	async ensurePublicationVersions(paperId: string, forcePublished = false): Promise<PaperPublicationVersion[]> {
+		if (!this.personalDatabase) return [];
+		return this.personalDatabase.ensurePublicationVersions(paperId, forcePublished);
+	}
+
 	async saveArtifactManifest(manifest: ArtifactManifest, paperId?: string): Promise<string> {
 		if (!this.personalDatabase) throw new Error("Artifact manifests require a personal SQLite corpus");
 		return this.personalDatabase.saveArtifactManifest(manifest, paperId);
@@ -95,7 +106,10 @@ export abstract class LiteratureStoreMaterials extends LiteratureStoreRecords {
 		await this.initialize();
 		if (this.personalDatabase) return this.personalDatabase.savePaperVersion(version);
 		await this.withWriteLock(async () => {
-			const path = join(this.root, "paper-versions", `${safeSegment(version.paperId, "paper id")}.json`);
+			const paper = await this.getPaper(version.paperId);
+			if (!paper) throw new Error(`Paper not found in corpus: ${version.paperId}`);
+			version = { ...version, paperId: paper.id };
+			const path = join(this.root, "paper-versions", `${safeSegment(paper.id, "paper id")}.json`);
 			const existing = (await readJson<PaperVersion[]>(path)) ?? [];
 			if (!existing.some((item) => item.sha256 === version.sha256 && item.finalUrl === version.finalUrl)) {
 				existing.push(version);
@@ -120,7 +134,7 @@ export abstract class LiteratureStoreMaterials extends LiteratureStoreRecords {
 			if (!record) throw new Error(`Paper not found in corpus: ${paperId}`);
 			if (record.materialHashes?.some((value) => value.toLowerCase() === sha256.toLowerCase())) return record;
 			const updated = { ...record, materialHashes: [...(record.materialHashes ?? []), sha256.toLowerCase()] };
-			await writeJsonAtomic(this.recordPath(paperId), updated);
+			await writeJsonAtomic(this.recordPath(record.id), updated);
 			await this.searchIndex.upsert(updated);
 			await this.refreshManifestUnlocked();
 			await this.markSearchIndexCurrent();
@@ -130,7 +144,9 @@ export abstract class LiteratureStoreMaterials extends LiteratureStoreRecords {
 
 	async listPaperVersions(paperId: string): Promise<PaperVersion[]> {
 		if (this.personalDatabase) return this.personalDatabase.listPaperVersions(paperId);
-		const path = join(this.root, "paper-versions", `${safeSegment(paperId, "paper id")}.json`);
+		const paper = await this.getPaper(paperId);
+		if (!paper) return [];
+		const path = join(this.root, "paper-versions", `${safeSegment(paper.id, "paper id")}.json`);
 		return ((await readJson<PaperVersion[]>(path)) ?? []).sort((left, right) =>
 			right.retrievedAt.localeCompare(left.retrievedAt),
 		);

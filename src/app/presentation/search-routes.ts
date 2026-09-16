@@ -36,6 +36,21 @@ export async function handleSearchRoutes(
 		});
 		return;
 	}
+	const searchRunPaperRoute = /^\/api\/search\/runs\/([^/]+)\/papers\/([^/]+)$/.exec(url.pathname);
+	if (request.method === "GET" && searchRunPaperRoute) {
+		const run = await application.getSearchRun(
+			decodeURIComponent(searchRunPaperRoute[1]),
+			namespaceValue(url.searchParams.get("namespace")),
+		);
+		if (!run) throw new ApiError(404, "search run not found");
+		const paperId = decodeURIComponent(searchRunPaperRoute[2]);
+		const paper = run.results.find(
+			(candidate) => candidate.id === paperId || candidate.mergedFrom.includes(paperId),
+		);
+		if (!paper) throw new ApiError(404, "paper not found in search run");
+		json(response, 200, { paperId: paper.id, abstract: paper.abstract ?? null });
+		return;
+	}
 	const searchRunRoute = /^\/api\/search\/runs\/([^/]+)$/.exec(url.pathname);
 	if (request.method === "GET" && searchRunRoute) {
 		const id = decodeURIComponent(searchRunRoute[1]);

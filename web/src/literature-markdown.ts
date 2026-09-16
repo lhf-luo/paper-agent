@@ -20,7 +20,7 @@ export interface ParsedLiteratureTables {
 	meta?: { headers?: string[]; rows?: Array<Record<string, unknown>> };
 }
 
-const LINK_CELL = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/;
+const LINK_CELL = /^\[((?:\\.|[^\]])+)\]\((https?:\/\/[^)\s]+)\)$/;
 const SIDEBAR_META_COMMENT = /<!--\s*paper-agent-sidebar-meta\s+([\s\S]*?)\s*-->\s*$/;
 
 function tryParseSidebarMeta(markdown: string): { headers?: string[]; rows?: Array<Record<string, unknown>> } | null {
@@ -38,8 +38,8 @@ function tryParseSidebarMeta(markdown: string): { headers?: string[]; rows?: Arr
 function parseCell(raw: string): ParsedCell {
 	const trimmed = raw.trim();
 	const match = LINK_CELL.exec(trimmed);
-	if (match) return { text: match[1], url: match[2] };
-	return { text: trimmed };
+	if (match) return { text: match[1].replace(/\\([[\]|])/g, "$1"), url: match[2] };
+	return { text: trimmed.replaceAll("\\|", "|") };
 }
 
 /** 解析 markdown 分组表格(###/## 标题 + | 表格 |), 支持 [文本](链接) 单元格。 */
@@ -68,12 +68,18 @@ export function parseLiteratureTables(markdown: string): ParsedLiteratureTables 
 		}
 		if (cellRow) {
 			const cells = line
-				.split("|")
+				.split(/(?<!\\)\|/)
 				.slice(1, -1)
 				.map((cell) => cell.trim());
 			const isSeparator = cells.every((cell) => /^:?-{2,}:?$/.test(cell));
 			if (!table) {
-				table = { focus: currentFocus, headers: cells, rows: [], customHeaders: meta?.headers, rowMeta: meta?.rows };
+				table = {
+					focus: currentFocus,
+					headers: cells,
+					rows: [],
+					customHeaders: meta?.headers,
+					rowMeta: meta?.rows,
+				};
 			} else if (isSeparator) {
 				// 表头分隔行, 跳过
 			} else {

@@ -98,6 +98,73 @@ export interface ModelDiscoveryInput {
 	fetcher?: typeof fetch;
 }
 
+function configuredModelKey(model: Pick<PaperAgentModelConfig, "providerId" | "modelId">): string {
+	return `${model.providerId}/${model.modelId}`;
+}
+
+function configuredModelsWithActive(
+	models: PaperAgentModelConfig[],
+	active?: PaperAgentModelConfig,
+): PaperAgentModelConfig[] {
+	const configured = [...models];
+	if (!active) return configured;
+	const index = configured.findIndex((model) => configuredModelKey(model) === configuredModelKey(active));
+	if (index >= 0) configured[index] = active;
+	else configured.unshift(active);
+	return configured;
+}
+
+export function resolveConfiguredModel(models: PaperAgentModelConfig[], requested: string): PaperAgentModelConfig {
+	const normalized = requested.trim();
+	if (!normalized) throw new Error("Model identifier is required");
+	const exact = models.filter((model) => configuredModelKey(model) === normalized);
+	if (exact.length === 1) return exact[0];
+	const byModelId = models.filter((model) => model.modelId === normalized);
+	if (byModelId.length === 1) return byModelId[0];
+	if (byModelId.length > 1) {
+		throw new Error(`Model identifier is ambiguous; use provider/model: ${normalized}`);
+	}
+	throw new Error(`Configured model was not found: ${normalized}`);
+}
+
+export function removeConfiguredModel(
+	models: PaperAgentModelConfig[],
+	active: PaperAgentModelConfig | undefined,
+	requested: string,
+	replacement?: string,
+): { removed: PaperAgentModelConfig; models: PaperAgentModelConfig[]; active?: PaperAgentModelConfig } {
+	const configured = configuredModelsWithActive(models, active);
+	const removed = resolveConfiguredModel(configured, requested);
+	const removedKey = configuredModelKey(removed);
+	const remaining = configured.filter((model) => configuredModelKey(model) !== removedKey);
+	const nextActive = replacement
+		? resolveConfiguredModel(remaining, replacement)
+		: active && configuredModelKey(active) !== removedKey
+			? resolveConfiguredModel(remaining, configuredModelKey(active))
+			: undefined;
+	return { removed, models: remaining, ...(nextActive ? { active: nextActive } : {}) };
+}
+
+export function removeConfiguredProvider(
+	models: PaperAgentModelConfig[],
+	active: PaperAgentModelConfig | undefined,
+	providerId: string,
+	replacement?: string,
+): { removed: PaperAgentModelConfig[]; models: PaperAgentModelConfig[]; active?: PaperAgentModelConfig } {
+	const normalized = providerId.trim();
+	if (!normalized) throw new Error("Provider identifier is required");
+	const configured = configuredModelsWithActive(models, active);
+	const removed = configured.filter((model) => model.providerId === normalized);
+	if (!removed.length) throw new Error(`Configured provider was not found: ${normalized}`);
+	const remaining = configured.filter((model) => model.providerId !== normalized);
+	const nextActive = replacement
+		? resolveConfiguredModel(remaining, replacement)
+		: active && active.providerId !== normalized
+			? resolveConfiguredModel(remaining, configuredModelKey(active))
+			: undefined;
+	return { removed, models: remaining, ...(nextActive ? { active: nextActive } : {}) };
+}
+
 export function mergeDiscoveredModels(
 	existing: PaperAgentModelConfig[],
 	discovered: PaperAgentModelConfig[],
@@ -212,8 +279,8 @@ export async function discoverModelEndpointModels(input: ModelDiscoveryInput): P
 			name: modelId,
 			api: model.api,
 			baseUrl: model.baseUrl,
-			reasoning: false,
-			input: ["text"],
+			reasoning: true,
+			input: ["text", "image"],
 			contextWindow: 128_000,
 			maxTokens: 16_384,
 			apiKey: model.apiKey,

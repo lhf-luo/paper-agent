@@ -147,7 +147,7 @@ export interface PossibleDuplicate {
 	leftId: string;
 	rightId: string;
 	titleSimilarity: number;
-	reason: "similar-title";
+	reason: "similar-title" | "identity-conflict";
 }
 
 export interface CorpusSearchHit {
@@ -160,6 +160,7 @@ export interface PaperVersion {
 	/** Team attachment approval; absent on personal and pre-versioned legacy records. */
 	teamReview?: PaperCuration["teamReview"];
 	paperId: string;
+	publicationVersionId?: string;
 	sourceUrl: string;
 	finalUrl: string;
 	retrievedAt: string;
@@ -179,6 +180,21 @@ export interface PaperVersion {
 		targetLanguage: string;
 		outputMode: "mono" | "dual";
 	};
+}
+
+export interface PaperPublicationVersion {
+	id: string;
+	paperId: string;
+	kind: "preprint" | "published" | "unknown";
+	title: string;
+	authors: string[];
+	year?: number;
+	venue?: string;
+	identifiers: PaperIdentifiers;
+	links: PaperLink[];
+	isPreferred: boolean;
+	createdAt: string;
+	updatedAt: string;
 }
 
 export interface ProviderPage {
@@ -208,6 +224,30 @@ export interface ProviderHealthSnapshot {
 	checkedAt: string;
 	message?: string;
 	retryAfter?: string;
+}
+
+export interface SearchExecution {
+	query: string;
+	provider: LiteratureProvider;
+	status: "succeeded" | "partial" | "failed" | "skipped";
+	resultCount: number;
+	message?: string;
+}
+
+export interface SearchCoverage {
+	plannedQueryCount: number;
+	executedQueryCount: number;
+	failedExecutionCount: number;
+	skippedExecutionCount: number;
+	status: "complete" | "partial";
+}
+
+export interface PaperIdentityDecision {
+	leftId: string;
+	rightId: string;
+	decision: "same-work" | "different-work";
+	reason?: string;
+	decidedAt: string;
 }
 
 export interface LiteratureSearchPlan {
@@ -286,9 +326,15 @@ export interface SearchRun {
 	deduplicatedCount: number;
 	corpusHitCount?: number;
 	possibleDuplicates?: PossibleDuplicate[];
+	identityDecisions?: PaperIdentityDecision[];
 	providerHealth?: Partial<Record<LiteratureProvider, ProviderHealthSnapshot>>;
+	executions?: SearchExecution[];
+	coverage?: SearchCoverage;
 	resumedFromCheckpoint?: boolean;
 	searchPlan?: LiteratureSearchPlan;
+	runKind?: "keyword" | "citation-expansion";
+	parentSearchRunId?: string;
+	seedPaperIds?: string[];
 	candidateTable?: CandidatePaperTableRow[];
 	scope: CorpusScope;
 	mode: PersistenceMode;

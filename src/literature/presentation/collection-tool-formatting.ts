@@ -1,14 +1,9 @@
 import { Type } from "typebox";
 import type { CollectionResult, CollectLiteratureOptions } from "../application/literature-collection.ts";
-import {
-	buildCandidatePaperTable,
-	expandLiteratureQueries,
-	uniqueQueries,
-} from "../application/literature-query-planning.ts";
+import { expandLiteratureQueries, uniqueQueries } from "../application/literature-query-planning.ts";
 import { planLiteratureSearch } from "../application/literature-search-planning.ts";
 import { paperPrimaryUrl } from "../domain/literature-identifiers.ts";
 import type {
-	CandidatePaperTableRow,
 	CitationExpansionTableRow,
 	CorpusScope,
 	LiteratureProvider,
@@ -34,32 +29,13 @@ function tableCell(value: string): string {
 	return value.replaceAll("|", "\\|").replace(/\s+/g, " ").trim();
 }
 
-export function formatCandidateTable(rows: CandidatePaperTableRow[], displayLimit: number): string[] {
-	if (!rows.length) return ["Candidate paper table: no records"];
-	const header = "标题 | 作者 | 年份 | venue | DOI/arXiv | 来源 | 发现路径 | 初筛结果 | PDF | 代码";
-	const separator = "--- | --- | --- | --- | --- | --- | --- | --- | --- | ---";
+function formatCandidateTitles(records: PaperRecord[], displayLimit: number): string[] {
+	if (!records.length) return ["Candidate titles: no records"];
 	return [
-		"Candidate paper table:",
-		header,
-		separator,
-		...rows
+		"Candidate titles:",
+		...records
 			.slice(0, displayLimit)
-			.map((row) =>
-				[
-					row.title,
-					row.authors,
-					row.year,
-					row.venue,
-					row.doiOrArxiv,
-					row.sources,
-					row.discoveryPath,
-					row.screeningResult,
-					row.pdf,
-					row.code,
-				]
-					.map(tableCell)
-					.join(" | "),
-			),
+			.map((record, index) => `${index + 1}. paper_id=${record.id} | title=${tableCell(record.title)}`),
 	];
 }
 
@@ -95,7 +71,6 @@ export function formatCitationExpansionTable(rows: CitationExpansionTableRow[], 
 
 export function formatCollection(result: CollectionResult, displayLimit = 60): string {
 	const run = result.run;
-	const candidateTable = run.candidateTable ?? buildCandidatePaperTable(run.results);
 	const lines = [
 		`Search run: ${run.id}`,
 		`Queries: ${run.queries.join(" | ")}`,
@@ -103,6 +78,11 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 		`Results: ${run.results.length} unique; merged duplicates: ${run.deduplicatedCount}`,
 		`Corpus hits reused: ${run.corpusHitCount ?? 0}`,
 		`Possible duplicates requiring review: ${run.possibleDuplicates?.length ?? 0}`,
+		...(run.coverage
+			? [
+					`Search coverage: ${run.coverage.status}; planned=${run.coverage.plannedQueryCount}; executed=${run.coverage.executedQueryCount}; failed=${run.coverage.failedExecutionCount}; skipped=${run.coverage.skippedExecutionCount}`,
+				]
+			: []),
 		`Source counts: ${run.providers.map((provider) => `${provider}=${run.sourceCounts[provider] ?? 0}`).join(", ")}`,
 		`Mode: ${run.scope}/${run.mode}/${run.namespace}`,
 		`Cache: ${result.cached ? "hit (no repeated API search)" : "miss"}`,
@@ -110,11 +90,13 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 		"",
 		"Discovery results are leads, not evidence for substantive claims. Open the primary paper or official artifact.",
 		"",
-		...formatCandidateTable(candidateTable, displayLimit),
-		"",
-		...run.results.slice(0, displayLimit).map(formatPaper),
+		...formatCandidateTitles(run.results, displayLimit),
 	];
-	if (run.results.length > displayLimit) lines.push(`[Only the first ${displayLimit} records are displayed.]`);
+	if (run.results.length > displayLimit) {
+		lines.push(
+			`[Showing the first ${displayLimit} of ${run.results.length} candidate titles from search run ${run.id}.]`,
+		);
+	}
 	if (run.possibleDuplicates?.length) {
 		lines.push("", "Possible duplicates (not merged):");
 		for (const candidate of run.possibleDuplicates.slice(0, 30)) {
@@ -142,6 +124,13 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 					failure.retryable +
 					")",
 			);
+		}
+	}
+	const skipped = run.executions?.filter((execution) => execution.status === "skipped") ?? [];
+	if (skipped.length) {
+		lines.push("", "Skipped search executions:");
+		for (const execution of skipped.slice(0, 30)) {
+			lines.push(`- ${execution.provider} / ${execution.query}: ${execution.message ?? "not run"}`);
 		}
 	}
 	return lines.join("\n");
@@ -181,7 +170,7 @@ export function collectionParameters() {
 			Type.Integer({
 				minimum: 1,
 				maximum: 500,
-				description: "Max rows in the returned candidate table; default: 60",
+				description: "Max candidate paper IDs and titles returned to the model; default: 60",
 			}),
 		),
 		scope: Type.Optional(scopeSchema),

@@ -208,6 +208,65 @@ describe("collection workflow", () => {
 		expect(result.run.failures).toMatchObject([
 			{ provider: "arxiv", query: "protocol fuzzing", message: "temporary arXiv outage" },
 		]);
+		expect(result.run.coverage).toMatchObject({
+			status: "partial",
+			plannedQueryCount: 1,
+			executedQueryCount: 1,
+			failedExecutionCount: 1,
+			skippedExecutionCount: 0,
+		});
+		expect(result.run.executions).toMatchObject([
+			{ provider: "arxiv", query: "protocol fuzzing", status: "failed", resultCount: 0 },
+			{ provider: "crossref", query: "protocol fuzzing", status: "succeeded", resultCount: 1 },
+		]);
+	});
+
+	it("deduplicates exact normalized title and first-author matches while retaining identifier conflicts", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-metadata-deduplication-"));
+		temporaryPaths.push(root);
+		const record = (id: string, title: string, firstAuthor: string, year: number, doi?: string): PaperRecord => ({
+			id,
+			title,
+			authors: [firstAuthor],
+			year,
+			identifiers: doi ? { doi } : {},
+			links: doi ? [{ url: `https://doi.org/${doi}`, kind: "doi" }] : [],
+			provenance: [
+				{
+					provider: "crossref",
+					query: "metadata identity",
+					retrievedAt: "2026-09-15T00:00:00Z",
+					providerRecordId: id,
+				},
+			],
+			mergedFrom: [],
+		});
+		const result = await collectLiterature({
+			queries: ["metadata identity"],
+			providers: ["crossref"],
+			filters: {},
+			pagesPerProvider: 1,
+			maxResultsPerProvider: 5,
+			scope: "personal",
+			mode: "once",
+			namespace: "default",
+			cwd: root,
+			reuseCorpus: false,
+			providerPageSearch: async () => ({
+				provider: "crossref",
+				query: "metadata identity",
+				requestUrl: "https://example.test/provider-search",
+				records: [
+					record("metadata-only", "Agentic Kernel Repair", "Chenyuan Yang", 2024),
+					record("formal", "agentic-kernel repair", "Yang, Chenyuan", 2025, "10.1000/formal"),
+					record("conflict", "Agentic Kernel Repair", "Chenyuan Yang", 2026, "10.1000/conflict"),
+				],
+			}),
+		});
+
+		expect(result.run.results).toHaveLength(2);
+		expect(result.run.deduplicatedCount).toBe(1);
+		expect(result.run.possibleDuplicates).toMatchObject([{ reason: "identity-conflict", titleSimilarity: 1 }]);
 	});
 
 	it("persists page-level failures without discarding successful provider records", async () => {
@@ -251,6 +310,7 @@ describe("collection workflow", () => {
 		expect(result.run.results).toHaveLength(1);
 		expect(result.run.failures).toHaveLength(1);
 		expect(result.run.providerHealth?.usenix).toMatchObject({ status: "partial", failureCount: 1 });
+		expect(result.run.executions).toMatchObject([{ provider: "usenix", status: "partial", resultCount: 1 }]);
 		const stored = await new LiteratureStore(
 			resolveCorpusRoot(root, "personal", "default"),
 			"personal",

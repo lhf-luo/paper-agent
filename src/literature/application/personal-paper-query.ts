@@ -4,6 +4,7 @@ import type {
 	ArtifactSnapshot,
 	DerivedRecord,
 	PaperCollection,
+	PaperPublicationVersion,
 	PaperRecord,
 	PaperVersion,
 } from "../domain/literature-types.ts";
@@ -27,6 +28,7 @@ export interface PersonalPaperDetails {
 	record: PaperRecord;
 	collections: PersonalPaperCollectionPath[];
 	remotePdfLinks: PaperRecord["links"];
+	publicationVersions: PaperPublicationVersion[];
 	localPdfVersions: PaperVersion[];
 	artifacts: PersonalPaperArtifactDetails;
 	derivedRecords: DerivedRecord[];
@@ -60,7 +62,8 @@ function latestArtifactAcquisitions(manifests: ArtifactManifest[]): ArtifactSnap
 
 function uniqueArtifactCandidates(manifests: ArtifactManifest[]): ArtifactManifest["candidates"] {
 	const candidates = new Map<string, ArtifactManifest["candidates"][number]>();
-	for (const candidate of manifests.flatMap((manifest) => manifest.candidates)) candidates.set(candidate.id, candidate);
+	for (const candidate of manifests.flatMap((manifest) => manifest.candidates))
+		candidates.set(candidate.id, candidate);
 	return [...candidates.values()];
 }
 
@@ -90,8 +93,9 @@ export async function buildPersonalPaperDetails(
 	store: LiteratureStore,
 	record: PaperRecord,
 ): Promise<PersonalPaperDetails> {
-	const [collections, versions, manifests, derivedRecords] = await Promise.all([
+	const [collections, publicationVersions, versions, manifests, derivedRecords] = await Promise.all([
 		store.listCollections(),
+		store.listPublicationVersions(record.id),
 		store.listPaperVersions(record.id),
 		store.listArtifactManifests(record.id),
 		store.listDerived({ paperId: record.id }),
@@ -100,13 +104,18 @@ export async function buildPersonalPaperDetails(
 	const paperCollections = (record.collectionIds ?? [])
 		.map((id) => byCollectionId.get(id))
 		.filter((collection): collection is PaperCollection => Boolean(collection))
-		.map((collection) => ({ id: collection.id, name: collection.name, path: collectionPath(collection, byCollectionId) }))
+		.map((collection) => ({
+			id: collection.id,
+			name: collection.name,
+			path: collectionPath(collection, byCollectionId),
+		}))
 		.sort((left, right) => left.path.join("/").localeCompare(right.path.join("/")));
 	return {
 		namespace: store.namespace,
 		record,
 		collections: paperCollections,
 		remotePdfLinks: record.links.filter((link) => link.kind === "pdf"),
+		publicationVersions,
 		localPdfVersions: versions,
 		artifacts: {
 			links: record.links.filter((link) => link.kind === "artifact"),

@@ -60,7 +60,7 @@ function normalizeModelsPart(models: unknown, auth: unknown): Record<string, unk
 	const active = typeof models.active === "string" ? models.active : undefined;
 	const activeModel = active
 		? flattened.find((model) => `${model.providerId}/${model.modelId}` === active)
-		: flattened[0];
+		: undefined;
 	if (active && !activeModel) throw new Error(`models.json active model was not found: ${active}`);
 	return {
 		model: activeModel,

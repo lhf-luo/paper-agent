@@ -1,6 +1,6 @@
 ﻿# Web Interface
 
-[Documentation index](README.md) | [涓枃 README](../README.zh-CN.md)
+[Documentation index](README.md) | [中文 README](../README.zh-CN.md)
 
 `paper-agent` opens a local research workspace in the browser, including the built-in Agent chat page. It is the default product interface; `paper-agent agent` remains the advanced original Pi terminal interface.
 
@@ -13,7 +13,7 @@ paper-agent --no-open
 paper-agent --port 43127
 ```
 
-The server binds only to `127.0.0.1`. The local Web workspace and API do not require a session token; open the loopback URL printed in the terminal. Do not expose this server through a public listener or reverse proxy.
+The launcher binds to `127.0.0.1` and uses the configured port, which defaults to `43127`. `--port 0` selects an available port. The local Web workspace and API do not require a session token; open the loopback URL printed in the terminal. Do not expose this server through a public listener or reverse proxy.
 
 Keep the launch terminal open. Stop the workspace with `Ctrl+C`.
 
@@ -36,11 +36,13 @@ An external-provider failure does not discard successful results from other prov
 
 ### Agent chat
 
-Open **Agent 瀵硅瘽** to use Paper Agent's research tools from a streaming Web conversation. Configure the Provider ID, Model ID, Base URL, and one of `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`, then submit an API key or use the environment variable named by the project model configuration. A model is needed only for this page and the Pi terminal; the rest of the Web workspace continues to work without one.
+Open **Agent 对话** to use Paper Agent's research tools from a streaming Web conversation. Configure the Provider ID, Model ID, Base URL, and one of `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`, then submit an API key or use matching project model credentials or the configured environment variable. A model is needed only for Agent conversations and the Pi terminal; the rest of the Web workspace continues to work without one.
 
-A key submitted in the page is stored only in the current service process memory. The password field is cleared after a successful submission, and the value is never written to `.paper-agent/config/`, Pi `auth.json`/`models.json`, browser storage, conversation history, logs, or error responses. Restarting the service discards the key. Clearing the key or changing the endpoint destroys existing Agent sessions so an old runtime cannot retain obsolete credentials.
+A key submitted in the page is stored only in the current service process memory. The password field is cleared after a successful submission, and the value is never written to `.paper-agent/config/`, Pi `auth.json`/`models.json`, browser storage, conversation history, logs, or error responses. Restarting the service discards the key. Clearing the key or changing the endpoint preserves conversations; the runtime is refreshed with the current configuration and available credential on the next message.
 
-Sessions are in-memory and can be created, switched, or deleted. `persistent` keeps model context between turns; `once` resets Pi context after each completed turn. The page streams assistant text, shows tool-call cards, supports stopping generation, and renders `confirm`, `select`, and `input` requests as interactive cards. Downloads, persistent writes, team proposals, and configuration changes are never auto-approved; an unanswered, aborted, timed-out, or disposed confirmation is rejected.
+Sessions can be created, switched, deleted, and restored after a restart. General conversation views are saved under `.paper-agent/web-agent-memory/session-views/`, with Pi context under `pi-sessions/`; paper-reader conversations are stored in the personal SQLite database. `persistent` reuses the Pi runtime between turns; `once` releases it after each completed turn but retains saved session files, which can be reopened on the next message. It does not guarantee an empty context. Restarting does not automatically resume an interrupted model turn or approve pending operations.
+
+The page streams assistant text, shows tool-call cards, supports stopping generation, and renders `confirm`, `select`, and `input` requests as interactive cards. Whether a write asks for human confirmation depends on the policy below. An unanswered, aborted, timed-out, or disposed confirmation is rejected.
 
 For a step-by-step introduction, common research prompts, and an explanation of the automatically loaded `literature-corpus-manager` Skill, see the [Web Agent user guide](web-agent-guide.md) or its [Chinese version](web-agent-guide.zh-CN.md).
 
@@ -48,17 +50,17 @@ For a step-by-step introduction, common research prompts, and an explanation of 
 
 Search titles, authors, abstracts, identifiers, tags, and notes, then filter the result by screening state (`unreviewed`, `include`, `maybe`, or `exclude`). Selecting a paper opens its stored PDF versions, personal notes, screening decision, and derived-memory count.
 
-The curation panel can apply tags, append a private note, and set a screening decision for the selected papers. It can also export the selection鈥攐r the whole namespace when nothing is selected鈥攁s JSON, Markdown, CSV, or BibTeX. Annotation, export, and batch PDF download are material writes and therefore use the same prepare/confirm/execute flow. Personal notes and screening decisions are never included automatically in a team proposal.
+The curation panel can apply tags, append a private note, and set a screening decision for the selected papers. It can export selected papers as JSON, Markdown, CSV, or BibTeX, or send them to Zotero. Export is disabled when no paper is selected. Annotation, export, and batch PDF download use the operation authorization flow; whether a confirmation card appears depends on the configured policy below. Personal notes and screening decisions are never included automatically in a team proposal.
 
 ### Browser Connector
 
 The unpacked Chromium extension under `browser-extension/` listens for completed Chrome or Edge PDF downloads. Keep the configured interface port at `43127` and load that directory from `chrome://extensions` or `edge://extensions`. Each completed PDF download is imported into the current default personal namespace while Paper Agent is running.
 
-The extension imports the file Edge or Chrome has already saved, so it does not re-request a publisher URL. The PDF signature and 100 MB limit are enforced by the local import service. PDF title and authors are extracted locally; download URL and referrer are used only as identifier hints, and Provider enrichment remains non-blocking. Original browser downloads remain in place. The extension has no offline queue and ignores downloads while the local process is stopped.
+The extension imports the file Edge or Chrome has already saved, so it does not re-request a publisher URL. The PDF signature and 100 MB limit are enforced by the local import service. PDF title and authors are extracted locally; download URL and referrer are used only as identifier hints, and Provider enrichment remains non-blocking. After a successful import, the extension deletes the original downloaded file through the browser downloads API. If cleanup fails, the import remains successful and the extension reports a cleanup warning; an import failure leaves the original file in place. The extension has no offline queue and ignores downloads while the local process is stopped.
 
 ### Task center
 
-Long operations run in a persistent local queue. Running work may be paused or cancelled. Only read-only literature search, PDF analysis, and artifact discovery can be retried directly. Downloads, corpus writes, corrections, team proposals, reviews, token changes, and backups require a fresh review and confirmation.
+Long operations run in a persistent local queue. Running work may be paused or cancelled. Only read-only literature search, PDF analysis, and artifact discovery can be retried directly. Failed write operations must be prepared and authorized again under the applicable confirmation policy; they cannot reuse an old grant through the retry action.
 
 ### PDF & Artifact workspace
 
@@ -80,10 +82,12 @@ The page reports the authenticated identity and its capabilities. Limited identi
 
 For a local one-person exercise, run `paper-agent --team demo`. It starts the loopback team service, creates a permission-restricted temporary access file, and opens this page. Stop the retained service with `paper-agent --team stop`.
 
-- `reader`: inspect approved shared content and statistics;
+- `reader`: search shared papers, read derived/artifact entries and blobs, and inspect statistics;
 - `contributor`: submit privacy-scrubbed proposals;
 - `reviewer`: inspect pending papers/events and approve or reject supported resources;
 - `admin`: all capabilities plus identity-token management and backup.
+
+Paper search and lookup by ID currently do not filter out proposed or rejected records. Check each paper's review state; a search hit is not proof of approval. Derived-memory and Artifact list endpoints filter to approved entries by default, with pending views available to reviewers. See [Team knowledge base](team-knowledge-base.md#proposal-and-review-flow).
 
 New identity access strings are held only in React memory, shown once, and cleared from the page after **Copy and hide**. Team bearer tokens are read by the local process only from the Git-ignored team access file created after validating a `pateam1.` string; they are not sent to browser storage.
 
@@ -99,17 +103,21 @@ Automatic capability probing is available for `openai-completions` and `openai-r
 
 ## Confirmation model
 
-Every material write follows three stages:
+Paper Agent's gated write operations follow this flow:
 
 ```text
 prepare exact plan
   -> show targets, risk, details, and manifest fingerprint
-  -> explicit user confirmation
+  -> user confirmation when required, otherwise local policy authorization
   -> one-time short-lived grant
   -> execute the matching plan
 ```
 
 A changed plan or expired/mismatched grant is rejected. Background write jobs cannot be restarted with an old grant.
+
+Ordinary Agent and Web personal-library writes do not ask by default. Personal-library deletion, research-workspace changes, Wiki writes, and PDF/Artifact operations ask by default. These categories are configurable in **Settings & diagnostics**; disabling a prompt still issues the same one-time grant through local policy. Team operations, token management, backup/restore, configuration writes, model probes, and system file operations always ask.
+
+Optional high-trust Pi built-in tools such as `bash`, `edit`, and `write` do not use this operation-card gate. Their allowlist and trust boundary are described in the [System guide](system-guide.md#8-安全边界).
 
 The gate is implemented in the operation code rather than relying only on agent instructions. It covers Agent and Web search-result imports, citation-network imports, Agent local PDF/BibTeX/JSON imports, rejection logs, PDF downloads, artifact acquisition, crop corrections, personal tags/notes/screening state, derived-memory writes, corpus exports, team proposals and reviews, identity-token changes, backups, configuration writes, and quota-consuming model probes. A user-initiated browser PDF download is the Browser Connector's direct local confirmation, like the existing per-paper local PDF upload. Confirmation buttons are locked while execution is in flight, and cancelling a card does not execute the prepared operation.
 

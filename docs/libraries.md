@@ -38,15 +38,21 @@ All personal namespaces share `.paper-agent/corpus/personal.sqlite` unless a dif
 - JSON, Markdown, CSV, and BibTeX exports;
 - fail-soft imports from PDFs, directories, BibTeX, or Paper Agent JSON.
 
-The Web curation controls are intentionally batch-oriented. Select one or more records, review the exact plan, confirm the fingerprint, and then apply tags, append a private note, or set `include`, `maybe`, or `exclude`. Leaving the screening selector at “do not change” preserves the current decision. Download, organize, and export actions require an explicit paper selection.
+The Web curation controls are intentionally batch-oriented. Select one or more records and apply tags, append a private note, or set `include`, `maybe`, or `exclude`. When confirmation is enabled, review the exact plan and fingerprint before applying it. Leaving the screening selector at “do not change” preserves the current decision. Download, organize, and export actions require an explicit paper selection.
 
-Persistent library mutations are code-gated. Search selections, citation-network results, local imports and rejection logs, PDF downloads, tags, notes, screening state, derived memory, and exports first produce an exact manifest fingerprint. A short-lived one-time grant can execute only that matching plan. Disposable `once` collection remains read-only unless the user explicitly chooses a persistent target.
+Each persisted paper keeps one permanent `paper_id`. Later DOI enrichment or exact deduplication adds aliases without renaming that ID. A paper may have separate formal and preprint publication versions; the formal version is preferred when both exist. Local PDF imports are treated as formal versions. PDF download skips papers that already have a local file, tries formal candidates before preprints, and accepts one explicit publication-version ID when a particular version is required.
+
+Persistent library mutations are code-gated. Search selections, citation-network results, local imports and rejection logs, PDF downloads, tags, notes, screening state, derived memory, and exports first produce an exact manifest fingerprint. A short-lived one-time grant can execute only that matching plan. Ordinary personal-library writes do not ask by default; local policy issues the grant when human confirmation is disabled. Deletion, research-workspace changes, and PDF/Artifact operations ask by default. See the [confirmation model](web-interface.md#confirmation-model).
+
+`once` collection does not merge candidate records into the personal paper library, but it does persist a local search run for later selection. It is not a no-storage mode. Saving selected candidates is a separate persistent write.
 
 ## Reuse and duplicate work
 
 Before repeating generated analysis, Paper Agent can compare a task key derived from material hashes and pipeline/model/prompt/config versions. Exact derived-cache matches can be reused. Human-readable research work is stored separately as linked Markdown notes.
 
 Search results are discovery metadata. A record entering the personal library does not make every claim verified; primary PDFs and official artifacts remain the evidence source.
+
+Screening can require several concept groups: terms within one group are alternatives, while all groups must match. A missing abstract that prevents a decision remains `unresolved`. Each filtering call creates a complete new sidebar baseline; later small edits update that document by `paper_id`, and re-running the filter creates another baseline. Search runs also retain the status of every query/provider execution, including partial, failed, and skipped work.
 
 ## Moving content to a team
 
@@ -62,6 +68,6 @@ personal record
 
 Personal notes and screening opinions are removed before proposal. Tags, public links, and provenance remain. Generated analysis must be human-reviewed before it can be proposed as team derived memory.
 
-Readers can query the approved shared paper index by text and year range from the Web team page. Results are cursor-paginated. Contributors, reviewers, and administrators continue to see only the sections permitted by their authenticated role.
+Readers can query shared papers by text and year range from the Web team page. Results are cursor-paginated. Paper search and lookup by ID currently do not filter review states, so results may include proposed or rejected papers; inspect the returned state before treating a record as approved. Contributors, reviewers, and administrators see the sections permitted by their authenticated role. See the [team review limitations](team-knowledge-base.md#proposal-and-review-flow).
 
 For roles, one-person testing, tokens, blobs, reviews, and backups, see [Team knowledge base](team-knowledge-base.md). For production TLS and deployment, see the [standalone server guide](../team-server/README.md).

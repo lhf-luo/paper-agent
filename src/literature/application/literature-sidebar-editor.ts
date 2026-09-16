@@ -1,9 +1,11 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { paperPrimaryUrl, normalizeTitle } from "../domain/literature-identifiers.ts";
+import { normalizeTitle, paperPrimaryUrl } from "../domain/literature-identifiers.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
 import { lookupCcfLevel } from "../infrastructure/ccf-ranking.ts";
 import {
+	compactSidebarRows,
+	MAX_SIDEBAR_BYTES,
 	parseSidebarResultMetadata,
 	resolveSidebarResultPath,
 	SIDEBAR_META_COMMENT,
@@ -17,7 +19,14 @@ export interface SidebarRowSelector {
 
 export type SidebarEditOperation =
 	| ({ action: "replace-from-search"; searchRunId: string; paperId: string } & SidebarRowSelector)
-	| { action: "add-from-search"; searchRunId: string; paperId: string; focus?: string; relevance?: string; topic?: string }
+	| {
+			action: "add-from-search";
+			searchRunId: string;
+			paperId: string;
+			focus?: string;
+			relevance?: string;
+			topic?: string;
+	  }
 	| {
 			action: "add-model-supplement";
 			title: string;
@@ -28,7 +37,7 @@ export type SidebarEditOperation =
 			focus?: string;
 			relevance?: string;
 			topic?: string;
-		}
+	  }
 	| ({ action: "remove" } & SidebarRowSelector)
 	| ({ action: "patch"; focus?: string; relevance?: string; topic?: string } & SidebarRowSelector);
 
@@ -37,6 +46,9 @@ export interface SidebarEditResult {
 	revision: number;
 	rowCount: number;
 	changed: number;
+	addedPaperIds: string[];
+	removedPaperIds: string[];
+	updatedPaperIds: string[];
 	warnings: string[];
 }
 
@@ -53,8 +65,6 @@ interface ParsedSidebarDocument {
 	rows: SidebarDocumentRow[];
 	revision: number;
 }
-
-const MAX_SIDEBAR_BYTES = 200_000;
 
 function splitTableRow(line: string): string[] {
 	return line
@@ -94,7 +104,9 @@ function parseSidebarDocument(content: string): ParsedSidebarDocument {
 	const cells = bodyLines.slice(headerIndex + 2, rowEnd).map(splitTableRow);
 	const metaRows = metadata.rows ?? [];
 	if (cells.length !== metaRows.length) {
-		throw new Error(`Sidebar row metadata is misaligned (${cells.length} table rows, ${metaRows.length} metadata rows)`);
+		throw new Error(
+			`Sidebar row metadata is misaligned (${cells.length} table rows, ${metaRows.length} metadata rows)`,
+		);
 	}
 	return {
 		prefixLines: bodyLines.slice(0, headerIndex + 2),
@@ -131,7 +143,6 @@ function sourceMeta(record: PaperRecord, searchRunId: string, preserved: Record<
 	};
 	const url = paperPrimaryUrl(record);
 	if (url) meta.url = url;
-	if (record.abstract) meta.abstract = record.abstract;
 	if (record.year !== undefined) meta.year = String(record.year);
 	if (record.venue) meta.venue = record.venue;
 	if (record.identifiers.doi) meta.doi = record.identifiers.doi;
@@ -194,11 +205,7 @@ function duplicateIndex(rows: SidebarDocumentRow[], meta: Record<string, unknown
 		if (index === ignoredIndex) return false;
 		if (meta.paper_id && row.meta.paper_id === meta.paper_id) return true;
 		if (doi && typeof row.meta.doi === "string" && row.meta.doi.trim().toLowerCase() === doi) return true;
-		if (
-			arxivId &&
-			typeof row.meta.arxiv_id === "string" &&
-			row.meta.arxiv_id.trim().toLowerCase() === arxivId
-		)
+		if (arxivId && typeof row.meta.arxiv_id === "string" && row.meta.arxiv_id.trim().toLowerCase() === arxivId)
 			return true;
 		return Boolean(title && typeof row.meta.title === "string" && normalizeTitle(row.meta.title) === title);
 	});
@@ -284,7 +291,7 @@ function renderDocument(document: ParsedSidebarDocument, revision: number): stri
 	const metadata = {
 		revision,
 		...(document.metadataHeaders ? { headers: document.metadataHeaders } : {}),
-		rows: document.rows.map((row) => row.meta),
+		rows: compactSidebarRows(document.rows.map((row) => row.meta)),
 	};
 	return `${body}\n\n<!-- paper-agent-sidebar-meta ${JSON.stringify(metadata)} -->\n`;
 }
@@ -309,18 +316,40 @@ export async function editLiteratureSidebar(
 	if (document.revision !== expectedRevision) {
 		throw new Error(`Sidebar revision conflict: expected ${expectedRevision}, current ${document.revision}`);
 	}
+	const before = new Map(
+		document.rows.flatMap((row) =>
+			typeof row.meta.paper_id === "string" ? [[row.meta.paper_id, JSON.stringify(row.meta)] as const] : [],
+		),
+	);
 	const warnings: string[] = [];
 	let changed = 0;
 	for (const operation of operations) {
 		if (await applyOperation(document, operation, store, warnings)) changed += 1;
 	}
 	if (changed === 0) {
-		return { resultUrl, revision: document.revision, rowCount: document.rows.length, changed, warnings };
+		return {
+			resultUrl,
+			revision: document.revision,
+			rowCount: document.rows.length,
+			changed,
+			addedPaperIds: [],
+			removedPaperIds: [],
+			updatedPaperIds: [],
+			warnings,
+		};
 	}
+	const after = new Map(
+		document.rows.flatMap((row) =>
+			typeof row.meta.paper_id === "string" ? [[row.meta.paper_id, JSON.stringify(row.meta)] as const] : [],
+		),
+	);
+	const addedPaperIds = [...after.keys()].filter((id) => !before.has(id));
+	const removedPaperIds = [...before.keys()].filter((id) => !after.has(id));
+	const updatedPaperIds = [...after.keys()].filter((id) => before.has(id) && before.get(id) !== after.get(id));
 	const revision = document.revision + 1;
 	const content = renderDocument(document, revision);
 	if (Buffer.byteLength(content, "utf8") > MAX_SIDEBAR_BYTES) {
-		throw new Error("Edited literature sidebar result is too large (max 200KB)");
+		throw new Error("Edited literature sidebar result is too large (max 5MB)");
 	}
 	const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
 	try {
@@ -330,5 +359,14 @@ export async function editLiteratureSidebar(
 		await rm(temporary, { force: true }).catch(() => undefined);
 		throw error;
 	}
-	return { resultUrl, revision, rowCount: document.rows.length, changed, warnings };
+	return {
+		resultUrl,
+		revision,
+		rowCount: document.rows.length,
+		changed,
+		addedPaperIds,
+		removedPaperIds,
+		updatedPaperIds,
+		warnings,
+	};
 }

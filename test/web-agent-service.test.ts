@@ -11,12 +11,12 @@ import {
 	WebAgentService,
 	WebAgentServiceError,
 } from "../src/agent/application/web-agent-service.ts";
-import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 import {
 	defaultPaperAgentConfig,
 	resolvePaperAgentConfigPaths,
 	savePaperAgentConfig,
 } from "../src/config/application/config-service.ts";
+import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 
 const temporaryPaths: string[] = [];
 const services: WebAgentService[] = [];
@@ -245,13 +245,7 @@ describe("WebAgentService", () => {
 			paperId: "paper-context",
 		});
 
-		const piFile = join(
-			root,
-			".paper-agent",
-			"web-agent-memory",
-			"pi-sessions",
-			`runtime_${created.id}.jsonl`,
-		);
+		const piFile = join(root, ".paper-agent", "web-agent-memory", "pi-sessions", `runtime_${created.id}.jsonl`);
 		await writeFile(piFile, "runtime context", "utf8");
 		await store.deletePapers(["paper-context"]);
 		await waitFor(() => {
@@ -728,5 +722,29 @@ describe("WebAgentService", () => {
 			if (previous === undefined) delete process.env[environmentName];
 			else process.env[environmentName] = previous;
 		}
+	});
+
+	it("waits for the user to select a model when the model list has no active entry", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-unselected-"));
+		temporaryPaths.push(root);
+		await savePaperAgentConfig(root, {
+			...defaultPaperAgentConfig(),
+			models: [
+				{
+					providerId: "relay",
+					modelId: "vision",
+					api: "openai-completions",
+					baseUrl: "https://relay.example.com/v1",
+					input: ["text", "image"],
+					reasoning: true,
+					apiKey: "test-key",
+				},
+			],
+		});
+		const service = await WebAgentService.create({ projectRoot: root });
+		services.push(service);
+		expect(service.getConfig()).toMatchObject({ configured: false, configuredModels: [{ key: "relay/vision" }] });
+		await service.applyConfiguredModel("relay/vision");
+		expect(service.getConfig()).toMatchObject({ configured: true, modelId: "vision", input: ["text", "image"] });
 	});
 });

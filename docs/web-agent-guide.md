@@ -2,9 +2,9 @@
 
 [Documentation index](README.md) | [简体中文](web-agent-guide.zh-CN.md)
 
-Paper Agent's **Agent chat** page is the primary conversational interface for literature research in the browser. It combines the dedicated `literature-corpus-manager` Skill with Paper Agent's paper search, PDF, Artifact, personal-library, team-library, and research-workspace tools.
+Paper Agent's **Agent chat** page is the primary conversational interface for literature research in the browser. It combines the `literature-corpus-manager`, `paper-research`, and `research-wiki` Skills with Paper Agent's paper search, PDF, Artifact, personal-library, team-library, research-workspace, and Wiki tools.
 
-The Skill is loaded automatically. You do not need a slash command or need to name the Skill in every request.
+The Skills are loaded automatically. You do not need a slash command or need to name a Skill in every request.
 
 ## 1. Open Agent chat
 
@@ -22,7 +22,7 @@ paper-agent --no-open
 
 Open the loopback URL printed in the terminal. The local Web interface does not require a session token.
 
-The other Web pages work without a model. A model is required only for Agent chat or the advanced Pi terminal.
+Ordinary Web management functions work without a model. Agent conversations, including those in the paper reader, and the advanced Pi terminal require a model.
 
 ## 2. Configure the model
 
@@ -72,7 +72,7 @@ export PAPER_AGENT_RELAY_API_KEY="your-private-key"
 paper-agent
 ```
 
-Clearing the memory key or changing the Provider ID, Model ID, Base URL, or API type destroys existing Agent sessions. This prevents an old runtime from retaining obsolete credentials.
+Clearing the memory key or changing the Provider ID, Model ID, Base URL, or API type preserves existing conversations. The runtime is refreshed on the next message to use the current configuration and available credential. If no matching credential remains, supply one before continuing.
 
 ## 4. Create the first session
 
@@ -95,13 +95,13 @@ Paper Agent has three related but distinct controls:
 
 | Layer | Choices | Meaning |
 | --- | --- | --- |
-| Web conversation context | `once` / `persistent` | `once` disposes Pi model context after each turn; `persistent` keeps it for follow-up questions |
-| Research-task lifetime | `once` / `persistent` | `once` keeps collection disposable; `persistent` prepares reusable personal-library writes, which still require confirmation |
-| Knowledge scope | `personal` / `team` | `personal` is private and unreviewed; `team` is approved shared knowledge or an explicit proposal workflow |
+| Web conversation runtime | `once` / `persistent` | `once` releases the Pi runtime after each turn; `persistent` reuses it between turns. Both retain saved conversation records |
+| Research-task lifetime | `once` / `persistent` | `once` does not merge candidates into the personal paper library; `persistent` prepares reusable library writes under the configured confirmation policy |
+| Knowledge scope | `personal` / `team` | `personal` is private working knowledge; `team` uses shared records and a proposal/review workflow. Check the returned review state |
 
 The selector beside **New session (`新建会话`)** controls only Web conversation context and currently opens on `persistent`. It does not authorize any corpus write. The `literature-corpus-manager` Skill defaults an unstated research-task lifetime and scope to `once + personal`.
 
-Each `once` turn uses independent in-memory model context. Later turns and service restarts do not reload earlier Pi context. The interface still saves messages for viewing; saved interface history is not sent back to the model in `once` mode.
+Each `once` turn uses independent in-memory model context. Later turns and service restarts do not reload earlier Pi context. The interface still saves messages for viewing, and literature collection still persists a local search run for later selection. Saved interface history and search results are not automatically sent back to the model or turned into curated Wiki knowledge. Use a new conversation to separate unrelated questions.
 
 State task lifetime and scope when they matter. A persistent conversation can still perform disposable research:
 
@@ -109,7 +109,7 @@ State task lifetime and scope when they matter. A persistent conversation can st
 Keep this conversation available for follow-up questions, but run the literature collection as once + personal. Search existing knowledge first, and do not persist records or propose anything to the team library.
 ```
 
-For reusable collection, ask explicitly and expect a confirmation card before anything is written:
+For reusable collection, ask explicitly. If you want the Agent to wait before saving, state that requirement in the request; ordinary personal-library writes do not show a confirmation card by default:
 
 ```text
 Use persistent + personal for this literature collection. Show the exact records and write plan before saving anything, and wait for my confirmation.
@@ -125,7 +125,7 @@ For research requests, the automatically loaded `literature-corpus-manager` Skil
 4. expand queries with acronyms, synonyms, title/author variants, and adjacent terms;
 5. use bounded multi-provider search and preserve partial provider failures;
 6. review provenance, deduplication, and possible duplicates;
-7. require explicit confirmation before persistence, downloads, Artifact acquisition, or team proposals;
+7. prepare the exact write or acquisition plan, respect any explicit request to wait, and use the operation confirmation policy described below;
 8. report evidence boundaries and work that still needs human reading or experimental verification.
 
 Search metadata is discovery evidence, not proof of a technical claim. Ask the Agent to open the primary PDF or official Artifact and cite physical pages, quotations, figures, tables, URLs, hashes, or commits when making substantive claims.
@@ -178,19 +178,21 @@ The left-side templates insert equivalent starter prompts into the input box; ed
 
 ## 8. Tool cards and human confirmation
 
-Tool cards show the Paper Agent operation name, status, input, and output. Read-only searches, PDF analysis, and Artifact discovery can run directly. Material actions create a `confirm`, `select`, or `input` card in the conversation.
+Tool cards show the Paper Agent operation name, status, input, and output. Searches, PDF analysis, and Artifact discovery can run without write confirmation. Operations that need user input create a `confirm`, `select`, or `input` card in the conversation.
 
 Review the targets, risk, details, and manifest fingerprint before selecting **Explicitly approve (`明确同意`)**. Select **Reject / cancel (`拒绝 / 取消`)** whenever the proposed action is broader than intended. Rejection, timeout, stopping generation, deleting the session, or shutting down the service never counts as approval.
 
-Operations that require confirmation include downloads, persistent corpus writes, PDF or Artifact acquisition, personal curation, derived-memory writes, exports, team proposals and reviews, token changes, backups, and configuration writes.
+Ordinary Agent and Web personal-library writes do not ask by default. Personal-library deletion, research-workspace changes, Wiki writes, and PDF/Artifact operations ask by default; these categories have switches in **Settings & diagnostics**. Team operations, token management, backup/restore, configuration writes, model probes, and system file operations always ask. Turning off a confirmation switch still uses the exact plan fingerprint and a one-time grant issued by local policy. An explicit user instruction to wait still applies.
+
+This policy covers Paper Agent's operation tools. Optional high-trust Pi built-in tools such as `bash`, `edit`, and `write` do not pass through these operation cards; see [System guide](system-guide.md#8-安全边界).
 
 ## 9. Manage conversations
 
 - **Stop generation (`停止生成`)** aborts the current model turn without approving a pending operation.
 - Select another session to switch conversations.
-- Delete a session when its in-memory transcript and model context are no longer needed.
-- `persistent` sessions keep context only while the current Paper Agent process is running.
-- Restarting the service removes all Web Agent sessions.
+- Deleting a session removes its stored conversation and associated Pi session data.
+- General Web conversations are saved under `.paper-agent/web-agent-memory/session-views/`; Pi context files are under `pi-sessions/`. Paper-reader conversations are stored in the personal SQLite database and are isolated by namespace and paper.
+- Restarting the service restores saved conversations. It does not resume an interrupted model turn or approve a pending confirmation. Web-entered keys must be supplied again.
 
 Use separate sessions for unrelated research questions so model context and pending confirmations do not mix.
 
@@ -206,4 +208,4 @@ Use separate sessions for unrelated research questions so model context and pend
 
 ## 11. Web Agent versus the Pi terminal
 
-Agent chat is the normal browser interface and uses process-memory credentials plus in-memory sessions. `paper-agent agent` starts the advanced original Pi terminal interface, which has its own Pi login, model configuration, and interactive commands. A key entered in the Web page is not copied into Pi configuration.
+Agent chat is the normal browser interface, with persisted conversations and process-memory-only storage for keys entered on the page. It can also use matching project model credentials or an environment credential. `paper-agent agent` starts the advanced original Pi terminal interface, which has its own Pi login, model configuration, and interactive commands. A key entered in the Web page is not copied into Pi configuration.

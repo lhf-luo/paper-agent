@@ -140,6 +140,9 @@ describe("paper-agent activation", () => {
 		expect(toolNames).toEqual(
 			expect.arrayContaining([
 				"collect_literature",
+				"inspect_literature_sidebar",
+				"get_search_run_papers",
+				"review_literature_duplicates",
 				"search_literature_corpus",
 				"get_personal_library_paper",
 				"manage_literature_memory",

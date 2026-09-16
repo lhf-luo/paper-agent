@@ -160,6 +160,13 @@ function AgentResultSidebar({
 }) {
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [detailPaper, setDetailPaper] = useState<FlatPaperRow>();
+	const [loadedAbstract, setLoadedAbstract] = useState<{
+		key: string;
+		loading: boolean;
+		value?: string | null;
+		error?: string;
+	}>();
+	const abstractCache = useRef(new Map<string, string | null>());
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState("");
 	const [saveMessage, setSaveMessage] = useState("");
@@ -240,6 +247,43 @@ function AgentResultSidebar({
 		setSaveError("");
 		setSaveMessage("");
 	}, [rows, savablePaperIds]);
+
+	useEffect(() => {
+		const searchRunId =
+			detailPaper && typeof detailPaper.meta.search_run_id === "string" ? detailPaper.meta.search_run_id : undefined;
+		const paperId =
+			detailPaper && typeof detailPaper.meta.paper_id === "string" ? detailPaper.meta.paper_id : undefined;
+		const namespace =
+			detailPaper && typeof detailPaper.meta.namespace === "string" ? detailPaper.meta.namespace : "default";
+		if (!detailPaper || detailPaper.abstract || !searchRunId || !paperId) {
+			setLoadedAbstract(undefined);
+			return;
+		}
+		const key = `${searchRunId}:${paperId}`;
+		if (abstractCache.current.has(key)) {
+			setLoadedAbstract({ key, loading: false, value: abstractCache.current.get(key) });
+			return;
+		}
+		const controller = new AbortController();
+		setLoadedAbstract({ key, loading: true });
+		void api<{ abstract: string | null }>(
+			`/api/search/runs/${encodeURIComponent(searchRunId)}/papers/${encodeURIComponent(paperId)}?namespace=${encodeURIComponent(namespace)}`,
+			{ signal: controller.signal },
+		)
+			.then((result) => {
+				abstractCache.current.set(key, result.abstract);
+				setLoadedAbstract({ key, loading: false, value: result.abstract });
+			})
+			.catch((reason) => {
+				if (controller.signal.aborted) return;
+				setLoadedAbstract({
+					key,
+					loading: false,
+					error: reason instanceof Error ? reason.message : String(reason),
+				});
+			});
+		return () => controller.abort();
+	}, [detailPaper]);
 
 	const toggleSelect = (key: string) => {
 		setSelected((current) => {
@@ -504,8 +548,14 @@ function AgentResultSidebar({
 										)}
 									</div>
 									<div className="agent-result-detail-label">摘要</div>
-									{detailPaper.abstract ? (
-										<p className="agent-result-detail-abstract">{detailPaper.abstract}</p>
+									{loadedAbstract?.key === `${detailPaper.meta.search_run_id}:${detailPaper.meta.paper_id}` &&
+									loadedAbstract.loading ? (
+										<p className="agent-result-detail-abstract muted">摘要加载中……</p>
+									) : loadedAbstract?.key === `${detailPaper.meta.search_run_id}:${detailPaper.meta.paper_id}` &&
+										loadedAbstract.error ? (
+										<p className="agent-result-detail-abstract muted">摘要加载失败：{loadedAbstract.error}</p>
+									) : detailPaper.abstract || loadedAbstract?.value ? (
+										<p className="agent-result-detail-abstract">{detailPaper.abstract ?? loadedAbstract?.value}</p>
 									) : (
 										<p className="agent-result-detail-abstract muted">
 											暂无摘要（该来源未提供摘要，可点击论文页查看）。

@@ -56,7 +56,8 @@ describe("prompt and skill contracts", () => {
 		expect(skill).toContain("search_literature_corpus");
 		expect(skill).toContain("get_personal_library_paper");
 		expect(skill).toContain("manage_literature_memory");
-		expect(skill).toContain("routine, read-only quality control");
+		expect(skill).toContain("Filtering preserves the search run and saves only a session-scoped selection snapshot");
+		expect(skill).toContain("do not select a subset by title");
 		expect(skill).toContain("team-proposed");
 		expect(yaml).toContain("Literature Corpus Manager");
 		expect(yaml).toContain("proactively screen and denoise collected results");

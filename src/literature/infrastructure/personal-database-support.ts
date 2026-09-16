@@ -16,6 +16,7 @@ export interface PaperRow {
 
 export interface StoredVersionRow {
 	version_id: string;
+	publication_version_id: string | null;
 	file_id: string;
 	version_json: string;
 	relative_path: string;
@@ -23,6 +24,12 @@ export interface StoredVersionRow {
 	sha256: string;
 	bytes: number;
 	content_type: string;
+}
+
+export interface StoredPublicationVersionRow {
+	record_json: string;
+	paper_id: string;
+	is_preferred: number;
 }
 
 export interface PreparedFile {

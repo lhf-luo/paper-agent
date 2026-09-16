@@ -96,6 +96,9 @@ paper-agent
 | `paper-agent --no-open` | 只运行本地服务并打印会话 URL，不自动打开浏览器 |
 | `paper-agent --port 43127` | 使用 Browser Connector 默认的固定 loopback 端口 |
 | `paper-agent init` | 运行首次配置向导 |
+| `paper-agent models add` | 添加模型端点，随后在 Agent 对话自行选择模型 |
+| `paper-agent models remove --model <provider/model>` | 删除一个已配置模型 |
+| `paper-agent models remove --provider <provider>` | 删除 Provider 及其全部模型 |
 | `paper-agent --doctor` | 检查运行时、Web 资源、模型、Poppler 和 OCR |
 | `paper-agent --doctor --probe-model` | 探测 OpenAI 兼容 tool calling，或提示需要在 Pi 会话中手工验证 |
 | `paper-agent agent` | 启动面向高级用户的原始 Pi 终端界面 |

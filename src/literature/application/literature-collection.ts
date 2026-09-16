@@ -128,7 +128,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 	const cacheKey = derivedCacheKey({
 		inputHashes: [queryFingerprint],
 		operation: "literature-search",
-		pipelineVersion: "3",
+		pipelineVersion: "4",
 		normalizedConfig: normalizedSearchConfig,
 	});
 	const root = resolveCorpusRoot(options.cwd, options.scope, options.namespace, options.corpusRoot);
@@ -174,6 +174,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 						query: string;
 						records: PaperRecord[];
 						failures: ProviderFailure[];
+						failed: boolean;
 					}> = [];
 					for (const query of queries) {
 						const saved = checkpoint?.get(provider, query);
@@ -184,6 +185,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 								query,
 								records,
 								failures: [...(saved.failures ?? []), ...(saved.failure ? [saved.failure] : [])],
+								failed: Boolean(saved.failure),
 							});
 							continue;
 						}
@@ -239,7 +241,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 								done: true,
 								failures: partialFailures,
 							});
-							outcomes.push({ provider, query, records, failures: partialFailures });
+							outcomes.push({ provider, query, records, failures: partialFailures, failed: false });
 						} catch (error) {
 							if (options.signal?.aborted) throw error;
 							const message = readableErrorMessage(error);
@@ -274,6 +276,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 								query,
 								records,
 								failures: [...partialFailures, failure],
+								failed: true,
 							});
 							// 熔断: 该 provider 当前 query 已失败, 不再尝试剩余 query, 避免逐个超时白等。
 							break;
@@ -297,12 +300,53 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 	}
 	const possibleDuplicates = findPossibleDuplicates(results);
 	const checkedAt = new Date().toISOString();
+	const outcomeByPair = new Map(
+		providerOutcomes.flat().map((outcome) => [`${outcome.provider}\n${outcome.query}`, outcome] as const),
+	);
+	const executions = options.providers.flatMap((provider) =>
+		queries.map((query) => {
+			const outcome = outcomeByPair.get(`${provider}\n${query}`);
+			if (outcome) {
+				return {
+					query,
+					provider,
+					status: outcome.failed
+						? ("failed" as const)
+						: outcome.failures.length
+							? ("partial" as const)
+							: ("succeeded" as const),
+					resultCount: outcome.records.length,
+					...(outcome.failures[0]?.message ? { message: outcome.failures[0].message } : {}),
+				};
+			}
+			return {
+				query,
+				provider,
+				status: "skipped" as const,
+				resultCount: 0,
+				message: options.corpusOnly ? "corpus_only was requested" : "provider stopped after an earlier failure",
+			};
+		}),
+	);
+	const executedQueries = new Set(
+		executions.filter((execution) => execution.status !== "skipped").map((execution) => execution.query),
+	);
+	const failedExecutionCount = executions.filter((execution) => execution.status === "failed").length;
+	const skippedExecutionCount = executions.filter((execution) => execution.status === "skipped").length;
+	const coverage: NonNullable<SearchRun["coverage"]> = {
+		plannedQueryCount: queries.length,
+		executedQueryCount: executedQueries.size,
+		failedExecutionCount,
+		skippedExecutionCount,
+		status: failures.length || skippedExecutionCount ? "partial" : "complete",
+	};
 	const providerHealth = Object.fromEntries(
 		options.providers.map((provider) => {
 			const providerFailures = failures.filter((failure) => failure.provider === provider);
 			const recordCount = sourceCounts[provider] ?? 0;
-			const status =
-				providerFailures.length && recordCount
+			const status = options.corpusOnly
+				? "not-run"
+				: providerFailures.length && recordCount
 					? "partial"
 					: providerFailures.some((failure) => failure.rateLimited)
 						? "rate-limited"
@@ -338,8 +382,11 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		corpusHitCount: corpusHits.size,
 		possibleDuplicates,
 		providerHealth,
+		executions,
+		coverage,
 		resumedFromCheckpoint: checkpoint?.resumed || undefined,
-		searchPlan: options.searchPlan,
+		searchPlan: options.searchPlan ? { ...options.searchPlan, queryVariants: queries } : undefined,
+		runKind: "keyword",
 		candidateTable: buildCandidatePaperTable(results),
 		scope: options.scope,
 		mode: options.mode,
@@ -360,7 +407,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 					paperId: "collection",
 					operation: "literature-search",
 					inputHashes: [queryFingerprint],
-					pipelineVersion: "3",
+					pipelineVersion: "4",
 					normalizedConfig: {
 						queries,
 						providers: options.providers,

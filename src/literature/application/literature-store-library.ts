@@ -24,7 +24,13 @@ export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 
 	async getPaper(id: string): Promise<PaperRecord | undefined> {
 		if (this.personalDatabase) return this.personalDatabase.getPaper(id);
-		return readJson<PaperRecord>(this.recordPath(id));
+		const direct = await readJson<PaperRecord>(this.recordPath(id));
+		if (direct) return direct;
+		const aliases = (await this.listPapers()).filter((record) =>
+			record.mergedFrom.some((alias) => alias.toLowerCase() === id.toLowerCase()),
+		);
+		if (aliases.length > 1) throw new Error(`Paper alias is ambiguous: ${id}`);
+		return aliases[0];
 	}
 
 	async getCollection(id: string): Promise<PaperCollection | undefined> {
@@ -74,10 +80,7 @@ export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 		return this.updateCollection(id, { name });
 	}
 
-	async updateCollection(
-		id: string,
-		updates: { name?: string; parentId?: string | null },
-	): Promise<PaperCollection> {
+	async updateCollection(id: string, updates: { name?: string; parentId?: string | null }): Promise<PaperCollection> {
 		const name = updates.name?.trim();
 		if (updates.name !== undefined && !name) throw new Error("collection name is required");
 		await this.initialize();

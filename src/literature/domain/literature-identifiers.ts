@@ -141,34 +141,42 @@ function normalizeAuthor(value: string | undefined): string {
 		.replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-function normalizedAuthorsOverlap(left: string[], right: string[]): boolean {
-	const rightAuthors = new Set(right.map(normalizeAuthor).filter(Boolean));
-	return left.some((author) => rightAuthors.has(normalizeAuthor(author)));
+function normalizeFirstAuthorIdentity(value: string | undefined): string {
+	const normalized = (value ?? "").normalize("NFKD").toLowerCase().trim();
+	const commaParts = normalized
+		.split(",")
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const ordered = commaParts.length === 2 ? `${commaParts[1]} ${commaParts[0]}` : normalized;
+	return ordered.replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-function hasConflictingMetadataIdentity(
-	left: Pick<PaperRecord, "identifiers" | "year">,
-	right: Pick<PaperRecord, "identifiers" | "year">,
+function titleFirstAuthorIdentityKey(record: Pick<PaperRecord, "title" | "authors">): string | undefined {
+	const title = normalizeTitle(record.title);
+	const firstAuthor = normalizeFirstAuthorIdentity(record.authors[0]);
+	return title && firstAuthor ? `${title}:${firstAuthor}` : undefined;
+}
+
+function hasConflictingPrimaryIdentifiers(
+	left: Pick<PaperRecord, "identifiers">,
+	right: Pick<PaperRecord, "identifiers">,
 ): boolean {
-	if (left.year && right.year && left.year !== right.year) return true;
 	const leftDoi = normalizeDoi(left.identifiers.doi);
 	const rightDoi = normalizeDoi(right.identifiers.doi);
 	if (leftDoi && rightDoi && leftDoi !== rightDoi) return true;
 	const leftArxiv = normalizeArxivId(left.identifiers.arxivId);
 	const rightArxiv = normalizeArxivId(right.identifiers.arxivId);
-	if (leftArxiv && rightArxiv && leftArxiv !== rightArxiv) return true;
-	const comparable: Array<keyof PaperRecord["identifiers"]> = [
-		"openAlexId",
-		"semanticScholarId",
-		"dblpKey",
-		"coreId",
-		"openCitationsId",
-	];
-	return comparable.some((key) => {
-		const leftValue = left.identifiers[key]?.toLowerCase();
-		const rightValue = right.identifiers[key]?.toLowerCase();
-		return Boolean(leftValue && rightValue && leftValue !== rightValue);
-	});
+	return Boolean(leftArxiv && rightArxiv && leftArxiv !== rightArxiv);
+}
+
+function sameTitleAndFirstAuthor(
+	left: Pick<PaperRecord, "title" | "authors" | "identifiers">,
+	right: Pick<PaperRecord, "title" | "authors" | "identifiers">,
+): boolean {
+	const leftKey = titleFirstAuthorIdentityKey(left);
+	return Boolean(
+		leftKey && leftKey === titleFirstAuthorIdentityKey(right) && !hasConflictingPrimaryIdentifiers(left, right),
+	);
 }
 
 export function sameLocalPdfMetadataIdentity(
@@ -177,9 +185,7 @@ export function sameLocalPdfMetadataIdentity(
 ): boolean {
 	if (![...left.provenance, ...right.provenance].some((item) => item.provider === "local-pdf")) return false;
 	if (!hasLayoutSpacedTitlePrefix(left.title) && !hasLayoutSpacedTitlePrefix(right.title)) return false;
-	if (normalizeTitle(left.title) !== normalizeTitle(right.title)) return false;
-	if (hasConflictingMetadataIdentity(left, right)) return false;
-	return normalizedAuthorsOverlap(left.authors, right.authors);
+	return sameTitleAndFirstAuthor(left, right);
 }
 
 export function paperDedupKey(
@@ -239,7 +245,7 @@ export function samePaperIdentity(
 	) {
 		return true;
 	}
-	return false;
+	return sameTitleAndFirstAuthor(left, right);
 }
 
 export function paperRecordId(
@@ -355,11 +361,10 @@ export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperR
 		citedByApiUrl: left.citedByApiUrl ?? right.citedByApiUrl,
 		provenance: [...provenance.values()],
 		discoveryPaths: uniqueDiscoveryPaths([...(left.discoveryPaths ?? []), ...(right.discoveryPaths ?? [])]),
-		mergedFrom: uniqueStrings([...left.mergedFrom, ...right.mergedFrom, left.id, right.id]),
+		mergedFrom: uniqueStrings([...left.mergedFrom, ...right.mergedFrom, right.id]).filter((id) => id !== left.id),
 		curation: mergeCuration(left.curation, right.curation),
 		collectionIds: uniqueStrings([...(left.collectionIds ?? []), ...(right.collectionIds ?? [])]),
 	};
-	merged.id = paperRecordId(merged);
 	return merged;
 }
 
@@ -372,6 +377,7 @@ export function deduplicatePaperRecords(records: PaperRecord[]): PaperRecord[] {
 	const byProviderRecord = new Map<string, PaperRecord>();
 	const byMaterialHash = new Map<string, PaperRecord>();
 	const byPdfUrl = new Map<string, PaperRecord>();
+	const byTitleFirstAuthor = new Map<string, PaperRecord[]>();
 	const rebuildIndexes = () => {
 		byDoi.clear();
 		byArxiv.clear();
@@ -380,6 +386,7 @@ export function deduplicatePaperRecords(records: PaperRecord[]): PaperRecord[] {
 		byProviderRecord.clear();
 		byMaterialHash.clear();
 		byPdfUrl.clear();
+		byTitleFirstAuthor.clear();
 		for (const acceptedRecord of accepted) {
 			const doi = normalizeDoi(acceptedRecord.identifiers.doi);
 			const arxivId = normalizeArxivId(acceptedRecord.identifiers.arxivId);
@@ -400,12 +407,18 @@ export function deduplicatePaperRecords(records: PaperRecord[]): PaperRecord[] {
 				byMaterialHash.set(materialHash.toLowerCase(), acceptedRecord);
 			}
 			for (const url of paperPdfUrls(acceptedRecord)) byPdfUrl.set(url, acceptedRecord);
+			const metadataKey = titleFirstAuthorIdentityKey(acceptedRecord);
+			if (metadataKey) {
+				const bucket = byTitleFirstAuthor.get(metadataKey) ?? [];
+				bucket.push(acceptedRecord);
+				byTitleFirstAuthor.set(metadataKey, bucket);
+			}
 		}
 	};
 	for (const record of records) {
 		record.identifiers.doi = normalizeDoi(record.identifiers.doi);
 		record.identifiers.arxivId = normalizeArxivId(record.identifiers.arxivId);
-		record.id = paperRecordId(record);
+		if (!record.id) record.id = paperRecordId(record);
 		const matches = new Set<PaperRecord>();
 		const doiMatch = record.identifiers.doi ? byDoi.get(record.identifiers.doi) : undefined;
 		const arxivMatch = record.identifiers.arxivId ? byArxiv.get(record.identifiers.arxivId) : undefined;
@@ -432,6 +445,15 @@ export function deduplicatePaperRecords(records: PaperRecord[]): PaperRecord[] {
 			const pdfUrlMatch = byPdfUrl.get(url);
 			if (pdfUrlMatch) matches.add(pdfUrlMatch);
 		}
+		if (matches.size === 0) {
+			const metadataKey = titleFirstAuthorIdentityKey(record);
+			const metadataMatches = metadataKey
+				? (byTitleFirstAuthor.get(metadataKey) ?? []).filter((candidate) =>
+						sameTitleAndFirstAuthor(candidate, record),
+					)
+				: [];
+			if (metadataMatches.length === 1) matches.add(metadataMatches[0]);
+		}
 		let merged = record;
 		for (const match of matches) {
 			accepted.delete(match);
@@ -454,10 +476,30 @@ export function titleSimilarity(left: string, right: string): number {
 
 export function findPossibleDuplicates(records: PaperRecord[], minimumSimilarity = 0.88): PossibleDuplicate[] {
 	const buckets = new Map<string, PaperRecord[]>();
+	const exactMetadataBuckets = new Map<string, PaperRecord[]>();
 	const candidates: PossibleDuplicate[] = [];
+	const comparedPairs = new Set<string>();
+	const pairKey = (left: PaperRecord, right: PaperRecord): string => [left.id, right.id].sort().join("|");
 	for (const record of records) {
+		const metadataKey = titleFirstAuthorIdentityKey(record);
+		if (metadataKey) {
+			for (const prior of exactMetadataBuckets.get(metadataKey) ?? []) {
+				if (prior.id === record.id) continue;
+				if (!hasConflictingPrimaryIdentifiers(prior, record)) continue;
+				comparedPairs.add(pairKey(prior, record));
+				candidates.push({
+					leftId: prior.id,
+					rightId: record.id,
+					titleSimilarity: 1,
+					reason: "identity-conflict",
+				});
+			}
+			const exactBucket = exactMetadataBuckets.get(metadataKey) ?? [];
+			exactBucket.push(record);
+			exactMetadataBuckets.set(metadataKey, exactBucket);
+		}
 		const titleTokens = normalizeTitle(record.title).split(" ").filter(Boolean);
-		const author = normalizeAuthor(record.authors[0]) || "unknown";
+		const author = normalizeFirstAuthorIdentity(record.authors[0]) || "unknown";
 		const firstToken = titleTokens[0] ?? "untitled";
 		const years = record.year === undefined ? ["unknown"] : [record.year - 1, record.year, record.year + 1];
 		const compared = new Set<string>();
@@ -465,8 +507,10 @@ export function findPossibleDuplicates(records: PaperRecord[], minimumSimilarity
 			for (const prior of buckets.get(`${author}|${firstToken}|${year}`) ?? []) {
 				if (prior.id === record.id || compared.has(prior.id)) continue;
 				compared.add(prior.id);
+				if (comparedPairs.has(pairKey(prior, record))) continue;
 				const similarity = titleSimilarity(prior.title, record.title);
 				if (similarity >= minimumSimilarity) {
+					comparedPairs.add(pairKey(prior, record));
 					candidates.push({
 						leftId: prior.id,
 						rightId: record.id,

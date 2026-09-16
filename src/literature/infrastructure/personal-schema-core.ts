@@ -94,6 +94,7 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			merged_at TEXT NOT NULL,
 			PRIMARY KEY(canonical_paper_row_id, merged_from_id)
 		);
+		CREATE INDEX IF NOT EXISTS paper_merges_alias ON paper_merges(merged_from_id);
 		CREATE TABLE IF NOT EXISTS collections (
 			id TEXT PRIMARY KEY,
 			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
@@ -153,9 +154,23 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			verified_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS stored_files_sha256 ON stored_files(sha256);
+		CREATE TABLE IF NOT EXISTS publication_versions (
+			id TEXT PRIMARY KEY,
+			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
+			kind TEXT NOT NULL,
+			doi TEXT,
+			arxiv_id TEXT,
+			is_preferred INTEGER NOT NULL DEFAULT 0,
+			record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(paper_row_id, kind)
+		);
+		CREATE INDEX IF NOT EXISTS publication_versions_paper ON publication_versions(paper_row_id);
 		CREATE TABLE IF NOT EXISTS paper_versions (
 			id TEXT PRIMARY KEY,
 			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
+			publication_version_id TEXT REFERENCES publication_versions(id) ON DELETE SET NULL,
 			file_id TEXT NOT NULL UNIQUE REFERENCES stored_files(id) ON DELETE CASCADE,
 			source_url TEXT NOT NULL,
 			final_url TEXT NOT NULL,

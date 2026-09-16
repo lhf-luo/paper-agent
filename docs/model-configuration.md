@@ -1,12 +1,12 @@
 ﻿# Model Configuration
 
-[Documentation index](README.md) | [涓枃 README](../README.zh-CN.md)
+[Documentation index](README.md) | [中文 README](../README.zh-CN.md)
 
-Most of the local Web workspace does not require a model. A provider is needed only for the built-in **Agent 瀵硅瘽** page or the advanced Pi terminal interface.
+Most of the local Web workspace does not require a model. A provider is needed for Agent conversations, including the built-in **Agent 对话** page and paper-reader conversations, or the advanced Pi terminal interface.
 
 ## Web Agent chat
 
-Start the normal Web workspace with `paper-agent`, then open **Agent 瀵硅瘽**. The page accepts:
+Start the normal Web workspace with `paper-agent`, then open **Agent 对话**. The page accepts:
 
 - Provider ID;
 - Model ID;
@@ -24,9 +24,22 @@ For a persistent project model, use the CLI instead of editing JSON by hand:
 paper-agent models add
 ```
 
-Enter the provider Base URL and API key when prompted. Paper Agent calls the provider's OpenAI-compatible `/models` endpoint, writes Pi-style model metadata to `.paper-agent/config/models.json`, stores provider authentication separately in `.paper-agent/config/auth.json`, and sets the selected active model. New endpoints default to `openai-completions` and use the same relay-compatible client headers as Pi relay models. Reconfiguring a provider replaces that provider's previous model entries, so one provider/model identity cannot silently exist under two API protocols. The whole `.paper-agent/` directory is gitignored; do not copy those files into commits, issues, logs, or shared transcripts.
+Enter the provider Base URL and API key when prompted. Paper Agent calls the provider's OpenAI-compatible `/models` endpoint, writes Pi-style model metadata to `.paper-agent/config/models.json`, and stores provider authentication separately in `.paper-agent/config/auth.json`. Adding models does not require choosing an active model; select one in Agent chat. A previously selected model remains active if it is still configured. New endpoints default to `openai-completions` and use the same relay-compatible client headers as Pi relay models. Reconfiguring a provider replaces that provider's previous model entries. The whole `.paper-agent/` directory is gitignored; do not copy those files into commits, issues, logs, or shared transcripts.
 
-The `/models` endpoint normally reports IDs but not reliable input modalities. Newly discovered models therefore default to `input: ["text"]`. Existing input metadata is preserved when the same endpoint is refreshed. Verify a visual model explicitly:
+The `/models` endpoint usually does not report capabilities reliably. Newly discovered models default to `reasoning: true`; use `--no-reasoning` to override that setting for every discovered model. Existing declarations are preserved on a same-endpoint refresh unless a reasoning flag is provided. Reasoning tokens alone do not guarantee that the relay returns visible reasoning content.
+
+Models added or refreshed through `models add` default to `input: ["text", "image"]` even if `/models` only returns IDs. The flag declares capability but does not prove it: an endpoint may reject actual image requests. Use `models probe-image --model <provider/model>` to verify image reading.
+
+Remove one model or an entire provider without editing JSON manually:
+
+```powershell
+paper-agent models remove --model research-relay/your-model-id
+paper-agent models remove --provider research-relay
+```
+
+Removing the active model clears the active selection unless `--active <provider/model>` selects a remaining model. Removing the final model for a provider also removes its stored credential. References to a removed PDF translation model are cleared automatically.
+
+The default image declaration is applied again when the same endpoint is refreshed. Verify a visual model explicitly:
 
 ```powershell
 paper-agent models probe-image --model deepseek/deepseek-flash
@@ -38,7 +51,7 @@ Use `--api openai-responses` only when the relay supports the full Responses lif
 
 You can also keep keys in the environment by configuring a model in **Settings & diagnostics** with an API-key environment-variable name and setting that variable in the process that launches Paper Agent. Environment credentials apply only to the provider, model, Base URL, and API type for which they were configured; if that endpoint identity changes, supply a new Web key or update and restart with matching project configuration.
 
-For the complete first-use flow鈥攆rom opening the page through creating a session and starting a literature task鈥攕ee the [Web Agent user guide](web-agent-guide.md) or its [Chinese version](web-agent-guide.zh-CN.md).
+For the complete first-use flow, from opening the page through creating a session and starting a literature task, see the [Web Agent user guide](web-agent-guide.md) or its [Chinese version](web-agent-guide.zh-CN.md).
 
 ## Advanced Pi terminal with built-in providers
 
@@ -135,7 +148,7 @@ For Paper Agent, the relay must reliably support streaming, tool/function callin
 - `openai-completions` and `openai-responses`: run `paper-agent --doctor --probe-model` or use the confirmed Web settings probe. The CLI probe is a one-shot read-only request; the Web probe persists its result only after an exact-plan confirmation. Either request may consume a small amount of provider quota.
 - `anthropic-messages` and `google-generative-ai`: Paper Agent accepts and passes these API types to Pi, but its automatic probe does not emulate those protocols. Verify them from `paper-agent agent` with a real `/paper`, `/collect`, or other tool-using task. The doctor and Web interface label this as manual verification rather than a failed model.
 
-The Web **Settings & diagnostics** page can store the provider ID, model ID, API type, base URL, and API-key environment-variable name. Save model edits before probing; changing an endpoint field clears any older stored verification result. The separate **Agent 瀵硅瘽** page can use that environment credential, a model key saved by `paper-agent models add`, or a process-memory-only key for the current service run.
+The Web **Settings & diagnostics** page can store the provider ID, model ID, API type, base URL, and API-key environment-variable name. Save model edits before probing; changing an endpoint field clears any older stored verification result. The separate **Agent 对话** page can use that environment credential, a model key saved by `paper-agent models add`, or a process-memory-only key for the current service run.
 
 ## Literature providers
 
@@ -150,4 +163,3 @@ $env:S2_API_KEY = "optional-semantic-scholar-key"
 OpenAlex and Crossref use the email values for polite API traffic. Semantic Scholar may work without a key at a lower public rate limit.
 
 `.paper-agent/config/search.json` separates keyword discovery from DOI enrichment. `providers` contains only keyword-search sources. `doiEnrichmentProviders` controls the exact-DOI metadata pass that runs before selected search results or local PDFs are saved. The default DOI list is `crossref`, `openalex`, `semanticscholar`, `opencitations`, and `unpaywall`; individual failures are non-blocking warnings.
-

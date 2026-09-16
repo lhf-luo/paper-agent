@@ -33,7 +33,11 @@ paper-agent
 
 `init` is optional. It asks for storage paths, the default personal namespace, local Web behavior, and model endpoint names. Team access is configured separately by pasting a `pateam1.` string in Settings.
 
-To persist a model key without hand-editing JSON, run `paper-agent models add`. The command asks for a provider Base URL and API key, fetches available models from the provider's `/models` endpoint, writes model metadata to `.paper-agent/config/models.json`, and writes provider authentication to `.paper-agent/config/auth.json`. New providers default to `openai-completions` with relay-compatible client headers; pass `--api openai-responses` only when the endpoint supports tool-result continuation through the Responses API.
+To persist a model key without hand-editing JSON, run `paper-agent models add`. The command fetches all models from the provider's `/models` endpoint, writes model metadata to `.paper-agent/config/models.json`, and writes authentication to `.paper-agent/config/auth.json`. New models default to `reasoning: true`; existing declarations are preserved when the same endpoint is refreshed. Use `--no-reasoning` to turn it off for all newly discovered models. Adding a provider does not pick an active model: select one in Agent chat. A previously selected model remains active if it still exists.
+
+All models added or refreshed through this command default to `input: ["text", "image"]`, including relays that only return IDs from `/models`. This is a declared capability, not a verification result: an endpoint may still reject image requests. `models probe-image --model <provider/model>` verifies actual image reading with a generated PNG. New providers default to `openai-completions` with relay-compatible client headers; pass `--api openai-responses` only when the endpoint supports tool-result continuation through the Responses API.
+
+Use `paper-agent models remove --model <provider/model>` to remove one model, or `paper-agent models remove --provider <provider>` to remove a provider and all of its models. Removing the active model clears the active selection unless `--active <provider/model>` names a replacement. A provider credential is deleted automatically when its last model is removed.
 
 Use `paper-agent models probe-image --model <provider/model>` to verify image input with a generated PNG challenge. Discovery alone does not infer multimodal support from a model name.
 
@@ -55,7 +59,7 @@ paper-agent --no-open
 paper-agent --port 43127
 ```
 
-Relative PDF paths are resolved from the directory where the command is invoked. The local server listens only on loopback and prints its URL. Browser API calls require the ephemeral session token supplied in the launch URL. When `--no-open` is used, open the complete session URL printed in the terminal rather than the bare host URL.
+Relative PDF paths are resolved from the directory where the command is invoked. The local server listens only on loopback and prints its URL. The Web workspace and API do not require a session token. The default configured port is `43127`; `--port` overrides it, and `--port 0` asks the operating system to choose an available port. The Browser Connector requires `43127`.
 
 ### Zotero integration
 
@@ -93,19 +97,23 @@ The `paper-research` Skill infers one of four research contracts from the natura
 | `paper-agent install` | Install/repair dependencies, build Web assets, and install the shim |
 | `paper-agent --setup` | Reinstall exact project dependencies and rebuild Web assets |
 | `paper-agent init` | Run the first-use configuration wizard |
-| `paper-agent models add` | Add a model key, fetch available models, and set the active model |
+| `paper-agent models add` | Add discovered models; choose the active one later in Agent chat |
+| `paper-agent models remove --model <provider/model>` | Remove one configured model |
+| `paper-agent models remove --provider <provider>` | Remove a provider, its models, and its unused credential |
 | `paper-agent models list` | List configured models without printing API keys |
 | `paper-agent --doctor` | Check Node, dependencies, Web assets, Poppler, OCR, model, and team configuration |
 | `paper-agent --doctor --probe-model` | Probe OpenAI-compatible structured tool calling, or report that the configured API requires Pi-session verification |
 | `paper-agent --status` | Show command, personal-corpus, Pi, and team status |
-| `paper-agent --verify quick` | Run deterministic checks without the fixed real-PDF set |
-| `paper-agent --verify full` | Include the fixed real-PDF release gate |
+| `paper-agent --verify quick` | Run lint, main/Web typechecks, Web build, the main test suite, and CLI/Web/team smoke checks |
+| `paper-agent --verify full` | Currently runs the same checks as `quick`; no additional fixed real-PDF gate |
 | `paper-agent --verify live` | Include live provider and public-Git smoke checks |
 | `paper-agent --team demo` | Start the loopback single-user team demo and open Web |
 | `paper-agent --team demo --agent` | Start the same demo in Pi instead of Web |
 | `paper-agent --team status` | Check the demo service |
 | `paper-agent --team stop` | Stop the verified demo service process |
 | `paper-agent --uninstall` | Remove only the command shim and user PATH entry |
+
+The profiles are implemented in `scripts/verify.ts`. They do not run the separate team-server typecheck, team-server Vitest suite, or generated-tool-document check; `npm run check` includes those checks. `npm run release:check` currently aliases `npm run check`. See the [command manual](command-manual.md#8-验证命令) for the remaining CI/release workflow limitations.
 
 ## macOS and Linux
 

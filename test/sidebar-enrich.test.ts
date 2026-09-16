@@ -2,10 +2,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { compactSidebarRows, resolveSidebarSelection } from "../src/literature/application/literature-sidebar.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
-import { resolveSidebarSelection } from "../src/literature/application/literature-sidebar.ts";
-import { enrichSidebarRows, mergeSidebarRows, scrapeRowsFromMarkdown } from "../src/literature/presentation/collection-tools.ts";
 import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
+import {
+	enrichSidebarRows,
+	mergeSidebarRows,
+	scrapeRowsFromMarkdown,
+} from "../src/literature/presentation/collection-tools.ts";
 
 const tempDirs: string[] = [];
 
@@ -94,10 +98,7 @@ describe("resolveSidebarSelection", () => {
 			"utf8",
 		);
 
-		const result = await resolveSidebarSelection(store, root, "/api/agent/results/subset.md", [
-			"paper-a",
-			"missing",
-		]);
+		const result = await resolveSidebarSelection(store, root, "/api/agent/results/subset.md", ["paper-a", "missing"]);
 		expect(result.records.map((item) => item.record.id)).toEqual(["paper-a"]);
 		expect(result.missingPaperIds).toEqual(["missing"]);
 		await expect(resolveSidebarSelection(store, root, "../outside.md")).rejects.toThrow(
@@ -140,9 +141,7 @@ describe("mergeSidebarRows", () => {
 		const md = `| 标题 | 年份/venue | 标识 | focus |
 | --- | --- | --- | --- |
 | [Canonical Paper](https://doi.org/10.1/canonical) | 2024 JMLR | DOI 10.1/canonical | 理论 |`;
-		const rows = mergeSidebarRows(md, [
-			{ paper_id: "doi-10-1-canonical", curated: "search", relevance: "理论论文" },
-		]);
+		const rows = mergeSidebarRows(md, [{ paper_id: "doi-10-1-canonical", curated: "search", relevance: "理论论文" }]);
 		expect(rows).toEqual([
 			expect.objectContaining({
 				title: "Canonical Paper",
@@ -163,6 +162,12 @@ describe("mergeSidebarRows", () => {
 });
 
 describe("enrichSidebarRows", () => {
+	it("keeps abstracts out of persisted sidebar metadata", () => {
+		expect(compactSidebarRows([{ paper_id: "paper-a", abstract: "Large abstract", focus: "kernel" }])).toEqual([
+			{ paper_id: "paper-a", focus: "kernel" },
+		]);
+	});
+
 	it("未给 run id 时, 从搜索 run 里按标题匹配并补全 abstract/year/venue/authors", async () => {
 		const { root, store } = await makeStore();
 		const paper = record("doi-1", "Learning-based Detection in Binary Code", "Abstract text here.");

@@ -51,6 +51,7 @@ export interface LiteratureSearchJobInput {
 
 export interface PdfDownloadPreparationInput {
 	paperIds?: string[];
+	publicationVersionId?: string;
 	maxFiles?: number;
 	maxMegabytesPerFile?: number;
 	concurrency?: number;

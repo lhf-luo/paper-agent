@@ -1,19 +1,134 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { normalizeTitle, withCanonicalPaperLinks } from "../domain/literature-identifiers.ts";
-import type { PaperRecord } from "../domain/literature-types.ts";
+import {
+	normalizeArxivId,
+	normalizeDoi,
+	normalizeTitle,
+	withCanonicalPaperLinks,
+} from "../domain/literature-identifiers.ts";
+import type { PaperPublicationVersion, PaperRecord } from "../domain/literature-types.ts";
 
 import { json, normalizeAuthor, parseJson, pathExists } from "./personal-database-support.ts";
 import { PersonalPaperHydrationRepository } from "./personal-paper-hydration-repository.ts";
 
 export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepository {
+	private publicationVersionId(paperId: string, kind: PaperPublicationVersion["kind"]): string {
+		return `publication-${createHash("sha256").update(`${paperId}:${kind}`).digest("hex").slice(0, 24)}`;
+	}
+
+	protected syncPublicationVersions(
+		database: DatabaseSync,
+		paperRowId: number,
+		record: PaperRecord,
+		forcePublished = false,
+	): PaperPublicationVersion[] {
+		const now = new Date().toISOString();
+		const doi = normalizeDoi(record.identifiers.doi);
+		const arxivId = normalizeArxivId(record.identifiers.arxivId);
+		const existing = database
+			.prepare("SELECT kind, created_at FROM publication_versions WHERE paper_row_id = ?")
+			.all(paperRowId) as unknown as Array<{ kind: PaperPublicationVersion["kind"]; created_at: string }>;
+		const createdAt = new Map(existing.map((row) => [row.kind, row.created_at]));
+		const kinds: PaperPublicationVersion["kind"][] = [];
+		if (doi || forcePublished || existing.some((row) => row.kind === "published")) kinds.push("published");
+		if (arxivId) kinds.push("preprint");
+		if (!kinds.length) kinds.push("unknown");
+		const preferredKind = kinds.includes("published") ? "published" : kinds[0];
+		const versions = kinds.map((kind): PaperPublicationVersion => {
+			const isPreprint = kind === "preprint";
+			return {
+				id: this.publicationVersionId(record.id, kind),
+				paperId: record.id,
+				kind,
+				title: record.title,
+				authors: record.authors,
+				year: record.year,
+				venue: record.venue,
+				identifiers: isPreprint ? { arxivId } : { ...record.identifiers, arxivId: undefined },
+				links: record.links.filter((link) => /arxiv\.org/i.test(link.url) === isPreprint),
+				isPreferred: kind === preferredKind,
+				createdAt: createdAt.get(kind) ?? now,
+				updatedAt: now,
+			};
+		});
+		database.prepare("UPDATE publication_versions SET is_preferred = 0 WHERE paper_row_id = ?").run(paperRowId);
+		const upsert = database.prepare(`INSERT INTO publication_versions(
+			id, paper_row_id, kind, doi, arxiv_id, is_preferred, record_json, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(paper_row_id, kind) DO UPDATE SET
+			doi=excluded.doi, arxiv_id=excluded.arxiv_id, is_preferred=excluded.is_preferred,
+			record_json=excluded.record_json, updated_at=excluded.updated_at`);
+		for (const version of versions) {
+			upsert.run(
+				version.id,
+				paperRowId,
+				version.kind,
+				version.identifiers.doi ?? null,
+				version.identifiers.arxivId ?? null,
+				Number(version.isPreferred),
+				json(version),
+				version.createdAt,
+				version.updatedAt,
+			);
+		}
+		if (!kinds.includes("unknown")) {
+			database
+				.prepare("DELETE FROM publication_versions WHERE paper_row_id = ? AND kind = 'unknown'")
+				.run(paperRowId);
+		}
+		return versions;
+	}
+
+	async listPublicationVersions(paperId: string): Promise<PaperPublicationVersion[]> {
+		await this.initialize();
+		return this.read((database) => {
+			const paper = this.paperRow(database, paperId);
+			if (!paper) return [];
+			return (
+				database
+					.prepare(
+						"SELECT record_json, is_preferred FROM publication_versions WHERE paper_row_id = ? ORDER BY is_preferred DESC, created_at",
+					)
+					.all(paper.row_id) as unknown as Array<{ record_json: string; is_preferred: number }>
+			).map((row) => ({
+				...parseJson<PaperPublicationVersion>(row.record_json),
+				paperId: paper.paper_id,
+				isPreferred: Boolean(row.is_preferred),
+			}));
+		});
+	}
+
+	async ensurePublicationVersions(paperId: string, forcePublished = false): Promise<PaperPublicationVersion[]> {
+		await this.initialize();
+		return this.write((database) => {
+			const paper = this.paperRow(database, paperId);
+			if (!paper) throw new Error(`Paper not found in corpus: ${paperId}`);
+			return this.syncPublicationVersions(
+				database,
+				paper.row_id,
+				parseJson<PaperRecord>(paper.record_json),
+				forcePublished,
+			);
+		});
+	}
+
 	protected syncPaper(database: DatabaseSync, record: PaperRecord, previousId?: string): number {
 		record = withCanonicalPaperLinks(record);
 		const now = new Date().toISOString();
-		if (previousId && previousId !== record.id) {
-			database
-				.prepare("UPDATE papers SET paper_id = ?, updated_at = ? WHERE namespace_id = ? AND paper_id = ?")
-				.run(record.id, now, this.namespace, previousId);
+		const previous = previousId ? this.paperRow(database, previousId) : undefined;
+		if (previous && previous.paper_id !== record.id) {
+			record = {
+				...record,
+				id: previous.paper_id,
+				mergedFrom: [
+					...new Set(
+						[...record.mergedFrom, record.id, previousId].filter(
+							(id): id is string => Boolean(id) && id !== previous.paper_id,
+						),
+					),
+				],
+			};
 		}
 		database
 			.prepare(`
@@ -185,6 +300,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 				record.curation?.userNotes.map((note) => note.text).join(" ") ?? "",
 				record.publicationType ?? "",
 			);
+		this.syncPublicationVersions(database, paperRowId, record);
 		return paperRowId;
 	}
 
@@ -224,9 +340,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 			return undefined;
 		await this.initialize();
 		return this.read((database) => {
-			const row = database
-				.prepare("SELECT record_json FROM papers WHERE namespace_id = ? AND paper_id = ?")
-				.get(this.namespace, id) as { record_json: string } | undefined;
+			const row = this.paperRow(database, id);
 			return row ? parseJson<PaperRecord>(row.record_json) : undefined;
 		});
 	}

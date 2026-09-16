@@ -1,13 +1,14 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PaperRecord } from "../domain/literature-types.ts";
 import { paperPrimaryUrl } from "../domain/literature-identifiers.ts";
+import type { PaperRecord } from "../domain/literature-types.ts";
 import { lookupCcfLevel } from "../infrastructure/ccf-ranking.ts";
 import { expansionPathRelationship } from "./literature-search-planning.ts";
 import { LiteratureStore, resolveCorpusRoot } from "./literature-store.ts";
 
 const SIDEBAR_RESULT_URL = /^\/api\/agent\/results\/([A-Za-z0-9._-]+\.md)$/;
 export const SIDEBAR_META_COMMENT = /<!--\s*paper-agent-sidebar-meta\s+([\s\S]*?)\s*-->\s*$/;
+export const MAX_SIDEBAR_BYTES = 5_000_000;
 
 export interface SidebarResultMetadata {
 	revision?: number;
@@ -27,6 +28,44 @@ export interface SidebarSelectionResolution {
 	searchRunIds: string[];
 }
 
+export function compactSidebarRows(
+	rows: Array<Record<string, unknown>> | undefined,
+): Array<Record<string, unknown>> | undefined {
+	return rows?.map(({ abstract: _abstract, ...row }) => row);
+}
+
+export async function writeLiteratureSidebarResult(input: {
+	cwd: string;
+	sessionId?: string;
+	content: string;
+	rows: Array<Record<string, unknown>>;
+	headers?: string[];
+}): Promise<{ mdPath: string; mdUrl: string; rowCount: number; revision: number }> {
+	const content = input.content.trim();
+	if (!content) throw new Error("content is required");
+	const metadata = {
+		revision: 1,
+		...(input.headers?.length ? { headers: input.headers } : {}),
+		rows: compactSidebarRows(input.rows) ?? [],
+	};
+	const payload = `${content}\n\n<!-- paper-agent-sidebar-meta ${JSON.stringify(metadata)} -->\n`;
+	if (Buffer.byteLength(payload, "utf8") > MAX_SIDEBAR_BYTES) {
+		throw new Error("literature sidebar is too large (max 5MB); narrow the filter");
+	}
+	const resultsDir = join(input.cwd, ".paper-agent", "web-agent-memory", "results");
+	await mkdir(resultsDir, { recursive: true });
+	const safeSessionId = (input.sessionId ?? "unspecified").replace(/[^A-Za-z0-9-]/g, "_");
+	const fileName = `${safeSessionId}-${Date.now().toString(36)}.md`;
+	const mdPath = join(resultsDir, fileName);
+	await writeFile(mdPath, payload, { encoding: "utf8" });
+	return {
+		mdPath,
+		mdUrl: `/api/agent/results/${encodeURIComponent(fileName)}`,
+		rowCount: metadata.rows.length,
+		revision: 1,
+	};
+}
+
 export function resolveSidebarResultPath(cwd: string, resultUrl: string): string {
 	const match = SIDEBAR_RESULT_URL.exec(resultUrl);
 	if (!match) throw new Error("Invalid literature sidebar result URL");
@@ -43,10 +82,7 @@ export function parseSidebarResultMetadata(content: string): SidebarResultMetada
 	return metadata;
 }
 
-export async function readSidebarResultRows(
-	cwd: string,
-	resultUrl: string,
-): Promise<Array<Record<string, unknown>>> {
+export async function readSidebarResultRows(cwd: string, resultUrl: string): Promise<Array<Record<string, unknown>>> {
 	const content = await readFile(resolveSidebarResultPath(cwd, resultUrl), "utf8");
 	const metadata = parseSidebarResultMetadata(content);
 	if (!Array.isArray(metadata.rows)) throw new Error("Literature sidebar result does not contain paper rows");
@@ -80,7 +116,9 @@ export async function resolveSidebarSelection(
 			run = await store.getSearchRun(searchRunId);
 			runCache.set(searchRunId, run);
 		}
-		const record = run?.results.find((candidate) => candidate.id === paperId);
+		const record = run?.results.find(
+			(candidate) => candidate.id === paperId || candidate.mergedFrom.includes(paperId),
+		);
 		if (!record || resolved.has(paperId)) continue;
 		resolved.set(paperId, {
 			record,

@@ -36,6 +36,7 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 			max_neighbors_per_seed: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			pages_per_seed: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
 			max_total_neighbors: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+			source_search_run_id: Type.Optional(Type.String({ description: "Search run that supplied the seed papers" })),
 			scope: Type.Optional(scopeSchema),
 			namespace: Type.Optional(Type.String()),
 			corpus_root: Type.Optional(Type.String()),
@@ -204,22 +205,40 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 			let expansionRunId: string | undefined;
 			if (unique.length) {
 				const now = new Date().toISOString();
+				const expansionProviders = [
+					...new Set(
+						unique
+							.flatMap((record) => record.provenance.map((item) => item.provider))
+							.filter(
+								(provider): provider is LiteratureProvider =>
+									provider === "openalex" || provider === "semanticscholar",
+							),
+					),
+				];
 				const run: SearchRun = {
 					id: `search-expansion-${randomUUID()}`,
 					startedAt: now,
 					completedAt: now,
 					queries: seeds.map((seed) => seed.id),
 					filters: {},
-					providers: ["openalex"],
+					providers: expansionProviders,
 					pagesPerProvider: pagesPerSeed,
 					maxResultsPerProvider: maxTotalNeighbors,
 					results: unique,
 					failures: [],
-					sourceCounts: { openalex: unique.length },
+					sourceCounts: Object.fromEntries(
+						expansionProviders.map((provider) => [
+							provider,
+							unique.filter((record) => record.provenance.some((item) => item.provider === provider)).length,
+						]),
+					),
 					deduplicatedCount: unique.length,
 					scope: "personal",
 					mode: "once",
 					namespace,
+					runKind: "citation-expansion",
+					parentSearchRunId: params.source_search_run_id,
+					seedPaperIds: seeds.map((seed) => seed.id),
 				};
 				try {
 					await store.saveSearchRun(run);
@@ -254,6 +273,7 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 					failures,
 					expansionTable,
 					expansionRunId,
+					sourceSearchRunId: params.source_search_run_id,
 					corpusPath: store.root,
 				},
 			};

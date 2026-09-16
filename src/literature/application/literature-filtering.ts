@@ -1,11 +1,12 @@
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { sha256Text } from "../domain/literature-identifiers.ts";
-import type { PaperRecord, ProvenanceProvider, SearchRun } from "../domain/literature-types.ts";
-import { primaryIdentifier } from "./literature-query-planning.ts";
+import type { PaperRecord, SearchRun } from "../domain/literature-types.ts";
+import type { FilterResultEntry } from "./literature-filter-result.ts";
 import type { LiteratureStore } from "./literature-store.ts";
 
 export interface FilterGroupOptions {
 	includeTerms?: string[];
+	includeTermGroups?: string[][];
 	excludeTerms?: string[];
 	excludeScope?: "title" | "title+abstract";
 	yearFrom?: number;
@@ -17,30 +18,63 @@ export interface FilterGroupOptions {
 export interface FilteredRecord {
 	record: PaperRecord;
 	matchedTerms: string[];
+	status: "matched" | "unresolved";
 }
 
-export function filterGroup(run: SearchRun, options: FilterGroupOptions): { matched: FilteredRecord[]; total: number } {
+export function filterGroup(
+	run: SearchRun,
+	options: FilterGroupOptions,
+): {
+	matched: FilteredRecord[];
+	unresolved: FilteredRecord[];
+	total: number;
+	excluded: number;
+} {
 	const include = (options.includeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
+	const includeGroups = (options.includeTermGroups ?? [])
+		.map((group) => group.map((term) => term.trim().toLowerCase()).filter(Boolean))
+		.filter((group) => group.length > 0);
+	if (include.length && includeGroups.length) {
+		throw new Error("include_terms and include_term_groups cannot be used together");
+	}
 	const exclude = (options.excludeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
 	const excludeTitleOnly = options.excludeScope === "title";
 	const matched: FilteredRecord[] = [];
+	const unresolved: FilteredRecord[] = [];
 	for (const record of run.results) {
 		const title = record.title.toLowerCase();
 		const abstract = (record.abstract ?? "").toLowerCase();
 		const haystack = `${title}\n${abstract}`;
-		if (include.length > 0 && !include.some((term) => haystack.includes(term))) continue;
 		const excludeHaystack = excludeTitleOnly ? title : haystack;
 		if (exclude.some((term) => excludeHaystack.includes(term))) continue;
 		if (options.yearFrom && (record.year ?? 0) < options.yearFrom) continue;
 		if (options.yearTo && (record.year ?? 9999) > options.yearTo) continue;
 		if (options.venueRank && record.venueRank !== options.venueRank) continue;
+		if (include.length > 0 && !include.some((term) => haystack.includes(term))) continue;
+		const allGroupsMatch = includeGroups.every((group) => group.some((term) => haystack.includes(term)));
+		const matchedTerms = (includeGroups.length ? includeGroups.flat() : include).filter((term) =>
+			haystack.includes(term),
+		);
+		if (includeGroups.length && !allGroupsMatch) {
+			if (!record.abstract) unresolved.push({ record, matchedTerms, status: "unresolved" });
+			continue;
+		}
 		matched.push({
 			record,
-			matchedTerms: include.filter((term) => haystack.includes(term)),
+			matchedTerms,
+			status: "matched",
 		});
 	}
-	matched.sort((left, right) => (right.record.citationCount ?? 0) - (left.record.citationCount ?? 0));
-	return { matched, total: matched.length };
+	const byCitations = (left: FilteredRecord, right: FilteredRecord) =>
+		(right.record.citationCount ?? 0) - (left.record.citationCount ?? 0);
+	matched.sort(byCitations);
+	unresolved.sort(byCitations);
+	return {
+		matched,
+		unresolved,
+		total: matched.length,
+		excluded: run.results.length - matched.length - unresolved.length,
+	};
 }
 
 /** include_terms 任一命中即保留(OR); exclude_terms 任一命中即排除。 */
@@ -56,32 +90,10 @@ export function filterSearchRunResults(
 	};
 }
 
-export function filterTableLines(entries: FilteredRecord[], options: FilterGroupOptions): string[] {
-	const rows = entries.slice(0, options.limit ?? 60);
-	const header = "标题(命中词) | 作者 | 年份 | venue | DOI/arXiv | 来源";
-	const separator = "--- | --- | --- | --- | --- | ---";
-	const body = rows.map((entry) => {
-		const record = entry.record;
-		const providers = new Set<ProvenanceProvider>(record.provenance.map((item) => item.provider));
-		const titleMark =
-			entry.matchedTerms.length > 0 ? `${record.title} [${entry.matchedTerms.join(", ")}]` : record.title;
-		return [
-			titleMark.replaceAll("|", "\\|"),
-			record.authors.slice(0, 4).join(", ") || "unavailable",
-			record.year === undefined ? "unknown" : String(record.year),
-			record.venue || record.publicationType || "unknown",
-			primaryIdentifier(record),
-			[...providers].join(", ") || "unknown",
-		]
-			.map((cell) => cell.replace(/\s+/g, " ").trim())
-			.join(" | ");
-	});
-	return [
-		header,
-		separator,
-		...body,
-		entries.length > rows.length ? `(${entries.length - rows.length} more filtered rows not shown)` : "",
-	].filter(Boolean);
+export function filterTableLines(entries: FilterResultEntry[]): string[] {
+	return entries.map(
+		(entry) => `paper_id=${entry.paperId} | title=${entry.title.replaceAll("|", "\\|").replace(/\s+/g, " ").trim()}`,
+	);
 }
 
 export function corpusTeamReviewPlan(

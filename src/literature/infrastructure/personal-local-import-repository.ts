@@ -125,6 +125,9 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 					(value) => samePaperIdentity(value, input.record) || sameLocalPdfMetadataIdentity(value, input.record),
 				);
 				const rowId = this.syncPaper(database, record, previous?.id);
+				const canonicalRow = database
+					.prepare("SELECT paper_id, title, record_json FROM papers WHERE row_id = ?")
+					.get(rowId) as { paper_id: string; title: string; record_json: string };
 				if (input.zotero) {
 					database
 						.prepare(`INSERT INTO zotero_item_mappings(
@@ -151,8 +154,15 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 				await writeFile(stagingPath, input.body, { flag: "wx" });
 				try {
 					const sourceUrl = input.sourceUrl ?? new URL(`file:///${input.sourcePath.replaceAll("\\", "/")}`).href;
+					const publicationVersion = this.syncPublicationVersions(
+						database,
+						rowId,
+						JSON.parse(canonicalRow.record_json) as PaperRecord,
+						true,
+					).find((version) => version.kind === "published");
 					const version: PaperVersion = {
-						paperId: record.id,
+						paperId: canonicalRow.paper_id,
+						publicationVersionId: publicationVersion?.id,
 						sourceUrl,
 						finalUrl: sourceUrl,
 						retrievedAt: new Date().toISOString(),
@@ -160,10 +170,12 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 						bytes: input.body.byteLength,
 						blobPath: stagingPath,
 						contentType: "application/pdf",
+						versionKind: "published",
+						isPreferred: true,
 					};
 					const prepared = await this.allocateVersionFile(
 						database,
-						{ row_id: rowId, paper_id: record.id, title: record.title, record_json: json(record) },
+						{ row_id: rowId, ...canonicalRow },
 						version,
 						stagingPath,
 					);

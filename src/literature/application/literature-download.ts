@@ -10,7 +10,7 @@ import { readableErrorMessage } from "../../shared/infrastructure/network-errors
 import { type Fetcher, fetchPublicUrl } from "../../shared/infrastructure/network-security.ts";
 import { downloadViaPython } from "../../shared/infrastructure/python-download.ts";
 import { normalizeArxivId, normalizeDoi, paperPdfUrl, uniquePaperLinks } from "../domain/literature-identifiers.ts";
-import type { PaperRecord, PaperVersion } from "../domain/literature-types.ts";
+import type { PaperPublicationVersion, PaperRecord, PaperVersion } from "../domain/literature-types.ts";
 import {
 	discoverDoiPdfCandidates,
 	type PdfDiscoveryCredentials,
@@ -21,6 +21,7 @@ import type { LiteratureStore } from "./literature-store.ts";
 
 export interface LiteraturePdfDownloadRequest {
 	paperIds?: string[];
+	publicationVersionId?: string;
 	maxFiles: number;
 	maxBytesPerFile: number;
 	concurrency: number;
@@ -54,8 +55,13 @@ export interface LiteraturePdfDiscoveryWarning extends PdfDiscoveryWarning {
 
 export interface PreparedLiteraturePdfDownload {
 	plan: OperationPlan;
-	papers: Array<{ record: PaperRecord; candidates: PdfDownloadCandidate[] }>;
+	papers: Array<{
+		record: PaperRecord;
+		candidates: PdfDownloadCandidate[];
+		publicationVersions: PaperPublicationVersion[];
+	}>;
 	missingPaperIds: string[];
+	alreadyAvailablePaperIds: string[];
 	discoveryWarnings: LiteraturePdfDiscoveryWarning[];
 }
 
@@ -63,6 +69,7 @@ export interface LiteraturePdfDownloadResult {
 	downloaded: PaperVersion[];
 	failures: Array<{ paperId: string; reason: string }>;
 	missingPaperIds: string[];
+	alreadyAvailablePaperIds: string[];
 	attempts: LiteraturePdfDownloadAttempt[];
 	discoveryWarnings: LiteraturePdfDiscoveryWarning[];
 	corpusPath: string;
@@ -96,9 +103,8 @@ function uniqueCandidates(candidates: PdfDownloadCandidate[]): PdfDownloadCandid
 }
 
 function recordPdfCandidates(record: PaperRecord): {
-	primary: PdfDownloadCandidate[];
+	formal: PdfDownloadCandidate[];
 	arxiv: PdfDownloadCandidate[];
-	alternatives: PdfDownloadCandidate[];
 	warnings: LiteraturePdfDiscoveryWarning[];
 } {
 	const warnings: LiteraturePdfDiscoveryWarning[] = [];
@@ -116,21 +122,15 @@ function recordPdfCandidates(record: PaperRecord): {
 		}
 		return [url];
 	});
-	const primaryUrl = validLinks[0];
-	const primary: PdfDownloadCandidate[] = primaryUrl
-		? [
-				{
-					url: primaryUrl.href,
-					source: "record-primary",
-					versionKind: isArxivUrl(primaryUrl) ? "preprint" : "unknown",
-				},
-			]
-		: [];
-	const arxiv = validLinks
-		.slice(1)
-		.flatMap((url): PdfDownloadCandidate[] =>
-			isArxivUrl(url) ? [{ url: url.href, source: "record-arxiv", versionKind: "preprint" }] : [],
-		);
+	const stored = validLinks.map(
+		(url, index): PdfDownloadCandidate => ({
+			url: url.href,
+			source: index === 0 ? "record-primary" : isArxivUrl(url) ? "record-arxiv" : "record-alternative",
+			versionKind: isArxivUrl(url) ? "preprint" : "published",
+		}),
+	);
+	const formal = stored.filter((candidate) => candidate.versionKind !== "preprint");
+	const arxiv = stored.filter((candidate) => candidate.versionKind === "preprint");
 	const arxivId = normalizeArxivId(record.identifiers.arxivId);
 	if (arxivId) {
 		arxiv.push({
@@ -139,12 +139,7 @@ function recordPdfCandidates(record: PaperRecord): {
 			versionKind: "preprint",
 		});
 	}
-	const alternatives = validLinks
-		.slice(1)
-		.flatMap((url): PdfDownloadCandidate[] =>
-			isArxivUrl(url) ? [] : [{ url: url.href, source: "record-alternative", versionKind: "unknown" }],
-		);
-	return { primary, arxiv, alternatives, warnings };
+	return { formal, arxiv, warnings };
 }
 
 async function configuredDiscoveryCredentials(projectRoot: string): Promise<{
@@ -185,9 +180,8 @@ async function discoverPaperCandidates(
 	const stored = recordPdfCandidates(record);
 	const warnings = [...stored.warnings];
 	if (configWarning) warnings.push({ paperId: record.id, provider: "record", reason: configWarning });
-	const storedCandidates = [...stored.primary, ...stored.arxiv, ...stored.alternatives];
 	const discovered =
-		storedCandidates.length === 0 && record.identifiers.doi
+		stored.formal.length === 0 && record.identifiers.doi
 			? await discoverDoiPdfCandidates({
 					doi: record.identifiers.doi,
 					credentials,
@@ -200,11 +194,10 @@ async function discoverPaperCandidates(
 	return {
 		record,
 		candidates: uniqueCandidates([
-			...stored.primary,
+			...stored.formal,
+			...discovered.candidates.filter((candidate) => candidate.versionKind !== "preprint"),
 			...stored.arxiv,
 			...discovered.candidates.filter((candidate) => candidate.versionKind === "preprint"),
-			...stored.alternatives,
-			...discovered.candidates.filter((candidate) => candidate.versionKind !== "preprint"),
 		]),
 		warnings,
 	};
@@ -256,8 +249,10 @@ function buildLiteraturePdfDownloadPlan(
 		targets: [{ label: "corpus", value: store.root, risk: "medium" }, ...candidateTargets, ...fallbackTargets],
 		details: {
 			requestedPaperIds: request.paperIds ?? null,
+			publicationVersionId: request.publicationVersionId ?? null,
 			paperIds: prepared.papers.map(({ record }) => record.id),
 			missingPaperIds: prepared.missingPaperIds,
+			alreadyAvailablePaperIds: prepared.alreadyAvailablePaperIds,
 			candidateCount: candidateTargets.length,
 			deferredDoiFallbackCount: fallbackTargets.length,
 			candidateSources: [
@@ -276,17 +271,59 @@ export async function prepareLiteraturePdfDownload(
 	store: LiteratureStore,
 	request: LiteraturePdfDownloadRequest,
 ): Promise<PreparedLiteraturePdfDownload> {
+	if (request.publicationVersionId && request.paperIds?.length !== 1) {
+		throw new Error("publicationVersionId requires exactly one paper id");
+	}
 	const selection = await selectedRecords(store, request);
 	const configured = await configuredDiscoveryCredentials(request.projectRoot ?? process.cwd());
 	const papers: PreparedLiteraturePdfDownload["papers"] = [];
 	const discoveryWarnings: LiteraturePdfDiscoveryWarning[] = [];
+	const alreadyAvailablePaperIds: string[] = [];
 	let nextRecord = 0;
 	const worker = async () => {
 		while (nextRecord < selection.records.length) {
 			const record = selection.records[nextRecord++];
 			if (!record) continue;
-			const result = await discoverPaperCandidates(record, request, configured.credentials, configured.warning);
-			papers.push({ record: result.record, candidates: result.candidates });
+			const publicationVersions = await store.ensurePublicationVersions(record.id);
+			const selectedVersion = request.publicationVersionId
+				? publicationVersions.find((version) => version.id === request.publicationVersionId)
+				: publicationVersions.find((version) => version.isPreferred);
+			if (request.publicationVersionId && !selectedVersion) {
+				throw new Error(`Publication version not found for ${record.id}: ${request.publicationVersionId}`);
+			}
+			const storedFiles = await store.listPaperVersions(record.id);
+			const alreadyAvailable = request.publicationVersionId
+				? storedFiles.some(
+						(version) =>
+							version.publicationVersionId === request.publicationVersionId ||
+							(!version.publicationVersionId &&
+								(selectedVersion?.kind === "preprint"
+									? version.versionKind === "preprint"
+									: version.versionKind === "published")),
+					)
+				: storedFiles.length > 0;
+			if (alreadyAvailable) {
+				alreadyAvailablePaperIds.push(record.id);
+				continue;
+			}
+			const discoveryRecord =
+				request.publicationVersionId && selectedVersion
+					? { ...record, identifiers: selectedVersion.identifiers, links: selectedVersion.links }
+					: record;
+			const result = await discoverPaperCandidates(
+				discoveryRecord,
+				request,
+				configured.credentials,
+				configured.warning,
+			);
+			const candidates = request.publicationVersionId
+				? result.candidates.filter((candidate) =>
+						selectedVersion?.kind === "preprint"
+							? candidate.versionKind === "preprint"
+							: candidate.versionKind !== "preprint",
+					)
+				: result.candidates;
+			papers.push({ record, candidates, publicationVersions });
 			discoveryWarnings.push(...result.warnings);
 		}
 	};
@@ -294,7 +331,13 @@ export async function prepareLiteraturePdfDownload(
 		Array.from({ length: Math.min(request.concurrency, Math.max(1, selection.records.length)) }, () => worker()),
 	);
 	papers.sort((left, right) => selection.records.indexOf(left.record) - selection.records.indexOf(right.record));
-	const preparedWithoutPlan = { papers, missingPaperIds: selection.missingPaperIds, discoveryWarnings };
+	alreadyAvailablePaperIds.sort();
+	const preparedWithoutPlan = {
+		papers,
+		missingPaperIds: selection.missingPaperIds,
+		alreadyAvailablePaperIds,
+		discoveryWarnings,
+	};
 	return {
 		...preparedWithoutPlan,
 		plan: buildLiteraturePdfDownloadPlan(store, request, preparedWithoutPlan),
@@ -360,6 +403,7 @@ export async function downloadLiteraturePdfs(
 		buildLiteraturePdfDownloadPlan(store, request, {
 			papers: prepared.papers,
 			missingPaperIds: prepared.missingPaperIds,
+			alreadyAvailablePaperIds: prepared.alreadyAvailablePaperIds,
 			discoveryWarnings: prepared.discoveryWarnings,
 		}),
 	);
@@ -388,7 +432,11 @@ export async function downloadLiteraturePdfs(
 		});
 		discoveryWarnings.push(...discovered.warnings.map((warning) => ({ ...warning, paperId: record.id })));
 		const triedUrls = new Set(tried.map((candidate) => normalizedPdfUrl(candidate.url)?.href).filter(Boolean));
-		return uniqueCandidates(discovered.candidates).filter((candidate) => !triedUrls.has(candidate.url));
+		const candidates = uniqueCandidates(discovered.candidates).filter((candidate) => !triedUrls.has(candidate.url));
+		return [
+			...candidates.filter((candidate) => candidate.versionKind !== "preprint"),
+			...candidates.filter((candidate) => candidate.versionKind === "preprint"),
+		];
 	};
 	const persistSuccessfulLink = async (record: PaperRecord, candidate: PdfDownloadCandidate, finalUrl: string) => {
 		const providerDiscovered = !candidate.source.startsWith("record-");
@@ -401,7 +449,11 @@ export async function downloadLiteraturePdfs(
 		}
 		await store.upsertPaper({ ...record, links: uniquePaperLinks(links) });
 	};
-	const downloadOne = async ({ record, candidates }: PreparedLiteraturePdfDownload["papers"][number]) => {
+	const downloadOne = async ({
+		record,
+		candidates,
+		publicationVersions,
+	}: PreparedLiteraturePdfDownload["papers"][number]) => {
 		const candidatesToTry = [...candidates];
 		const deferredFallback = hasDeferredDoiFallback(record, candidates);
 		let fallbackDiscovered = false;
@@ -419,8 +471,12 @@ export async function downloadLiteraturePdfs(
 			try {
 				const acquired = await downloadCandidate(candidate, request);
 				const blob = await store.putBlob(acquired.body);
+				const publicationVersion = publicationVersions.find((version) =>
+					candidate.versionKind === "preprint" ? version.kind === "preprint" : version.kind !== "preprint",
+				);
 				const version: PaperVersion = {
 					paperId: record.id,
+					publicationVersionId: publicationVersion?.id,
 					sourceUrl: candidate.url,
 					finalUrl: acquired.finalUrl,
 					retrievedAt: new Date().toISOString(),
@@ -429,6 +485,7 @@ export async function downloadLiteraturePdfs(
 					blobPath: blob.path,
 					contentType: acquired.contentType,
 					versionKind: candidate.versionKind,
+					isPreferred: publicationVersion?.isPreferred,
 				};
 				await store.savePaperVersion(version);
 				try {
@@ -484,6 +541,7 @@ export async function downloadLiteraturePdfs(
 		downloaded,
 		failures,
 		missingPaperIds: prepared.missingPaperIds,
+		alreadyAvailablePaperIds: prepared.alreadyAvailablePaperIds,
 		attempts,
 		discoveryWarnings,
 		corpusPath: store.root,

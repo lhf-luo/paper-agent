@@ -62,9 +62,12 @@ describe("literature identifiers and corpus", () => {
 			identifiers: { doi: "doi:10.1000/example.1" },
 			provenance: [{ provider: "openalex", query: "protocol fuzzing", retrievedAt: "2026-01-02T00:00:00.000Z" }],
 		});
+		second.id = "incoming-provider-id";
 		const merged = deduplicatePaperRecords([first, second]);
 
 		expect(merged).toHaveLength(1);
+		expect(merged[0].id).toBe(first.id);
+		expect(merged[0].mergedFrom).toContain(second.id);
 		expect(merged[0].identifiers.doi).toBe("10.1000/example.1");
 		expect(merged[0].provenance.map((item) => item.provider).sort()).toEqual(["crossref", "openalex"]);
 		expect(titleSimilarity("Stateful protocol fuzzing", "Protocol fuzzing for stateful systems")).toBeGreaterThan(
@@ -77,8 +80,11 @@ describe("literature identifiers and corpus", () => {
 		});
 		preprint.id = paperRecordId(preprint);
 		const versionMerged = deduplicatePaperRecords([preprint, first]);
-		expect(versionMerged).toHaveLength(2);
-		expect(findPossibleDuplicates(versionMerged)).toHaveLength(1);
+		expect(versionMerged).toHaveLength(1);
+		expect(versionMerged[0].identifiers).toMatchObject({
+			doi: "10.1000/example.1",
+			arxivId: "2501.01234",
+		});
 
 		const sharedHash = "f".repeat(64);
 		const localOne = paper({
@@ -119,8 +125,7 @@ describe("literature identifiers and corpus", () => {
 				},
 			],
 		});
-		expect(deduplicatePaperRecords([metadataOnlyOne, metadataOnlyTwo])).toHaveLength(2);
-		expect(findPossibleDuplicates([metadataOnlyOne, metadataOnlyTwo])).toHaveLength(1);
+		expect(deduplicatePaperRecords([metadataOnlyOne, metadataOnlyTwo])).toHaveLength(1);
 
 		const possible = paper({
 			title: "A Study of Stateful Protocol Fuzzing",
@@ -129,6 +134,78 @@ describe("literature identifiers and corpus", () => {
 		possible.id = paperRecordId(possible);
 		expect(findPossibleDuplicates([first, possible])).toMatchObject([
 			{ leftId: first.id, rightId: possible.id, reason: "similar-title" },
+		]);
+	});
+
+	it("merges exact normalized titles and first authors without using year", () => {
+		const catalog = paper({
+			title: "KernelGPT: Enhanced Kernel Fuzzing via Large Language Models",
+			authors: ["Chenyuan Yang", "Zijie Zhao"],
+			year: 2024,
+			identifiers: { doi: "10.1000/kernelgpt" },
+			links: [{ url: "https://doi.org/10.1000/kernelgpt", kind: "doi" }],
+		});
+		const preprint = paper({
+			title: "kernelgpt — enhanced kernel fuzzing via large-language models",
+			authors: ["Yang, Chenyuan", "Zhao, Zijie"],
+			year: 2023,
+			identifiers: { arxivId: "2401.00563" },
+			links: [{ url: "https://arxiv.org/abs/2401.00563", kind: "landing" }],
+			provenance: [{ provider: "arxiv", query: "kernel fuzzing", retrievedAt: "2026-01-02T00:00:00Z" }],
+		});
+
+		const [merged] = deduplicatePaperRecords([catalog, preprint]);
+		expect(deduplicatePaperRecords([catalog, preprint])).toHaveLength(1);
+		expect(merged.identifiers).toMatchObject({ doi: "10.1000/kernelgpt", arxivId: "2401.00563" });
+		expect(merged.provenance).toHaveLength(2);
+	});
+
+	it("does not infer abbreviated or missing first-author identities", () => {
+		const fullName = paper({ identifiers: {}, links: [], authors: ["Chenyuan Yang"] });
+		const initial = paper({ identifiers: {}, links: [], authors: ["C. Yang"] });
+		const different = paper({ identifiers: {}, links: [], authors: ["Zijie Zhao"] });
+		const missing = paper({ identifiers: {}, links: [], authors: [] });
+
+		expect(deduplicatePaperRecords([fullName, initial, different, missing])).toHaveLength(4);
+	});
+
+	it("keeps exact metadata matches with conflicting primary identifiers for review", () => {
+		const first = paper({
+			identifiers: { doi: "10.1000/conflict-one", arxivId: "2501.00001" },
+			links: [{ url: "https://doi.org/10.1000/conflict-one", kind: "doi" }],
+		});
+		const conflictingDoi = paper({
+			year: 2027,
+			identifiers: { doi: "10.1000/conflict-two", arxivId: "2501.00001" },
+			links: [{ url: "https://doi.org/10.1000/conflict-two", kind: "doi" }],
+		});
+		const conflictingArxiv = paper({
+			year: 2023,
+			identifiers: { doi: "10.1000/conflict-one", arxivId: "2501.00002" },
+			links: [{ url: "https://arxiv.org/abs/2501.00002", kind: "landing" }],
+		});
+
+		const deduplicated = deduplicatePaperRecords([first, conflictingDoi, conflictingArxiv]);
+		expect(deduplicated).toHaveLength(1);
+
+		const doiOnlyOne = { ...first, identifiers: { doi: "10.1000/conflict-one" } };
+		const doiOnlyTwo = { ...conflictingDoi, identifiers: { doi: "10.1000/conflict-two" } };
+		const arxivOnlyOne = { ...first, identifiers: { arxivId: "2501.00001" } };
+		const arxivOnlyTwo = { ...conflictingArxiv, identifiers: { arxivId: "2501.00002" } };
+		arxivOnlyOne.id = "arxiv-conflict-one";
+		arxivOnlyTwo.id = "arxiv-conflict-two";
+		expect(deduplicatePaperRecords([doiOnlyOne, doiOnlyTwo])).toHaveLength(2);
+		expect(findPossibleDuplicates([doiOnlyOne, doiOnlyTwo])).toEqual([
+			{ leftId: doiOnlyOne.id, rightId: doiOnlyTwo.id, reason: "identity-conflict", titleSimilarity: 1 },
+		]);
+		expect(deduplicatePaperRecords([arxivOnlyOne, arxivOnlyTwo])).toHaveLength(2);
+		expect(findPossibleDuplicates([arxivOnlyOne, arxivOnlyTwo])).toEqual([
+			{
+				leftId: arxivOnlyOne.id,
+				rightId: arxivOnlyTwo.id,
+				reason: "identity-conflict",
+				titleSimilarity: 1,
+			},
 		]);
 	});
 
@@ -152,7 +229,7 @@ describe("literature identifiers and corpus", () => {
 		expect(normalizeTitle(localPdf.title)).toBe(normalizeTitle(catalog.title));
 		expect(sameLocalPdfMetadataIdentity(catalog, localPdf)).toBe(true);
 		const merged = deduplicatePaperRecords([catalog, localPdf]);
-		expect(merged).toHaveLength(2);
+		expect(merged).toHaveLength(1);
 		expect(mergePaperRecords(catalog, localPdf).title).toBe(catalog.title);
 		expect(
 			sameLocalPdfMetadataIdentity(catalog, {
@@ -165,7 +242,7 @@ describe("literature identifiers and corpus", () => {
 				...localPdf,
 				identifiers: { semanticScholarId: "different-paper" },
 			}),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("treats an identical PDF URL as exact identity even when extracted metadata differs", () => {

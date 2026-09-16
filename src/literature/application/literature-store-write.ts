@@ -255,6 +255,8 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 								bytes: input.body.length,
 								blobPath: blob.path,
 								contentType: "application/pdf",
+								versionKind: "published",
+								isPreferred: true,
 							} satisfies PaperVersion,
 						].filter(
 							(version, index, values) =>

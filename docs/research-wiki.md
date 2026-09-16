@@ -41,7 +41,7 @@ namespace 根目录还包含两个管理文件：
 - “查询 Wiki 中关于 UAF 检测的内容”进入 Query，只使用已沉淀页面和其中的声明级证据回答。
 - “检查 Wiki”调用只读的 `lint_research_wiki`，报告 frontmatter、证据、来源版本、链接、重复页面和索引问题。
 
-Ingest 不会在论文阅读或普通搜索后自动触发。多页面更新必须先 preview，用户确认后用同一个 `preview_fingerprint` apply；来源或页面在预览后变化时拒绝写入并要求重新预览。
+Ingest 不会在论文阅读或普通搜索后自动触发。多页面更新必须先 preview，再用同一个 `preview_fingerprint` apply；默认需要用户确认，关闭 Wiki 写入确认开关后由本地策略授权，仍须校验预览指纹。来源或页面在预览后变化时拒绝写入并要求重新预览。用户明确要求等待确认时，Agent 仍应遵守。
 
 材料分工：
 

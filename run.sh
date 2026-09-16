@@ -375,6 +375,8 @@ Paper Agent
   ./run.sh --no-open --port 43127   Run the local Web service
   ./run.sh init                     First-use configuration wizard
   ./run.sh models add               Add a model key and discover available models
+  ./run.sh models remove --model P/M Remove one configured model
+  ./run.sh models remove --provider P Remove a provider and all of its models
   ./run.sh models list              List configured models without showing keys
   ./run.sh --doctor                 Environment diagnostics
   ./run.sh --status                 Show configured corpus and runtime status

@@ -56,6 +56,47 @@ function emptyArxivFeed(): Response {
 }
 
 describe("downloadLiteraturePdfs", () => {
+	it("tries a formal record PDF before an earlier arXiv link", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-formal-first-"));
+		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const record = paper({
+			identifiers: { doi: "10.5555/formal-first", arxivId: "2501.01234" },
+			links: [
+				{ url: "https://arxiv.org/pdf/2501.01234.pdf", kind: "pdf" },
+				{ url: "https://publisher.example/paper.pdf", kind: "pdf" },
+			],
+		});
+		await store.upsertPaper(record);
+		const fetcher = vi.fn(
+			async () => new Response("%PDF-formal", { headers: { "content-type": "application/pdf" } }),
+		);
+		const request = requestFor(root, record, fetcher);
+		const prepared = await authorization(store, request);
+		const result = await downloadLiteraturePdfs(store, request, prepared.preparedDownload, prepared.authorization);
+
+		expect(result.attempts[0]).toMatchObject({ source: "record-alternative", versionKind: "published" });
+		expect(result.downloaded[0]).toMatchObject({ versionKind: "published", isPreferred: true });
+		expect(result.downloaded[0].publicationVersionId).toBeTruthy();
+	});
+
+	it("skips a paper that already has a local PDF", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-existing-"));
+		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const record = paper({ links: [{ url: "https://example.org/paper.pdf", kind: "pdf" }] });
+		await store.upsertPaper(record);
+		const fetcher = vi.fn(
+			async () => new Response("%PDF-existing", { headers: { "content-type": "application/pdf" } }),
+		);
+		const request = requestFor(root, record, fetcher);
+		const prepared = await authorization(store, request);
+		await downloadLiteraturePdfs(store, request, prepared.preparedDownload, prepared.authorization);
+
+		const second = await prepareLiteraturePdfDownload(store, request);
+		expect(second.papers).toEqual([]);
+		expect(second.alreadyAvailablePaperIds).toEqual([record.id]);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+
 	it("uses the primary PDF without acquiring later arXiv candidates", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-primary-"));
 		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
@@ -409,10 +450,10 @@ describe("downloadLiteraturePdfs", () => {
 		expect(result.failures).toEqual([]);
 		expect(result.attempts.map(({ source, status }) => ({ source, status }))).toEqual([
 			{ source: "record-primary", status: "failed" },
-			{ source: "semantic-scholar-arxiv", status: "failed" },
 			{ source: "unpaywall", status: "failed" },
 			{ source: "semantic-scholar-oa", status: "failed" },
 			{ source: "openalex", status: "succeeded" },
+			{ source: "semantic-scholar-arxiv", status: "skipped" },
 		]);
 	});
 
