@@ -30,6 +30,7 @@ import {
 	type ManagedWebAgentSession,
 	type PendingUIRequest,
 	timestamp,
+	type WebAgentMessageView,
 } from "./web-agent-support.ts";
 
 export abstract class WebAgentPiEvents extends WebAgentSessions {
@@ -74,6 +75,7 @@ export abstract class WebAgentPiEvents extends WebAgentSessions {
 			this.rememberToolMessageAnchors(session, message.id, event.message);
 			session.activeAssistantMessageId = undefined;
 			this.updateMessage(session, message);
+			this.noteMissingReasoning(session, message);
 			return;
 		}
 		if (event.type === "tool_execution_start") {
@@ -123,12 +125,28 @@ export abstract class WebAgentPiEvents extends WebAgentSessions {
 			if (!entry || typeof entry !== "object") continue;
 			const item = entry as { type?: unknown; id?: unknown; toolCallId?: unknown };
 			if (item.type !== "toolCall" && item.type !== "tool_use") continue;
-			const toolCallId = typeof item.id === "string" ? item.id : typeof item.toolCallId === "string" ? item.toolCallId : undefined;
+			const toolCallId =
+				typeof item.id === "string" ? item.id : typeof item.toolCallId === "string" ? item.toolCallId : undefined;
 			if (!toolCallId) continue;
 			session.toolMessageAnchors.set(toolCallId, messageId);
 			const tool = this.existingTool(session, toolCallId);
 			if (tool) tool.assistantMessageId = messageId;
 		}
+	}
+
+	/**
+	 * Relays that do not surface chain-of-thought leave `thinking` empty, which used to render as
+	 * an ambiguous blank. Tell the user once per session instead of silently showing nothing.
+	 */
+	private noteMissingReasoning(session: ManagedWebAgentSession, message: WebAgentMessageView): void {
+		if (message.thinking || session.reasoningNoticeSent) return;
+		if (message.status !== "complete" || !message.content) return;
+		session.reasoningNoticeSent = true;
+		this.emit(session, {
+			type: "notice",
+			level: "info",
+			message: "当前 API 未提供详细推理内容，仅显示最终回答。",
+		});
 	}
 
 	protected settleUIRequest(
