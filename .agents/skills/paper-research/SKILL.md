@@ -73,7 +73,7 @@ description: "Read, investigate, and compare research papers with Paper Agent th
 
 1. 用 `inspect_agent_tools` 确认当前会话的 `search_research_notes`、`manage_research_note` 及参数；能力不可用时报告尚未保存，不绕过工具直接写 Markdown 或 SQLite。
 2. 确定用户指定的个人 namespace。先用 `search_research_notes` 按 `paper_id` 或标题查询已有笔记，避免重复创建。已有笔记不代表用户授权覆盖；仅在明确要求更新时读取其 `note_id` 和全文，保留人工内容。
-3. 选择模板：快速略读用 `skim`；方法精读、全文研究和复现准备用 `deep-reading`；跨论文比较用 `comparison-matrix`。用户指定模板时优先遵从。用 `search_research_notes` 的 `template_id` 和 `namespace` 读取当前本地模板。模板位于 `.paper-agent/templates/research-notes/`，初始内容随 Skill 的 [模板资源](assets/research-notes/) 分发。
+3. 选择模板。本条是研究方式与模板对应关系的唯一规则：快速略读用 `skim`；方法精读、全文研究和复现准备用 `deep-reading`；跨论文比较用 `comparison-matrix`。用户指定模板时优先遵从。用 `search_research_notes` 的 `template_id` 和 `namespace` 读取当前本地模板。模板位于 `.paper-agent/templates/research-notes/`，初始内容随 Skill 的 [模板资源](assets/research-notes/) 分发。下方各输出契约只规定正文结构，不另行覆盖模板选择。
 4. 按当前研究方式填写实际分析正文，保留证据边界、物理页码、章节、图表或公式定位、Artifact commit、工具失败和 `[未知]`。方法精读采用下方的方法输出契约，不保留范围外的全文章节；全文研究和复现准备保留完整 12 节，复现准备另补 Artifact 核验和人工执行步骤。模板是保存格式参考，不能扩大实际研究范围；本地模板仍为旧的 12 节骨架时，方法精读应重组标题并移除不适用章节。比较矩阵逐篇标明证据和实验条件，不将不同预算或数据集的数字直接排名。不要把模板提示或未填占位符当成研究结果。
 5. 调用 `manage_research_note`，传入 `action="create"`、`namespace`、具体 `title`、`template_id` 和已填写的 `markdown`。仅传 `template_id` 会创建模板骨架，不能声称已保存分析。`paper_ids` 只能使用同一 namespace 内已存在的个人库 ID；只有本地 PDF 时可省略关联，在正文记录来源，不自动导入论文或猜测 ID。需要已有目录时使用查询返回的 `folderId` 作为 `folder_id`。
 6. 遵守工具现有确认策略。只有工具成功返回后才报告笔记 ID、标题和实际路径；取消、失败或不可用时明确“尚未保存”。更新使用 `action="update"` 和已核实的 `note_id`，不另建副本代替用户指定的更新。保存个人笔记不自动创建派生记忆、Wiki 页面或团队共享内容。
@@ -218,7 +218,7 @@ MinerU、OCR、元数据和已有摘要只用于导航；关键判断仍须回�
 5. **跨论文综合**：说明有证据支持的共同点、分歧、结构性取舍和各自适用边界；分歧可能来自问题定义或实验设置时，不强行判断谁更好。
 6. **缺口与后续验证**：列出相互矛盾、未披露或尚未对齐的证据，并给出能够区分方法机制与实验条件影响的最小验证方案；未执行的方案标为 `[推断]`。
 
-比较默认只承诺覆盖预先声明的维度，不冒充每篇论文的全文研究。若用户要求逐篇完整精读后再比较，则每篇先满足全文研究契约，再形成比较矩阵与综合结论。保存时使用 `comparison-matrix` 模板。
+比较默认只承诺覆盖预先声明的维度，不冒充每篇论文的全文研究。若用户要求逐篇完整精读后再比较，则每篇先满足全文研究契约，再形成比较矩阵与综合结论。
 
 ## 写作要求
 
