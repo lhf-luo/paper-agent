@@ -10,6 +10,7 @@ import type {
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
 	PersonalPaperRemovalInput,
+	PersonalTitleRepairInput,
 } from "../application/paper-agent-application.ts";
 import { sendPdfResponse } from "./pdf-response.ts";
 import {
@@ -362,6 +363,25 @@ export async function handleLibraryRoutes(
 				? await application.preparePersonalAnnotation(input)
 				: await application.annotatePersonalPapers(input, grantFromBody(body)),
 		);
+		return;
+	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/library/titles/prepare" || url.pathname === "/api/library/titles/execute")
+	) {
+		const body = await readJson(request);
+		const input: PersonalTitleRepairInput = {
+			paperIds: boundedStringArray(body.paperIds, "paperIds", 5_000, 500),
+			namespace: namespaceValue(body.namespace),
+			author: typeof body.author === "string" ? body.author : undefined,
+		};
+		if (url.pathname.endsWith("/prepare")) {
+			// No dirty titles means nothing to confirm; say so instead of failing the request.
+			const prepared = await application.preparePersonalTitleRepair(input);
+			json(response, 200, { prepared: prepared ?? null });
+			return;
+		}
+		json(response, 200, await application.repairPersonalPaperTitles(input, grantFromBody(body)));
 		return;
 	}
 	if (

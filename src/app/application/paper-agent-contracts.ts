@@ -182,6 +182,13 @@ export interface PersonalPaperRemovalInput {
 	author?: string;
 }
 
+/** 批量清洗标题杂质；省略 paperIds 时处理整个命名空间。 */
+export interface PersonalTitleRepairInput {
+	paperIds?: string[];
+	namespace?: string;
+	author?: string;
+}
+
 export type PersonalCorpusExportFormat = CorpusExportFormat;
 
 export interface PersonalCorpusExportInput {

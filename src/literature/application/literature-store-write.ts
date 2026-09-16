@@ -7,6 +7,7 @@ import {
 	samePaperIdentity,
 } from "../domain/literature-identifiers.ts";
 import type { PaperCollection, PaperRecord, PaperVersion, SearchRun } from "../domain/literature-types.ts";
+import { withCleanMetadata } from "../domain/paper-title.ts";
 import { LiteratureStoreBase } from "./literature-store-base.ts";
 import {
 	type LocalPaperImportInput,
@@ -123,6 +124,7 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 
 	async upsertPaper(record: PaperRecord): Promise<"created" | "updated" | "unchanged"> {
 		await this.initialize();
+		record = withCleanMetadata(record);
 		if (this.personalDatabase) {
 			const direct = await this.personalDatabase.getPaper(record.id);
 			const candidates = await this.personalDatabase.listPapers();
@@ -148,6 +150,7 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 		records: PaperRecord[],
 	): Promise<Array<{ record: PaperRecord; status?: "created" | "updated" | "unchanged"; error?: string }>> {
 		await this.initialize();
+		records = records.map(withCleanMetadata);
 		if (this.personalDatabase) {
 			const outcomes: Array<{ record: PaperRecord; status?: "created" | "updated" | "unchanged"; error?: string }> =
 				[];

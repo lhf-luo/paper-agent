@@ -4,6 +4,7 @@ import {
 	corpusAnnotationPlan,
 	corpusExportFilename,
 	corpusExportPlan,
+	corpusTitleRepairPlan,
 } from "../../literature/application/corpus-operations.ts";
 import { runAuthorizedMutation } from "../../literature/application/literature-write.ts";
 import type { PaperCollection, PaperRecord } from "../../literature/domain/literature-types.ts";
@@ -13,6 +14,7 @@ import type {
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
 	PersonalPaperRemovalInput,
+	PersonalTitleRepairInput,
 } from "./paper-agent-contracts.ts";
 import { PaperAgentLibrary } from "./paper-agent-library.ts";
 
@@ -267,6 +269,30 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 
 	async preparePersonalAnnotation(input: PersonalCorpusAnnotationInput): Promise<PreparedOperation> {
 		return this.consent.prepare((await this.personalAnnotationOperation(input)).plan);
+	}
+
+	/** 收集待清洗的标题；没有脏标题时返回 undefined，无需用户确认。 */
+	protected async personalTitleRepairOperation(input: PersonalTitleRepairInput) {
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		const scope = input.paperIds?.length ? new Set(input.paperIds.map((id) => id.trim())) : undefined;
+		const candidates = (await store.listPapers()).filter((record) => !scope || scope.has(record.id));
+		const plan = corpusTitleRepairPlan(store, candidates, input.author?.trim() || "local-user");
+		return plan ? { namespace, store, plan } : undefined;
+	}
+
+	async preparePersonalTitleRepair(input: PersonalTitleRepairInput): Promise<PreparedOperation | undefined> {
+		const operation = await this.personalTitleRepairOperation(input);
+		return operation ? this.consent.prepare(operation.plan) : undefined;
+	}
+
+	async repairPersonalPaperTitles(input: PersonalTitleRepairInput, grant: ConfirmationGrant) {
+		const operation = await this.personalTitleRepairOperation(input);
+		if (!operation) return { namespace: input.namespace ?? this.defaultNamespace, repaired: 0, repairs: [] };
+		const repairs = await runAuthorizedMutation({ manager: this.consent, grant }, operation.plan, () =>
+			operation.store.repairPaperMetadata(input.paperIds),
+		);
+		return { namespace: operation.namespace, repaired: repairs.length, repairs };
 	}
 
 	async annotatePersonalPapers(input: PersonalCorpusAnnotationInput, grant: ConfirmationGrant) {
