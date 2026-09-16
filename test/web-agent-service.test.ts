@@ -326,6 +326,52 @@ describe("WebAgentService", () => {
 		}
 	});
 
+	it.each(["once", "persistent"] as const)("keeps %s model context separate from saved UI history", async (mode) => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-context-"));
+		temporaryPaths.push(root);
+		const secret = "synthetic-context-test-key";
+		const provider = await startFakeModelServer({ secret });
+		const config = {
+			providerId: "fake-provider",
+			modelId: "fake-model",
+			baseUrl: provider.baseUrl,
+			api: "openai-completions" as const,
+			apiKey: secret,
+		};
+		try {
+			const service = await WebAgentService.create({ projectRoot: root });
+			services.push(service);
+			await service.updateConfig(config);
+			const session = service.createSession({ mode });
+			for (const message of ["context-first-marker", "context-second-marker"]) {
+				await service.sendMessage(session.id, { message });
+				await waitFor(() => service.getSession(session.id).status !== "running");
+				expect(service.getSession(session.id).error).toBeUndefined();
+			}
+			expect(provider.requests).toHaveLength(2);
+			const secondMessages = JSON.stringify(provider.requests[1].body.messages);
+			expect(secondMessages).toContain("context-second-marker");
+			expect(secondMessages.includes("context-first-marker")).toBe(mode === "persistent");
+			expect(service.getSession(session.id).messages.filter((message) => message.role === "user")).toHaveLength(2);
+
+			await service.close();
+			const restored = await WebAgentService.create({ projectRoot: root });
+			services.push(restored);
+			await restored.updateConfig(config);
+			expect(restored.getSession(session.id).messages.filter((message) => message.role === "user")).toHaveLength(2);
+			await restored.sendMessage(session.id, { message: "context-after-restart-marker" });
+			await waitFor(() => restored.getSession(session.id).status !== "running");
+			expect(restored.getSession(session.id).error).toBeUndefined();
+			expect(provider.requests).toHaveLength(3);
+			const restoredMessages = JSON.stringify(provider.requests[2].body.messages);
+			expect(restoredMessages).toContain("context-after-restart-marker");
+			expect(restoredMessages.includes("context-first-marker")).toBe(mode === "persistent");
+			expect(restoredMessages.includes("context-second-marker")).toBe(mode === "persistent");
+		} finally {
+			await provider.close();
+		}
+	});
+
 	it("forwards configured model headers through the Pi SDK", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-headers-"));
 		temporaryPaths.push(root);

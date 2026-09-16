@@ -55,12 +55,22 @@ export interface TeamLiteratureRepository {
 		reviewStatuses?: SharedReviewStatus[];
 		types?: string[];
 		openAccess?: boolean;
+		/**
+		 * Allowlist of paper ids. `undefined` means no restriction; an empty array means "no results", so a
+		 * caller that resolves a category to zero papers must pass `[]` instead of omitting the option.
+		 */
+		paperIds?: string[];
 		offset?: number;
 		limit?: number;
 		readOnly?: boolean;
 	}): Promise<CorpusSearchHit[]>;
 	listPaperVersions(paperId: string): Promise<PaperVersion[]>;
-	proposePapers(records: PaperRecord[], contributor: string, contributorId?: string): Promise<number>;
+	proposePapers(
+		records: PaperRecord[],
+		contributor: string,
+		contributorId?: string,
+		requestedTopicIds?: string[],
+	): Promise<number>;
 	withdrawPapers(paperIds: string[], contributor: string, contributorId?: string): Promise<string[]>;
 	reviewTeamPaper(
 		id: string,

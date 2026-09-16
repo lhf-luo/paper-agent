@@ -8,6 +8,7 @@ import type { DerivedRecord, PaperRecord } from "../../literature/domain/literat
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { configuredTeamCorpusClient, sanitizePaperRecordForTeamProposal } from "../application/team-corpus-client.ts";
 import { executeTeamPull, previewTeamPull } from "../application/team-pull.ts";
+import { resolveRequestedTopics } from "../application/team-topic-membership.ts";
 import type { TeamPageSnapshot } from "../domain/team-corpus-types.ts";
 import { teamNamespacePattern, validateTeamNamespace } from "../domain/team-corpus-validation.ts";
 import { handleTeamCollaborationTool } from "./team-collaboration-tools.ts";
@@ -22,6 +23,8 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 		promptSnippet: "Use the authenticated shared team literature service",
 		promptGuidelines: [
 			"Search may reuse team records, but records remain discovery evidence until primary sources are opened.",
+			"`search` accepts `topic_ids` (shared categories, listed by the `topics` action) to scope results; the union of the listed categories is returned.",
+			"`propose` accepts `topic_ids` to ask for existing shared categories; a reviewer applies them when approving, and a request naming an unknown category is refused.",
 			"Propose from personal scope; the service removes personal notes and screening opinions before team storage.",
 			"Pull only approved team records; personal notes and screening are never copied back down.",
 		],
@@ -74,6 +77,8 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 				),
 			),
 			open_access: Type.Optional(Type.Boolean()),
+			/** Shared categories for `search` (filter) and `propose` (membership request); `topic_id` edits one. */
+			topic_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 50 })),
 			cursor: Type.Optional(Type.String({ pattern: "^\\d+$" })),
 			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
 			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
@@ -148,6 +153,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					types: params.publication_types,
 					statuses: params.review_statuses,
 					openAccess: params.open_access,
+					topicIds: params.topic_ids,
 					cursor: params.cursor,
 					limit: params.limit,
 				});
@@ -181,6 +187,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 						? requested.map((item) => item.record).filter((record): record is PaperRecord => Boolean(record))
 						: await store.listPapers()
 				).map(sanitizePaperRecordForTeamProposal);
+				const requestedTopicIds = await resolveRequestedTopics(client, namespace, params.topic_ids);
 				await authorize({
 					kind: "team-proposal",
 					summary: `Propose ${records.length} privacy-scrubbed personal paper record(s) to the team service`,
@@ -195,12 +202,22 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 						personalNamespace,
 						privacy:
 							"Personal notes, screening decisions, and previous team review state are removed before transfer.",
+						...(requestedTopicIds ? { requestedTopicIds } : {}),
 						records,
 					},
 				});
-				const result = await client.proposePapers(namespace, records);
+				const result = await client.proposePapers(namespace, records, { topicIds: requestedTopicIds });
 				return {
-					content: [{ type: "text", text: `Proposed ${records.length} records to ${namespace}` }],
+					content: [
+						{
+							type: "text",
+							text: `Proposed ${records.length} records to ${namespace}${
+								requestedTopicIds
+									? `; a reviewer applies ${requestedTopicIds.length} requested categories on approval`
+									: ""
+							}`,
+						},
+					],
 					details: result,
 				};
 			}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, jsonBody } from "./api";
-import { ConsentCard, confirmOperation, LoadingBlock, PageHeading, StatusPill } from "./components";
+import { AccessibleModal, ConsentCard, confirmOperation, LoadingBlock, PageHeading, StatusPill } from "./components";
 import type {
 	ConfirmationGrant,
 	PaperAgentConfigView,
@@ -189,20 +189,36 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 			{error && <div className="error-banner">{error}</div>}
 			{message && <div className="success-banner">{message}</div>}
 			{pending && (
-				<ConsentCard
-					operation={pending}
-					busy={busy}
-					onCancel={() => setPending(undefined)}
-					onConfirm={executePending}
-				/>
+				<AccessibleModal
+					title="确认保存设置"
+					onClose={() => {
+						if (!busy) setPending(undefined);
+					}}
+					maxWidth={620}
+				>
+					<ConsentCard
+						operation={pending}
+						busy={busy}
+						onCancel={() => setPending(undefined)}
+						onConfirm={executePending}
+					/>
+				</AccessibleModal>
 			)}
 			{teamPending && (
-				<ConsentCard
-					operation={teamPending}
-					busy={teamBusy}
-					onCancel={() => setTeamPending(undefined)}
-					onConfirm={executeTeamAccess}
-				/>
+				<AccessibleModal
+					title="确认团队接入变更"
+					onClose={() => {
+						if (!teamBusy) setTeamPending(undefined);
+					}}
+					maxWidth={620}
+				>
+					<ConsentCard
+						operation={teamPending}
+						busy={teamBusy}
+						onCancel={() => setTeamPending(undefined)}
+						onConfirm={executeTeamAccess}
+					/>
+				</AccessibleModal>
 			)}
 			<div className="settings-form">
 				<section className="panel form-panel">

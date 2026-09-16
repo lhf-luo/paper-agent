@@ -164,6 +164,14 @@ export abstract class WebAgentPiEvents extends WebAgentSessions {
 		if (this.closed || !this.sessions.has(session.id) || opts?.signal?.aborted) {
 			return Promise.resolve(type === "confirm" ? false : undefined);
 		}
+		if (session.permissionMode === "auto" && type === "confirm") {
+			this.emit(session, {
+				type: "notice",
+				level: "info",
+				message: `权限模式为自动，已自动批准：${this.redact(title).slice(0, 200)}`,
+			});
+			return Promise.resolve(true);
+		}
 		const createdAt = Date.now();
 		const timeoutMs = Math.min(Math.max(100, opts?.timeout ?? this.uiRequestTimeoutMs), 30 * 60_000);
 		const view: WebAgentUIRequestView = {

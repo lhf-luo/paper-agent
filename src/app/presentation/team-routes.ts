@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { TeamAccessChange, TeamMemberChange } from "../../team/application/team-access-service.ts";
+import { TeamCorpusHttpError } from "../../team/application/team-corpus-client.ts";
 import type {
 	PaperAgentApplication,
 	TeamArtifactProposalInput,
@@ -13,9 +14,8 @@ import type {
 	TeamReviewInput,
 	TeamWithdrawInput,
 } from "../application/paper-agent-application.ts";
-import { ApiError, grantFromBody, json, namespaceValue, numberValue, readJson, stringArray } from "./web-http.ts";
 import { handleTeamContentRoutes } from "./team-content-routes.ts";
-import { TeamCorpusHttpError } from "../../team/application/team-corpus-client.ts";
+import { ApiError, grantFromBody, json, namespaceValue, numberValue, readJson, stringArray } from "./web-http.ts";
 
 export async function handleTeamRoutes(
 	application: PaperAgentApplication,
@@ -56,6 +56,17 @@ async function handleRoutes(
 		json(response, 200, await application.teamOverview());
 		return;
 	}
+	if (request.method === "GET" && url.pathname === "/api/team/proposals") {
+		json(
+			response,
+			200,
+			await application.listPendingTeamPapers(
+				url.searchParams.get("cursor") ?? undefined,
+				numberValue(url.searchParams.get("limit"), 10),
+			),
+		);
+		return;
+	}
 	if (request.method === "GET" && url.pathname === "/api/team/search") {
 		const openAccessParam = url.searchParams.get("openAccess");
 		json(
@@ -70,6 +81,11 @@ async function handleRoutes(
 				types: url.searchParams.getAll("type").filter(Boolean),
 				statuses: url.searchParams.getAll("status").filter(Boolean) as any,
 				openAccess: openAccessParam === "true" ? true : openAccessParam === "false" ? false : undefined,
+				topicIds: url.searchParams
+					.getAll("topic")
+					.flatMap((value) => value.split(","))
+					.map((value) => value.trim())
+					.filter(Boolean),
 				limit: numberValue(url.searchParams.get("limit"), 100),
 				cursor: url.searchParams.get("cursor") ?? undefined,
 			}),
@@ -211,6 +227,7 @@ async function handleRoutes(
 			await application.prepareTeamPaperProposal({
 				paperIds: stringArray(body.paperIds) ?? [],
 				personalNamespace: typeof body.personalNamespace === "string" ? body.personalNamespace : undefined,
+				topicIds: stringArray(body.topicIds),
 			}),
 		);
 		return;
@@ -224,6 +241,7 @@ async function handleRoutes(
 				{
 					paperIds: stringArray(body.paperIds) ?? [],
 					personalNamespace: typeof body.personalNamespace === "string" ? body.personalNamespace : undefined,
+					topicIds: stringArray(body.topicIds),
 				},
 				grantFromBody(body),
 			),

@@ -15,6 +15,7 @@ import {
 	type TeamLiteratureRepository,
 	TeamPaperConflictError,
 } from "../domain/team-literature-repository.ts";
+import { TeamStateError } from "../domain/team-state-error.ts";
 import type {
 	CorpusManifest,
 	CorpusSearchHit,
@@ -117,6 +118,23 @@ function deepFreeze<T>(value: T): T {
 		for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
 	}
 	return value;
+}
+
+/**
+ * Categories a proposal asks its records to join. Only a reviewer may write categories, so this is a request
+ * recorded on the review envelope; approval applies it. The list is bounded and deduplicated so one proposal
+ * cannot expand into an unbounded number of category writes later.
+ */
+function normalizeRequestedTopicIds(value: string[] | undefined): string[] | undefined {
+	const ids = [
+		...new Set(
+			(value ?? [])
+				.filter((id): id is string => typeof id === "string")
+				.map((id) => id.trim())
+				.filter((id) => id.length > 0 && id.length <= 128),
+		),
+	].slice(0, 50);
+	return ids.length ? ids : undefined;
 }
 
 export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
@@ -231,6 +249,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		reviewStatuses?: SharedReviewStatus[];
 		types?: string[];
 		openAccess?: boolean;
+		paperIds?: string[];
 		offset?: number;
 		limit?: number;
 	}): Promise<CorpusSearchHit[]> {
@@ -241,10 +260,13 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		const wantedTags = (options.tags ?? []).map(normalizeSearchText).filter(Boolean);
 		const wantedIdentifiers = (options.identifiers ?? []).map(normalizeSearchText).filter(Boolean);
 		const wantedTypes = (options.types ?? []).map(normalizeSearchText).filter(Boolean);
+		// Category scoping. `undefined` keeps every record; an explicit (possibly empty) list is an allowlist.
+		const allowedPaperIds = options.paperIds === undefined ? undefined : new Set(options.paperIds);
 		// Readers must never discover records that are still pending or were rejected.
 		const reviewStatuses = options.reviewStatuses ?? (["team-approved"] as SharedReviewStatus[]);
 		const hits: CorpusSearchHit[] = [];
 		for (const record of await this.listPapers()) {
+			if (allowedPaperIds && !allowedPaperIds.has(record.id)) continue;
 			if (!reviewStatuses.includes(record.curation?.teamReview?.status as SharedReviewStatus)) continue;
 			if (options.yearFrom !== undefined && (record.year === undefined || record.year < options.yearFrom)) continue;
 			if (options.yearTo !== undefined && (record.year === undefined || record.year > options.yearTo)) continue;
@@ -313,9 +335,15 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 			.slice(offset, offset + Math.min(options.limit ?? 100, 500));
 	}
 
-	async proposePapers(records: PaperRecord[], contributor: string, contributorId?: string): Promise<number> {
+	async proposePapers(
+		records: PaperRecord[],
+		contributor: string,
+		contributorId?: string,
+		requestedTopicIds?: string[],
+	): Promise<number> {
 		if (!contributor.trim()) throw new Error("Contributor identity is required");
 		const proposer: TeamContributor = { name: contributor.trim(), id: contributorId };
+		const requested = normalizeRequestedTopicIds(requestedTopicIds);
 		await this.initialize();
 		return this.withWriteLock(async () => {
 			const candidates = await this.listPapers();
@@ -323,6 +351,23 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 			for (const source of records) {
 				const direct = candidates.find((candidate) => candidate.id === source.id);
 				if (direct) assertSamePaper(direct, source);
+			}
+			// A category request rides on the review decision, and there is no review for a published record.
+			// Letting a contributor file an approved paper into a curator-owned category would be an unreviewed
+			// write, so the whole batch is refused instead of silently dropping the request.
+			if (requested) {
+				const published = records
+					.filter(
+						(source) =>
+							candidates.find((candidate) => candidate.id === source.id)?.curation?.teamReview?.status ===
+							"team-approved",
+					)
+					.map((source) => source.id);
+				if (published.length)
+					throw new TeamStateError(
+						400,
+						`already published papers cannot request categories through a proposal: ${published.join(", ")}`,
+					);
 			}
 			for (const source of records) {
 				const proposed: PaperRecord = {
@@ -335,6 +380,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 							proposedBy: proposer.name,
 							proposedById: proposer.id,
 							proposedAt: new Date().toISOString(),
+							...(requested ? { requestedTopicIds: requested } : {}),
 						},
 					},
 				};
@@ -370,6 +416,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 				return;
 			}
 			// A rejected record is invisible anyway: reset it in place so reviewers re-check the new content.
+			const requested = normalizeRequestedTopicIds(record.curation?.teamReview?.requestedTopicIds);
 			merged.curation = {
 				tags: [...(merged.curation?.tags ?? [])],
 				userNotes: [],
@@ -378,6 +425,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 					proposedBy: proposer.name,
 					proposedById: proposer.id,
 					proposedAt: new Date().toISOString(),
+					...(requested ? { requestedTopicIds: requested } : {}),
 				},
 			};
 		}
@@ -405,6 +453,10 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 		const revision = mergePaperRecords(pending ?? approved, record);
 		revision.id = approved.id;
 		const review = pending?.curation?.teamReview;
+		// A re-proposal may ask for new categories; otherwise the parked revision keeps its earlier request.
+		const requestedTopicIds = normalizeRequestedTopicIds(
+			record.curation?.teamReview?.requestedTopicIds ?? review?.requestedTopicIds,
+		);
 		revision.curation = {
 			tags: [...(revision.curation?.tags ?? [])],
 			userNotes: [],
@@ -414,6 +466,7 @@ export class FileTeamLiteratureRepository implements TeamLiteratureRepository {
 				proposedById: review?.proposedById ?? proposer.id,
 				proposedAt: review?.proposedAt ?? new Date().toISOString(),
 				revision: true,
+				...(requestedTopicIds ? { requestedTopicIds } : {}),
 			},
 		};
 		await writeJsonAtomic(this.revisionPath(approved.id), revision);

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
+import { rerankByQueryRelevance, searchRelevanceScore } from "../src/literature/domain/literature-relevance.ts";
 import type { PaperRecord } from "../src/literature/domain/literature-types.ts";
-import { OperationConsentManager } from "../src/shared/application/operation-consent.ts";
 import {
 	buildCandidatePaperTable,
 	buildCitationExpansionTable,
@@ -15,6 +15,7 @@ import {
 	planLiteratureSearch,
 	tagCitationExpansionRecords,
 } from "../src/literature/presentation/collection-tools.ts";
+import { OperationConsentManager } from "../src/shared/application/operation-consent.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -291,6 +292,103 @@ describe("collection workflow", () => {
 		expect(await store.listPapers()).toEqual([]);
 		const savedRun = await store.getSearchRun(result.run.id);
 		expect(savedRun?.id).toBe(result.run.id);
+	});
+
+	it("ranks exact query-title matches ahead of provider arrival order", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-relevance-"));
+		temporaryPaths.push(root);
+		const exactTitle =
+			"ProtocolGuard: Detecting Protocol Non-compliance Bugs via LLM-guided Static Analysis and Dynamic Verification";
+		const decoy = (index: number): PaperRecord => ({
+			id: `decoy-${index}`,
+			title: `A Survey of Protocol Testing Techniques ${index}`,
+			authors: ["Grace Researcher"],
+			year: 2024,
+			identifiers: {},
+			links: [],
+			provenance: [{ provider: "arxiv", query: exactTitle, retrievedAt: "2026-01-01T00:00:00.000Z" }],
+			mergedFrom: [],
+		});
+		const exact: PaperRecord = {
+			id: "exact-paper",
+			title: exactTitle,
+			authors: ["Ada Researcher"],
+			year: 2025,
+			identifiers: {},
+			links: [],
+			provenance: [{ provider: "crossref", query: exactTitle, retrievedAt: "2026-01-01T00:00:00.000Z" }],
+			mergedFrom: [],
+		};
+		const result = await collectLiterature({
+			queries: [exactTitle],
+			providers: ["arxiv", "crossref"],
+			filters: {},
+			pagesPerProvider: 1,
+			maxResultsPerProvider: 5,
+			scope: "personal",
+			mode: "once",
+			namespace: "default",
+			cwd: root,
+			providerPageSearch: async (provider, options) => ({
+				provider,
+				query: options.query,
+				records: provider === "arxiv" ? [decoy(0), decoy(1)] : [exact],
+				requestUrl: "https://example.test/provider-search",
+			}),
+		});
+
+		expect(result.run.results.map((record) => record.title)).toEqual([exactTitle, decoy(0).title, decoy(1).title]);
+	});
+
+	it("scores relevance by query-token coverage over title and abstract", () => {
+		const query = "ProtocolGuard: Detecting Protocol Non-compliance Bugs via LLM-guided Static Analysis";
+		const exact: PaperRecord = {
+			id: "exact",
+			title: "ProtocolGuard: Detecting Protocol Non-compliance Bugs via LLM-guided Static Analysis",
+			authors: [],
+			identifiers: {},
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+		const titlePartial: PaperRecord = {
+			id: "partial",
+			title: "Detecting Protocol Bugs in TLS Stacks",
+			authors: [],
+			identifiers: {},
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+		const abstractOnly: PaperRecord = {
+			id: "abstract-only",
+			title: "Unrelated Systems Paper",
+			abstract: "We study static analysis for detecting protocol non-compliance bugs.",
+			authors: [],
+			identifiers: {},
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+		const unrelated: PaperRecord = {
+			id: "unrelated",
+			title: "Deep Learning for Weather Forecasting",
+			authors: [],
+			identifiers: {},
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+
+		expect(searchRelevanceScore(exact, [query])).toBe(1);
+		expect(searchRelevanceScore(titlePartial, [query])).toBeGreaterThan(searchRelevanceScore(abstractOnly, [query]));
+		expect(searchRelevanceScore(unrelated, [query])).toBe(0);
+		expect(rerankByQueryRelevance([unrelated, abstractOnly, titlePartial, exact], [query]).map((r) => r.id)).toEqual([
+			"exact",
+			"partial",
+			"abstract-only",
+			"unrelated",
+		]);
 	});
 
 	it("applies publication type and open-access filters when reusing the corpus", async () => {

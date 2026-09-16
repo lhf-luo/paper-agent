@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, jsonBody } from "./api";
 import {
+	AccessibleModal,
 	ConsentCard,
 	confirmOperation,
 	EmptyState,
@@ -51,6 +52,10 @@ export function SearchPage({ onTask }: SearchPageProps) {
 	const [detailPaper, setDetailPaper] = useState<PaperRecord | undefined>();
 	const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 	const [pending, setPending] = useState<PreparedOperation>();
+	const [pendingPaperIds, setPendingPaperIds] = useState<string[]>();
+	const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+	const [savingId, setSavingId] = useState<string>();
+	const consentCardRef = useRef<HTMLDivElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const runRequestSequence = useRef(0);
@@ -150,6 +155,20 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		return () => controller.abort();
 	}, [namespace]);
 
+	// 新搜索完成后刷新历史记录列表, 让刚完成的检索立即出现在下拉里。
+	useEffect(() => {
+		if (job?.status !== "succeeded") return;
+		const controller = new AbortController();
+		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs?namespace=${encodeURIComponent(namespace)}`, {
+			signal: controller.signal,
+		})
+			.then((response) => {
+				if (!controller.signal.aborted) setAgentRuns(response.runs);
+			})
+			.catch(() => {});
+		return () => controller.abort();
+	}, [job?.status, namespace]);
+
 	const listValues = (value: string) =>
 		value
 			.split(/\r?\n|,/)
@@ -198,8 +217,12 @@ export function SearchPage({ onTask }: SearchPageProps) {
 					reuseCorpus,
 				}),
 			);
+			// 新检索开始前清掉历史记录查看状态, 否则 selectedRun 会一直压住新任务的结果展示。
 			setSearchJobId(created.id);
+			setSelectedRun(undefined);
+			setSelectedRunId("");
 			setSelected(new Set());
+			setDetailPaper(undefined);
 			onTask(created);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -211,25 +234,41 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
 
+	const runIdBody = () => (selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id });
+
 	const prepareSave = async () => {
 		if (!job && !selectedRun) return;
 		if (!selected.size) return;
 		setBusy(true);
 		setError("");
 		try {
+			setPendingPaperIds(undefined);
 			setPending(
-				await api(
-					"/api/library/import/prepare",
-					jsonBody({
-						...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
-						paperIds: [...selected],
-						namespace,
-					}),
-				),
+				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [...selected], namespace })),
 			);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
+			setBusy(false);
+		}
+	};
+
+	const saveOne = async (paper: PaperRecord) => {
+		if (!job && !selectedRun) return;
+		if (savedIds.has(paper.id) || savingId) return;
+		setBusy(true);
+		setError("");
+		setSavingId(paper.id);
+		try {
+			setPendingPaperIds([paper.id]);
+			setPending(
+				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [paper.id], namespace })),
+			);
+		} catch (reason) {
+			setPendingPaperIds(undefined);
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setSavingId(undefined);
 			setBusy(false);
 		}
 	};
@@ -239,17 +278,15 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		setBusy(true);
 		setError("");
 		try {
+			const paperIds = pendingPaperIds ?? [...selected];
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const created = await api<BackgroundJob>(
 				"/api/library/import/execute",
-				jsonBody({
-					...(selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id }),
-					paperIds: [...selected],
-					namespace,
-					grant,
-				}),
+				jsonBody({ ...runIdBody(), paperIds, namespace, grant }),
 			);
 			onTask(created);
+			setSavedIds((current) => new Set([...current, ...paperIds]));
+			setPendingPaperIds(undefined);
 			setPending(undefined);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -257,6 +294,10 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			setBusy(false);
 		}
 	};
+
+	useEffect(() => {
+		if (pending) consentCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+	}, [pending]);
 
 	return (
 		<>
@@ -429,12 +470,26 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				</div>
 			)}
 			{pending && (
-				<ConsentCard
-					operation={pending}
-					busy={busy}
-					onCancel={() => setPending(undefined)}
-					onConfirm={confirmSave}
-				/>
+				<AccessibleModal
+					title="确认保存文献到个人库"
+					onClose={() => {
+						if (!busy) {
+							setPending(undefined);
+							setPendingPaperIds(undefined);
+						}
+					}}
+					maxWidth={640}
+				>
+					<ConsentCard
+						operation={pending}
+						busy={busy}
+						onCancel={() => {
+							setPending(undefined);
+							setPendingPaperIds(undefined);
+						}}
+						onConfirm={confirmSave}
+					/>
+				</AccessibleModal>
 			)}
 			{agentRuns.length > 0 && (
 				<div className="agent-run-picker">
@@ -473,7 +528,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 					tips={[
 						"尝试精确研究课题：如 speculative decoding in large language models",
 						"直接输入目标论文 DOI (例如 10.1145/...) 或 arXiv ID 即可一键精确定位",
-						"在展开的筛选器中指定 CCF 等级、年份范围或开放获取状态"
+						"在展开的筛选器中指定 CCF 等级、年份范围或开放获取状态",
 					]}
 				/>
 			)}
@@ -546,6 +601,9 @@ export function SearchPage({ onTask }: SearchPageProps) {
 										})
 									}
 									onOpen={() => setDetailPaper(paper)}
+									onSave={(target) => void saveOne(target)}
+									saved={savedIds.has(paper.id)}
+									saveBusy={savingId === paper.id}
 								/>
 							))}
 						</div>

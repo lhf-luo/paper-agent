@@ -9,22 +9,22 @@ import type {
 	PaperVersion,
 } from "../../literature/domain/literature-types.ts";
 import type {
+	SharedReviewStatus,
+	TeamActor,
 	TeamArtifactEntry,
 	TeamAuditEvent,
-	TeamDerivedEntry,
-	TeamPageEntry,
-	SharedReviewStatus,
-	TeamReviewResource,
-	TeamReviewSnapshot,
-	TeamReviewVersions,
-	TeamActor,
 	TeamCollaborationChange,
 	TeamContentQuery,
 	TeamContentRef,
 	TeamContentSummary,
+	TeamDerivedEntry,
 	TeamDiscussion,
 	TeamListPage,
 	TeamNotification,
+	TeamPageEntry,
+	TeamReviewResource,
+	TeamReviewSnapshot,
+	TeamReviewVersions,
 	TeamSubmission,
 	TeamTopic,
 	TeamTopicChange,
@@ -48,6 +48,10 @@ export interface TeamCorpusConnection {
 export function sanitizePaperRecordForTeamProposal(record: PaperRecord): PaperRecord {
 	return {
 		...record,
+		// Personal-library categories are private organisation and their ids mean nothing to the team service,
+		// which keeps its own categories as `TeamTopic` records. Strip them so they cannot travel upward and
+		// later reappear in another member's personal library as dangling ids.
+		collectionIds: undefined,
 		curation: {
 			tags: [...(record.curation?.tags ?? [])],
 			userNotes: [],
@@ -236,6 +240,8 @@ export class TeamCorpusClient {
 		types?: string[];
 		statuses?: SharedReviewStatus[];
 		openAccess?: boolean;
+		/** Category ids (`TeamTopic`) to scope the search to. Results are the union of the listed categories. */
+		topicIds?: string[];
 		cursor?: string;
 		limit?: number;
 	}): Promise<{ hits: CorpusSearchHit[]; nextCursor?: string }> {
@@ -247,6 +253,7 @@ export class TeamCorpusClient {
 		for (const venue of input.venues ?? []) query.append("venue", venue);
 		for (const type of input.types ?? []) query.append("type", type);
 		for (const status of input.statuses ?? []) query.append("status", status);
+		for (const topicId of input.topicIds ?? []) query.append("topic", topicId);
 		if (input.openAccess !== undefined) query.set("openAccess", String(input.openAccess));
 		if (input.cursor !== undefined) query.set("cursor", input.cursor);
 		if (input.limit !== undefined) query.set("limit", String(input.limit));
@@ -264,20 +271,29 @@ export class TeamCorpusClient {
 	async pendingPapers(
 		namespace: string,
 		cursor?: string,
-		options: { mine?: boolean } = {},
+		options: { mine?: boolean; limit?: number } = {},
 	): Promise<{ records: PaperRecord[]; nextCursor?: string }> {
 		const query = new URLSearchParams();
 		if (cursor) query.set("cursor", cursor);
 		if (options.mine) query.set("mine", "true");
+		if (options.limit) query.set("limit", String(options.limit));
 		const suffix = query.size ? `?${query}` : "";
 		return this.requestJson(`${this.namespacePath(namespace, "proposals")}${suffix}`);
 	}
 
-	async proposePapers(namespace: string, records: PaperRecord[]) {
-		return this.requestJson<{ promoted: number; contributor: string }>(this.namespacePath(namespace, "proposals"), {
-			method: "POST",
-			body: JSON.stringify({ records: records.map(sanitizePaperRecordForTeamProposal) }),
-		});
+	async proposePapers(namespace: string, records: PaperRecord[], options: { topicIds?: string[] } = {}) {
+		const topicIds = options.topicIds?.length ? [...new Set(options.topicIds)] : undefined;
+		return this.requestJson<{ promoted: number; contributor: string; requestedTopicIds?: string[] }>(
+			this.namespacePath(namespace, "proposals"),
+			{
+				method: "POST",
+				body: JSON.stringify({
+					records: records.map(sanitizePaperRecordForTeamProposal),
+					// Categories travel as a request on the review envelope: only a reviewer may write them.
+					...(topicIds ? { topicIds } : {}),
+				}),
+			},
+		);
 	}
 
 	async withdrawPapers(

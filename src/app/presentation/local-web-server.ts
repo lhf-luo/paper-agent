@@ -13,7 +13,7 @@ import type {
 	PdfAssetCorrectionInput,
 	PdfDownloadPreparationInput,
 } from "../application/paper-agent-application.ts";
-import { handleAgentRoutes } from "./agent-routes.ts";
+import { handleAgentResearchLaunch, handleAgentRoutes } from "./agent-routes.ts";
 import { handleConnectorRoutes } from "./connector-routes.ts";
 import { handleJobRoutes } from "./job-routes.ts";
 import { handleLibraryRoutes } from "./library-routes.ts";
@@ -67,16 +67,16 @@ async function serveStatic(response: ServerResponse, staticRoot: string, pathnam
 	} catch {
 		throw new ApiError(503, "Web assets are not built. Run npm run web:build.");
 	}
-	response.writeHead(200, {
-		"content-type": mimeTypes[extname(path).toLowerCase()] ?? "application/octet-stream",
-		"content-length": fileStat.size,
-		"cache-control": path.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
-		"content-security-policy":
-			"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self'; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self'",
-		"referrer-policy": "no-referrer",
-		"x-content-type-options": "nosniff",
-		"x-frame-options": "DENY",
-	});
+		response.writeHead(200, {
+			"content-type": mimeTypes[extname(path).toLowerCase()] ?? "application/octet-stream",
+			"content-length": fileStat.size,
+			"cache-control": path.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
+			"content-security-policy":
+				"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self'",
+			"referrer-policy": "no-referrer",
+			"x-content-type-options": "nosniff",
+			"x-frame-options": "DENY",
+		});
 	createReadStream(path).pipe(response);
 }
 
@@ -106,6 +106,10 @@ export async function startLocalWebServer(
 			if (await handlePdfTranslationRoutes(application, request, response, url)) return;
 			if (await handleMineruRoutes(application, request, response, url)) return;
 			if (await handleWikiRoutes(application, request, response, url)) return;
+			if (url.pathname === "/api/agent/research/start") {
+				if (!options.agentService) throw new ApiError(503, "Web Agent service is unavailable");
+				if (await handleAgentResearchLaunch(application, options.agentService, request, response, url)) return;
+			}
 			if (url.pathname.startsWith("/api/agent/")) {
 				await handleAgentRoutes({ request, response, url, agentService: options.agentService, openStreams });
 				return;

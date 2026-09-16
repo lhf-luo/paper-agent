@@ -179,10 +179,19 @@ export class TeamKnowledgeStore {
 		}, false);
 	}
 
-	async proposePapers(records: PaperRecord[], actor: AuditActor): Promise<number> {
+	async proposePapers(
+		records: PaperRecord[],
+		actor: AuditActor,
+		requestedTopicIds?: string[],
+	): Promise<number> {
 		await this.initialize();
 		return this.withWriteOperation(async () => {
-			const promoted = await this.literature.proposePapers(records, normalizedActor(actor).name, actorId(actor));
+			const promoted = await this.literature.proposePapers(
+				records,
+				normalizedActor(actor).name,
+				actorId(actor),
+				requestedTopicIds,
+			);
 			const papers = await this.literature.listPapers();
 			const ids = [
 				...new Set(
@@ -194,7 +203,10 @@ export class TeamKnowledgeStore {
 			];
 			for (const snapshot of await this.reviewSnapshots("papers", ids))
 				await this.collaboration.record(snapshot, normalizedActor(actor));
-			await this.appendAudit(actor, "paper.propose", undefined, { paperIds: records.map((record) => record.id) });
+			await this.appendAudit(actor, "paper.propose", undefined, {
+				paperIds: records.map((record) => record.id),
+				...(requestedTopicIds?.length ? { requestedTopicIds } : {}),
+			});
 			return promoted;
 		});
 	}

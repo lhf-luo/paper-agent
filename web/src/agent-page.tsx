@@ -1,12 +1,25 @@
-import { Menu, Sparkles } from "lucide-react";
+import {
+	ArrowUp,
+	ArrowUpRight,
+	Bot,
+	Brain,
+	ChevronLeft,
+	ChevronRight,
+	Edit3,
+	ExternalLink,
+	Loader2,
+	MessageSquare,
+	Paperclip,
+	Plus,
+	ShieldCheck,
+	Sparkles,
+	Trash2,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import {
-	type AgentResultDocument,
-	collectAgentResultDocuments,
-	parseAgentResultOutput,
-} from "./agent-results";
+import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResultOutput } from "./agent-results";
 import { isAgentTranscriptNearBottom } from "./agent-scroll";
 import { api, apiEventStream, apiText, friendlyNetworkError, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree } from "./collection-tree";
@@ -16,12 +29,28 @@ import type {
 	AgentConfigView,
 	AgentEvent,
 	AgentMode,
+	AgentPermissionMode,
 	AgentSessionSnapshot,
 	AgentSessionSummary,
+	AgentThinkingLevel,
 	AgentToolView,
 	AgentUIRequestView,
 	PaperCollection,
 } from "./types";
+
+const thinkingLevelOptions: Array<{ value: AgentThinkingLevel; label: string }> = [
+	{ value: "off", label: "思考：关闭" },
+	{ value: "minimal", label: "思考：极简" },
+	{ value: "low", label: "思考：低" },
+	{ value: "medium", label: "思考：中" },
+	{ value: "high", label: "思考：高" },
+	{ value: "xhigh", label: "思考：极高" },
+];
+
+const permissionModeOptions: Array<{ value: AgentPermissionMode; label: string }> = [
+	{ value: "ask", label: "权限：确认后执行" },
+	{ value: "auto", label: "权限：自动批准" },
+];
 
 const taskTemplates = [
 	{
@@ -30,15 +59,28 @@ const taskTemplates = [
 	},
 	{
 		title: "分析本地 PDF",
-		prompt: "分析本地 PDF：请替换为绝对路径。先核实文件身份与页数，给出研究问题、方法、主要证据、局限和下一步；不要自动下载 Artifact。",
+		prompt:
+			"分析本地 PDF：请替换为绝对路径。先核实文件身份与页数，给出研究问题、方法、主要证据、局限和下一步；不要自动下载 Artifact。",
 	},
 	{
 		title: "导入本地 PDF 到个人库",
-		prompt: "把本地 PDF 导入到 default 个人库：请替换为 PDF 的绝对路径（支持单个文件或整个目录）。用 import_literature_corpus 工具导入 personal 范围，先展示解析出的记录数与拒绝日志，完成确认后再写入；导入后说明 PDF 已入库、可在 PDF 工作区按标题选择分析。",
+		prompt:
+			"把本地 PDF 导入到 default 个人库：请替换为 PDF 的绝对路径（支持单个文件或整个目录）。用 import_literature_corpus 工具导入 personal 范围，先展示解析出的记录数与拒绝日志，完成确认后再写入；导入后说明 PDF 已入库、可在 PDF 工作区按标题选择分析。",
 	},
 	{
 		title: "生成略读卡",
-		prompt: "为这篇论文生成略读笔记：请替换为 PDF 路径或论文 ID。按 skim-card 技能的五问法（解决什么问题 / 现有方法为何不够 / 核心机制 / 哪个实验最直接支持 / 留下什么边界）回答，输出「问题 | research gap | 核心创新 | 关键证据 | 主要局限 | 精读/保留/排除」格式，并给出处置建议。gap 与创新点必须回到原文确认，标注证据位置；读完通过 manage_research_note 保存 Markdown 笔记并关联论文。",
+		prompt:
+			"为这篇论文生成略读笔记：请替换为 PDF 路径或论文 ID。按 skim-card 技能的五问法（解决什么问题 / 现有方法为何不够 / 核心机制 / 哪个实验最直接支持 / 留下什么边界）回答，输出「问题 | research gap | 核心创新 | 关键证据 | 主要局限 | 精读/保留/排除」格式，并给出处置建议。gap 与创新点必须回到原文确认，标注证据位置；读完通过 manage_research_note 保存 Markdown 笔记并关联论文。",
+	},
+	{
+		title: "方法精读",
+		prompt:
+			"使用 paper-research Skill 对这篇论文做方法精读（methods 深度）：请替换为 PDF 路径或个人库论文 ID。重点检查方法与技术路线、算法和实现细节、关键实验设计以及直接支撑方法的图表证据；每个技术结论都要落到 PDF 物理页码和章节/图/表定位，无法核验的明确写“未核验”。本轮保持只读：不写研究档案、不下载 PDF 或 Artifact、不运行第三方代码。最后用对新手友好的中文输出：方法概述、关键实验与图表证据表、方法层面的局限与替代解释、以及分开的 [论文证据]/[AI 推断]/[待验证猜想]。",
+	},
+	{
+		title: "全文研究",
+		prompt:
+			"使用 paper-research Skill 对这篇论文做全文研究（full 深度）：请替换为 PDF 路径或个人库论文 ID。必须覆盖 PDF 全部物理页，整理主要论证链条、全部关键图表证据、实验与结果、局限、冲突证据和未解决问题；缺页或歧义要明确指出，不得假装已读。本轮保持无人值守、只读，不提出澄清问题，直接开始；技术结论必须以物理页码定位。最后输出一页式摘要、实际覆盖范围、方法与技术路线、关键实验与图表证据表、局限与未知项、下一步阅读建议，以及“用户现在只需要审核的事项”清单。",
 	},
 	{
 		title: "查询个人库",
@@ -46,15 +88,18 @@ const taskTemplates = [
 	},
 	{
 		title: "比较多篇论文",
-		prompt: "比较以下论文在研究问题、方法、数据集、关键结果、局限和可复现性上的差异：请粘贴论文 ID、标题或 PDF 路径。",
+		prompt:
+			"比较以下论文在研究问题、方法、数据集、关键结果、局限和可复现性上的差异：请粘贴论文 ID、标题或 PDF 路径。",
 	},
 	{
 		title: "检查 Artifact",
-		prompt: "检查这篇论文的官方 Artifact 候选、来源证据、许可证和版本信息：请提供 PDF 路径。先列候选，不要在未确认前下载或 clone。",
+		prompt:
+			"检查这篇论文的官方 Artifact 候选、来源证据、许可证和版本信息：请提供 PDF 路径。先列候选，不要在未确认前下载或 clone。",
 	},
 	{
 		title: "团队知识库",
-		prompt: "查询团队知识库中与“请替换为主题”有关的已批准内容；如需提出共享提议，先展示将提交的记录与隐私边界，并等待人工确认。",
+		prompt:
+			"查询团队知识库中与“请替换为主题”有关的已批准内容；如需提出共享提议，先展示将提交的记录与隐私边界，并等待人工确认。",
 	},
 ];
 
@@ -86,12 +131,7 @@ interface FlatPaperRow {
 function renderCell(cell?: ParsedCell) {
 	if (!cell) return null;
 	return cell.url ? (
-		<a
-			href={cell.url}
-			target="_blank"
-			rel="noreferrer"
-			onClick={(event) => event.stopPropagation()}
-		>
+		<a href={cell.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
 			{cell.text}
 		</a>
 	) : (
@@ -125,12 +165,9 @@ function AgentResultSidebar({
 	const [saveMessage, setSaveMessage] = useState("");
 	const [collections, setCollections] = useState<PaperCollection[]>([]);
 	const [selectedCollection, setSelectedCollection] = useState("");
-	const collectionOptions = useMemo(
-		() => flattenCollectionTree(buildCollectionTree(collections)),
-		[collections],
-	);
+	const collectionOptions = useMemo(() => flattenCollectionTree(buildCollectionTree(collections)), [collections]);
 
-	const headerLabels = tables[0]?.customHeaders?.length ? tables[0].customHeaders : tables[0]?.headers ?? [];
+	const headerLabels = tables[0]?.customHeaders?.length ? tables[0].customHeaders : (tables[0]?.headers ?? []);
 	const focusCol = headerLabels.indexOf("focus");
 
 	useEffect(() => {
@@ -150,8 +187,7 @@ function AgentResultSidebar({
 				const titleCell = row[0] ?? { text: "" };
 				const title = meta.title ? String(meta.title) : titleCell.text;
 				const titleUrl = (typeof meta.url === "string" && meta.url) || titleCell.url;
-				const paperId =
-					(typeof meta.paper_id === "string" && meta.paper_id) || row[2]?.text || title;
+				const paperId = (typeof meta.paper_id === "string" && meta.paper_id) || row[2]?.text || title;
 				const doi =
 					(typeof meta.doi === "string" && meta.doi) ||
 					row.find((cell) => /^doi:/i.test(cell.text))?.text?.replace(/^doi:/i, "");
@@ -164,8 +200,7 @@ function AgentResultSidebar({
 					table.focus ||
 					"未分类";
 				const year = typeof meta.year === "string" ? meta.year : row[1]?.text?.split(/\s*\/\s*/)[0]?.trim();
-				const venue =
-					(typeof meta.venue === "string" && meta.venue) || row[1]?.text?.split(/\s*\/\s*/)[1]?.trim();
+				const venue = (typeof meta.venue === "string" && meta.venue) || row[1]?.text?.split(/\s*\/\s*/)[1]?.trim();
 				list.push({
 					key: `${table.focus}-${index}-${paperId}`,
 					row,
@@ -182,27 +217,26 @@ function AgentResultSidebar({
 					citationCount: typeof meta.citationCount === "number" ? meta.citationCount : undefined,
 					relevance: typeof meta.relevance === "string" ? meta.relevance : undefined,
 					topic: typeof meta.topic === "string" ? meta.topic : undefined,
-					ccf: typeof meta.ccf === "string" ? meta.ccf : (typeof meta.venueRank === "string" ? meta.venueRank : undefined),
+					ccf:
+						typeof meta.ccf === "string"
+							? meta.ccf
+							: typeof meta.venueRank === "string"
+								? meta.venueRank
+								: undefined,
 					curated: meta.curated === "llm" ? "llm" : meta.curated === "search" ? "search" : undefined,
-					relationship: meta.relationship === "reference" || meta.relationship === "citation" ? meta.relationship : undefined,
+					relationship:
+						meta.relationship === "reference" || meta.relationship === "citation" ? meta.relationship : undefined,
 					savable:
-						meta.curated !== "llm" &&
-						typeof meta.paper_id === "string" &&
-						typeof meta.search_run_id === "string",
+						meta.curated !== "llm" && typeof meta.paper_id === "string" && typeof meta.search_run_id === "string",
 				});
 			}
 		}
 		return list;
 	}, [tables, focusCol]);
-	const savablePaperIds = useMemo(
-		() => new Set(rows.filter((row) => row.savable).map((row) => row.paperId)),
-		[rows],
-	);
+	const savablePaperIds = useMemo(() => new Set(rows.filter((row) => row.savable).map((row) => row.paperId)), [rows]);
 	useEffect(() => {
 		setSelected((current) => new Set([...current].filter((paperId) => savablePaperIds.has(paperId))));
-		setDetailPaper((current) =>
-			current ? rows.find((row) => row.paperId === current.paperId) : undefined,
-		);
+		setDetailPaper((current) => (current ? rows.find((row) => row.paperId === current.paperId) : undefined));
 		setSaveError("");
 		setSaveMessage("");
 	}, [rows, savablePaperIds]);
@@ -269,10 +303,12 @@ function AgentResultSidebar({
 					)}
 				</div>
 				<div className="agent-result-head-actions">
-					{activeRowCount !== undefined && <span className="agent-result-document-count">{activeRowCount} 篇</span>}
+					{activeRowCount !== undefined && (
+						<span className="agent-result-document-count">{activeRowCount} 篇</span>
+					)}
 					{selected.size > 0 && <span className="agent-result-save-count">已选 {selected.size} 篇</span>}
 					<button type="button" className="agent-result-close" aria-label="关闭结果侧边栏" onClick={onClose}>
-						×
+						<X size={15} aria-hidden="true" />
 					</button>
 				</div>
 			</header>
@@ -285,173 +321,199 @@ function AgentResultSidebar({
 			) : (
 				<>
 					<div className="agent-result-body">
-					<div className="agent-result-table-scroll">
-						<table className="agent-result-table">
-							<colgroup>
-								<col className="agent-result-col-check" />
-								<col className="agent-result-col-title" />
-								<col className="agent-result-col-focus" />
-								<col className="agent-result-col-relevance" />
-								<col className="agent-result-col-topic" />
-								<col className="agent-result-col-yearvenue" />
-								<col className="agent-result-col-id" />
-								<col className="agent-result-col-ccf" />
-							</colgroup>
-							<thead>
-								<tr>
-									<th className="agent-result-table-check" aria-label="选择">
-										<input
-											type="checkbox"
-											checked={selected.size > 0 && selected.size === savablePaperIds.size}
-											disabled={savablePaperIds.size === 0}
-											onChange={() =>
-												setSelected((current) =>
-													current.size === savablePaperIds.size ? new Set() : new Set(savablePaperIds),
-												)
-											}
-											title="全选"
-											aria-label="全选"
-										/>
-									</th>
-									<th key="title">标题</th>
-									<th key="focus">focus</th>
-									<th key="relevance">relevance</th>
-									<th key="topic">主题</th>
-									<th key="yearvenue">年份/venue</th>
-									<th key="id">标识</th>
-									<th key="ccf">CCF</th>
-								</tr>
-							</thead>
-							<tbody>
-								{rows.map((paper) => {
-									const isSelected = selected.has(paper.paperId);
-									const isDetail = detailPaper?.key === paper.key;
-									return (
-										<tr
-											className={`agent-result-table-row${isSelected ? " selected" : ""}${isDetail ? " detail" : ""}`}
-											key={paper.key}
-											tabIndex={0}
-											onClick={() => setDetailPaper(paper)}
-											onKeyDown={(event) => {
-												if (event.key === "Enter" || event.key === " ") {
-													event.preventDefault();
-													setDetailPaper(paper);
+						<div className="agent-result-table-scroll">
+							<table className="agent-result-table">
+								<colgroup>
+									<col className="agent-result-col-check" />
+									<col className="agent-result-col-title" />
+									<col className="agent-result-col-focus" />
+									<col className="agent-result-col-relevance" />
+									<col className="agent-result-col-topic" />
+									<col className="agent-result-col-yearvenue" />
+									<col className="agent-result-col-id" />
+									<col className="agent-result-col-ccf" />
+								</colgroup>
+								<thead>
+									<tr>
+										<th className="agent-result-table-check" aria-label="选择">
+											<input
+												type="checkbox"
+												checked={selected.size > 0 && selected.size === savablePaperIds.size}
+												disabled={savablePaperIds.size === 0}
+												onChange={() =>
+													setSelected((current) =>
+														current.size === savablePaperIds.size ? new Set() : new Set(savablePaperIds),
+													)
 												}
-											}}
-										>
-											<td className="agent-result-table-check">
-												<input
-													type="checkbox"
-													checked={isSelected}
-													disabled={!paper.savable}
-													onChange={() => toggleSelect(paper.paperId)}
-													onClick={(event) => event.stopPropagation()}
-													title="保存到个人库"
-													aria-label="保存到个人库"
-												/>
-											</td>
-											<td className="agent-result-table-title">
-												<span className="agent-result-title-text">{paper.title}</span>
-												{paper.curated === "llm" && (
-													<span className="agent-result-curated" title="模型凭领域知识补充的论文, 不在搜索结果中, 无法保存到个人库">
-														模型补充
-													</span>
-												)}
-												{paper.relationship && (
-													<span
-														className={`agent-result-rel ${paper.relationship}`}
-														title={paper.relationship === "reference" ? "种子论文的引用文献" : "引用了种子论文的后续工作"}
-													>
-														{paper.relationship === "reference" ? "引用" : "被引"}
-													</span>
-												)}
-												{paper.titleUrl && (
-													<a
-														className="agent-result-title-link"
-														href={paper.titleUrl}
-														target="_blank"
-														rel="noreferrer"
-														title="在新窗口打开论文页"
+												title="全选"
+												aria-label="全选"
+											/>
+										</th>
+										<th key="title">标题</th>
+										<th key="focus">focus</th>
+										<th key="relevance">relevance</th>
+										<th key="topic">主题</th>
+										<th key="yearvenue">年份/venue</th>
+										<th key="id">标识</th>
+										<th key="ccf">CCF</th>
+									</tr>
+								</thead>
+								<tbody>
+									{rows.map((paper) => {
+										const isSelected = selected.has(paper.paperId);
+										const isDetail = detailPaper?.key === paper.key;
+										return (
+											<tr
+												className={`agent-result-table-row${isSelected ? " selected" : ""}${isDetail ? " detail" : ""}`}
+												key={paper.key}
+												tabIndex={0}
+												onClick={() => setDetailPaper(paper)}
+												onKeyDown={(event) => {
+													if (event.key === "Enter" || event.key === " ") {
+														event.preventDefault();
+														setDetailPaper(paper);
+													}
+												}}
+											>
+												<td className="agent-result-table-check">
+													<input
+														type="checkbox"
+														checked={isSelected}
+														disabled={!paper.savable}
+														onChange={() => toggleSelect(paper.paperId)}
 														onClick={(event) => event.stopPropagation()}
-													>
-														↗
-													</a>
-												)}
-											</td>
-											<td className="agent-result-table-cell agent-result-focus">{paper.focus}</td>
-											<td className="agent-result-table-cell agent-result-relevance">{paper.relevance}</td>
-											<td className="agent-result-table-cell agent-result-topic" title={paper.topic}>
-												{paper.topic}
-											</td>
-											<td className="agent-result-table-cell">
-												{renderCell(paper.row[1])}
-											</td>
-											<td className="agent-result-table-cell">
-												{renderCell(paper.row[2])}
-											</td>
-											<td className="agent-result-table-cell">
-												{paper.ccf && <span className="agent-result-ccf">{paper.ccf}</span>}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
-					</div>
-					{detailPaper && (
-						<aside className="agent-result-detail">
-							<header className="agent-result-detail-head">
-								<strong>来源详情</strong>
-								<button type="button" className="agent-result-close" aria-label="关闭详情" onClick={() => setDetailPaper(undefined)}>
-									×
-								</button>
-							</header>
-							<div className="agent-result-detail-body">
-								<h3 className="agent-result-detail-title">
-									{detailPaper.title}
-									{detailPaper.curated === "llm" && (
-										<span className="agent-result-curated">模型补充</span>
+														title="保存到个人库"
+														aria-label="保存到个人库"
+													/>
+												</td>
+												<td className="agent-result-table-title">
+													<span className="agent-result-title-text">{paper.title}</span>
+													{paper.curated === "llm" && (
+														<span
+															className="agent-result-curated"
+															title="模型凭领域知识补充的论文, 不在搜索结果中, 无法保存到个人库"
+														>
+															模型补充
+														</span>
+													)}
+													{paper.relationship && (
+														<span
+															className={`agent-result-rel ${paper.relationship}`}
+															title={
+																paper.relationship === "reference"
+																	? "种子论文的引用文献"
+																	: "引用了种子论文的后续工作"
+															}
+														>
+															{paper.relationship === "reference" ? "引用" : "被引"}
+														</span>
+													)}
+													{paper.titleUrl && (
+														<a
+															className="agent-result-title-link"
+															href={paper.titleUrl}
+															target="_blank"
+															rel="noreferrer"
+															title="在新窗口打开论文页"
+															onClick={(event) => event.stopPropagation()}
+														>
+															<ExternalLink size={13} aria-hidden="true" />
+														</a>
+													)}
+												</td>
+												<td className="agent-result-table-cell agent-result-focus">{paper.focus}</td>
+												<td className="agent-result-table-cell agent-result-relevance">
+													{paper.relevance}
+												</td>
+												<td className="agent-result-table-cell agent-result-topic" title={paper.topic}>
+													{paper.topic}
+												</td>
+												<td className="agent-result-table-cell">{renderCell(paper.row[1])}</td>
+												<td className="agent-result-table-cell">{renderCell(paper.row[2])}</td>
+												<td className="agent-result-table-cell">
+													{paper.ccf && <span className="agent-result-ccf">{paper.ccf}</span>}
+												</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</table>
+						</div>
+						{detailPaper && (
+							<aside className="agent-result-detail">
+								<header className="agent-result-detail-head">
+									<strong>来源详情</strong>
+									<button
+										type="button"
+										className="agent-result-close"
+										aria-label="关闭详情"
+										onClick={() => setDetailPaper(undefined)}
+									>
+										<X size={15} aria-hidden="true" />
+									</button>
+								</header>
+								<div className="agent-result-detail-body">
+									<h3 className="agent-result-detail-title">
+										{detailPaper.title}
+										{detailPaper.curated === "llm" && <span className="agent-result-curated">模型补充</span>}
+									</h3>
+									{detailPaper.authors && <p className="agent-result-detail-authors">{detailPaper.authors}</p>}
+									{detailPaper.venue && (
+										<p className="agent-result-detail-meta">
+											{detailPaper.year ? `${detailPaper.year} · ` : ""}
+											{detailPaper.venue}
+											{detailPaper.citationCount !== undefined ? ` · ${detailPaper.citationCount} 引用` : ""}
+										</p>
 									)}
-								</h3>
-								{detailPaper.authors && <p className="agent-result-detail-authors">{detailPaper.authors}</p>}
-								{detailPaper.venue && (
-									<p className="agent-result-detail-meta">
-										{detailPaper.year ? `${detailPaper.year} · ` : ""}
-										{detailPaper.venue}
-										{detailPaper.citationCount !== undefined ? ` · ${detailPaper.citationCount} 引用` : ""}
-									</p>
-								)}
-								{(detailPaper.relevance || detailPaper.topic || detailPaper.ccf) && (
-									<div className="agent-result-detail-badges">
-										{detailPaper.ccf && <span className="agent-result-ccf">CCF {detailPaper.ccf}</span>}
-										{detailPaper.topic && <span className="agent-result-badge topic">{detailPaper.topic}</span>}
+									{(detailPaper.relevance || detailPaper.topic || detailPaper.ccf) && (
+										<div className="agent-result-detail-badges">
+											{detailPaper.ccf && <span className="agent-result-ccf">CCF {detailPaper.ccf}</span>}
+											{detailPaper.topic && (
+												<span className="agent-result-badge topic">{detailPaper.topic}</span>
+											)}
+										</div>
+									)}
+									{detailPaper.relevance && (
+										<>
+											<div className="agent-result-detail-label">切题度</div>
+											<p className="agent-result-detail-relevance">{detailPaper.relevance}</p>
+										</>
+									)}
+									<div className="agent-result-detail-actions">
+										{detailPaper.doi && (
+											<a
+												className="agent-result-id"
+												href={`https://doi.org/${encodeURIComponent(detailPaper.doi)}`}
+												target="_blank"
+												rel="noreferrer"
+												title={detailPaper.doi}
+											>
+												DOI: {detailPaper.doi}
+											</a>
+										)}
+										{detailPaper.titleUrl && (
+											<a
+												className="agent-result-id"
+												href={detailPaper.titleUrl}
+												target="_blank"
+												rel="noreferrer"
+											>
+												论文页
+												<ExternalLink size={12} aria-hidden="true" />
+											</a>
+										)}
 									</div>
-								)}
-								{detailPaper.relevance && (
-									<>
-										<div className="agent-result-detail-label">切题度</div>
-										<p className="agent-result-detail-relevance">{detailPaper.relevance}</p>
-									</>
-								)}
-								<div className="agent-result-detail-actions">
-									{detailPaper.doi && (
-										<a className="agent-result-id" href={`https://doi.org/${encodeURIComponent(detailPaper.doi)}`} target="_blank" rel="noreferrer" title={detailPaper.doi}>
-											DOI: {detailPaper.doi}
-										</a>
-									)}
-									{detailPaper.titleUrl && (
-										<a className="agent-result-id" href={detailPaper.titleUrl} target="_blank" rel="noreferrer">论文页 ↗</a>
+									<div className="agent-result-detail-label">摘要</div>
+									{detailPaper.abstract ? (
+										<p className="agent-result-detail-abstract">{detailPaper.abstract}</p>
+									) : (
+										<p className="agent-result-detail-abstract muted">
+											暂无摘要（该来源未提供摘要，可点击论文页查看）。
+										</p>
 									)}
 								</div>
-								<div className="agent-result-detail-label">摘要</div>
-								{detailPaper.abstract ? (
-									<p className="agent-result-detail-abstract">{detailPaper.abstract}</p>
-								) : (
-									<p className="agent-result-detail-abstract muted">暂无摘要（该来源未提供摘要，可点击论文页查看）。</p>
-								)}
-							</div>
-						</aside>
-					)}
+							</aside>
+						)}
 					</div>
 					<div className="agent-result-save-bar">
 						{selected.size > 0 && (
@@ -469,7 +531,12 @@ function AgentResultSidebar({
 										</option>
 									))}
 								</select>
-								<button className="button primary" type="button" disabled={saving} onClick={() => void saveSelection()}>
+								<button
+									className="button primary"
+									type="button"
+									disabled={saving}
+									onClick={() => void saveSelection()}
+								>
 									{saving ? "提交中…" : "保存到分类"}
 								</button>
 							</div>
@@ -478,8 +545,7 @@ function AgentResultSidebar({
 						{saveMessage && <span className="agent-result-save-ok">{saveMessage}</span>}
 					</div>
 				</>
-		)}
-
+			)}
 		</div>
 	);
 }
@@ -496,13 +562,7 @@ function linkifyResultLinks(text: string): string {
 	return text.replace(RESULT_LINK_PATTERN, "[查看论文清单]($1)");
 }
 
-function AgentMarkdown({
-	content,
-	onOpenResult,
-}: {
-	content: string;
-	onOpenResult: (url: string) => void;
-}) {
+function AgentMarkdown({ content, onOpenResult }: { content: string; onOpenResult: (url: string) => void }) {
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm]}
@@ -533,7 +593,7 @@ function DismissibleErrorBanner({ message, onDismiss }: { message: string; onDis
 		<div className="error-banner dismissible-error-banner" role="alert">
 			<span>{message}</span>
 			<button type="button" aria-label="关闭错误提示" title="关闭" onClick={onDismiss}>
-				×
+				<X size={14} aria-hidden="true" />
 			</button>
 		</div>
 	);
@@ -567,11 +627,7 @@ function AgentResultCard({
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
 	const [open, setOpen] = useState(true);
 	return (
-		<details
-			className="agent-thinking"
-			open={open}
-			onToggle={(event) => setOpen(event.currentTarget.open)}
-		>
+		<details className="agent-thinking" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
 			<summary>{streaming ? "思考中…" : "思考过程"}</summary>
 			<div className="agent-thinking-body">{thinking}</div>
 		</details>
@@ -657,17 +713,17 @@ function AgentToolCard({ tool }: { tool: AgentToolView }) {
 				<span>{tool.status === "running" ? "执行中" : tool.status === "succeeded" ? "已完成" : "失败"}</span>
 				<small>{timeLabel(tool.startedAt)}</small>
 			</summary>
-				{tool.input && (
-					<div>
-						<span className="agent-tool-field-label">输入</span>
-						<pre>{tool.input}</pre>
-					</div>
-				)}
-				{tool.output && (
-					<div>
-						<span className="agent-tool-field-label">输出</span>
-						<pre>{tool.output}</pre>
-					</div>
+			{tool.input && (
+				<div>
+					<span className="agent-tool-field-label">输入</span>
+					<pre>{tool.input}</pre>
+				</div>
+			)}
+			{tool.output && (
+				<div>
+					<span className="agent-tool-field-label">输出</span>
+					<pre>{tool.output}</pre>
+				</div>
 			)}
 		</details>
 	);
@@ -678,11 +734,12 @@ function AgentToolGroup({ tools }: { tools: AgentToolView[] }) {
 	return (
 		<details className="agent-message-tools" open={hasAttentionItem}>
 			<summary>
-				工具调用 {tools.length} 项
-				{hasAttentionItem && <span>有任务仍在执行或失败</span>}
+				工具调用 {tools.length} 项{hasAttentionItem && <span>有任务仍在执行或失败</span>}
 			</summary>
 			<div className="agent-message-tool-list">
-				{tools.map((tool) => <AgentToolCard key={tool.id} tool={tool} />)}
+				{tools.map((tool) => (
+					<AgentToolCard key={tool.id} tool={tool} />
+				))}
 			</div>
 		</details>
 	);
@@ -701,11 +758,13 @@ export function AgentPage({
 	onPromptConsumed,
 	embedded = false,
 	paperContext,
+	focusSessionId,
 }: {
 	initialPrompt?: string;
 	onPromptConsumed?: () => void;
 	embedded?: boolean;
 	paperContext?: PaperAgentContext;
+	focusSessionId?: string;
 }) {
 	const sessionListUrl = paperContext
 		? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
@@ -747,49 +806,55 @@ export function AgentPage({
 	const [resultPanelOpen, setResultPanelOpen] = useState(false);
 	const [resultPanelWidth, setResultPanelWidth] = useState(380);
 	const resultResizeRef = useRef<{ x: number; width: number } | null>(null);
-	const startResultResize = useCallback((event: React.MouseEvent) => {
-		event.preventDefault();
-		resultResizeRef.current = { x: event.clientX, width: resultPanelWidth };
-		const onMove = (move: MouseEvent) => {
-			if (!resultResizeRef.current) return;
-			const delta = resultResizeRef.current.x - move.clientX;
-			setResultPanelWidth(Math.max(280, Math.min(640, resultResizeRef.current.width + delta)));
-		};
-		const onUp = () => {
-			resultResizeRef.current = null;
-			document.removeEventListener("mousemove", onMove);
-			document.removeEventListener("mouseup", onUp);
-		};
-		document.addEventListener("mousemove", onMove);
-		document.addEventListener("mouseup", onUp);
-	}, [resultPanelWidth]);
-	const openSidebarDocument = useCallback(async (target: string) => {
-		if (embedded) {
-			window.open(target, "_blank", "noopener,noreferrer");
-			return;
-		}
-		const requestId = ++resultLoadIdRef.current;
-		setActiveResultUrl(target);
-		setResultPanelOpen(true);
-		setSidebarLoading(true);
-		setSidebarError("");
-		try {
-			const text = await apiText(target);
-			if (requestId !== resultLoadIdRef.current) return;
-			const tables = parseLiteratureTables(text)?.tables ?? [];
-			setSidebarTables(tables);
-			setResultRowCounts((current) => ({
-				...current,
-				[target]: tables.reduce((total, table) => total + table.rows.length, 0),
-			}));
-		} catch (reason) {
-			if (requestId !== resultLoadIdRef.current) return;
-			setSidebarTables([]);
-			setSidebarError(reason instanceof Error ? reason.message : "论文清单加载失败");
-		} finally {
-			if (requestId === resultLoadIdRef.current) setSidebarLoading(false);
-		}
-	}, [embedded]);
+	const startResultResize = useCallback(
+		(event: React.MouseEvent) => {
+			event.preventDefault();
+			resultResizeRef.current = { x: event.clientX, width: resultPanelWidth };
+			const onMove = (move: MouseEvent) => {
+				if (!resultResizeRef.current) return;
+				const delta = resultResizeRef.current.x - move.clientX;
+				setResultPanelWidth(Math.max(280, Math.min(640, resultResizeRef.current.width + delta)));
+			};
+			const onUp = () => {
+				resultResizeRef.current = null;
+				document.removeEventListener("mousemove", onMove);
+				document.removeEventListener("mouseup", onUp);
+			};
+			document.addEventListener("mousemove", onMove);
+			document.addEventListener("mouseup", onUp);
+		},
+		[resultPanelWidth],
+	);
+	const openSidebarDocument = useCallback(
+		async (target: string) => {
+			if (embedded) {
+				window.open(target, "_blank", "noopener,noreferrer");
+				return;
+			}
+			const requestId = ++resultLoadIdRef.current;
+			setActiveResultUrl(target);
+			setResultPanelOpen(true);
+			setSidebarLoading(true);
+			setSidebarError("");
+			try {
+				const text = await apiText(target);
+				if (requestId !== resultLoadIdRef.current) return;
+				const tables = parseLiteratureTables(text)?.tables ?? [];
+				setSidebarTables(tables);
+				setResultRowCounts((current) => ({
+					...current,
+					[target]: tables.reduce((total, table) => total + table.rows.length, 0),
+				}));
+			} catch (reason) {
+				if (requestId !== resultLoadIdRef.current) return;
+				setSidebarTables([]);
+				setSidebarError(reason instanceof Error ? reason.message : "论文清单加载失败");
+			} finally {
+				if (requestId === resultLoadIdRef.current) setSidebarLoading(false);
+			}
+		},
+		[embedded],
+	);
 
 	/** 会话恢复后, 从已提交的工具调用里找回论文清单文档, 恢复右侧侧边栏。 */
 	const restoreSidebarFromSession = useCallback(
@@ -803,7 +868,9 @@ export function AgentPage({
 			setResultPanelOpen(false);
 			const latest = embedded ? undefined : collectAgentResultDocuments(snapshot.messages, snapshot.tools).at(-1);
 			if (latest) void openSidebarDocument(latest.url);
-		}, [embedded, openSidebarDocument]);
+		},
+		[embedded, openSidebarDocument],
+	);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [uploading, setUploading] = useState(false);
 
@@ -817,11 +884,11 @@ export function AgentPage({
 				let response: Response;
 				try {
 					response = await fetch(`/api/agent/sessions/${encodeURIComponent(active.id)}/attachments`, {
-					method: "POST",
-					headers: {
-						"content-type": "application/octet-stream",
-						"x-filename": encodeURIComponent(file.name),
-					},
+						method: "POST",
+						headers: {
+							"content-type": "application/octet-stream",
+							"x-filename": encodeURIComponent(file.name),
+						},
 						body: data,
 					});
 				} catch (reason) {
@@ -876,12 +943,11 @@ export function AgentPage({
 		const assistantMessages = messages.filter((message) => message.role === "assistant");
 		const messageIds = new Set(assistantMessages.map((message) => message.id));
 		for (const tool of active?.tools ?? []) {
-			const prior = assistantMessages
-				.filter((message) => message.createdAt <= tool.startedAt)
-				.at(-1);
-			const messageId = tool.assistantMessageId && messageIds.has(tool.assistantMessageId)
-				? tool.assistantMessageId
-				: (prior ?? assistantMessages.at(-1))?.id;
+			const prior = assistantMessages.filter((message) => message.createdAt <= tool.startedAt).at(-1);
+			const messageId =
+				tool.assistantMessageId && messageIds.has(tool.assistantMessageId)
+					? tool.assistantMessageId
+					: (prior ?? assistantMessages.at(-1))?.id;
 			if (!messageId) continue;
 			const current = grouped.get(messageId) ?? [];
 			current.push(tool);
@@ -892,6 +958,45 @@ export function AgentPage({
 	const [newMode, _setNewMode] = useState<AgentMode>("persistent");
 	const [newTitle, setNewTitle] = useState("");
 	const [prompt, setPrompt] = useState("");
+	const [thinkingLevel, setThinkingLevel] = useState<AgentThinkingLevel>("low");
+	const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("ask");
+	const syncedSettingsSessionId = useRef<string | undefined>(undefined);
+	// 切换会话时, 用会话自己的设置同步选择器; 平时的变更不回写, 避免打断用户操作。
+	useEffect(() => {
+		if (active?.id === syncedSettingsSessionId.current) return;
+		syncedSettingsSessionId.current = active?.id;
+		setThinkingLevel(active?.thinkingLevel ?? "low");
+		setPermissionMode(active?.permissionMode ?? "ask");
+	}, [active]);
+	/** 会话存在时把 composer 设置持久化到服务端; 失败时返回 false 供调用方回滚。 */
+	const applySessionSettings = useCallback(
+		async (patch: { thinkingLevel?: AgentThinkingLevel; permissionMode?: AgentPermissionMode }) => {
+			if (!active) return true;
+			try {
+				const snapshot = await api<AgentSessionSnapshot>(
+					`/api/agent/sessions/${encodeURIComponent(active.id)}/settings`,
+					jsonBody(patch),
+				);
+				setActive(snapshot);
+				setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
+				return true;
+			} catch (reason) {
+				setError(reason instanceof Error ? reason.message : String(reason));
+				return false;
+			}
+		},
+		[active],
+	);
+	const changeThinkingLevel = async (level: AgentThinkingLevel) => {
+		const previous = thinkingLevel;
+		setThinkingLevel(level);
+		if (!(await applySessionSettings({ thinkingLevel: level }))) setThinkingLevel(previous);
+	};
+	const changePermissionMode = async (mode: AgentPermissionMode) => {
+		const previous = permissionMode;
+		setPermissionMode(mode);
+		if (!(await applySessionSettings({ permissionMode: mode }))) setPermissionMode(previous);
+	};
 	useEffect(() => {
 		if (initialPrompt) {
 			setPrompt(initialPrompt);
@@ -955,45 +1060,80 @@ export function AgentPage({
 		return () => window.clearTimeout(timer);
 	}, [error]);
 
-	const applyConfigured = useCallback(async (key: string) => {
-		if (!key || key === configuredKey) return;
-		const previousKey = configuredKey;
-		setConfiguredKey(key);
-		setBusy(true);
-		setError("");
-		try {
-			const next = await api<AgentConfigView>("/api/agent/config/apply", {
-				method: "POST",
-				body: JSON.stringify({ key }),
-			});
-			applyConfig(next);
-			showModelNotice(`已切换模型：${key}`);
-		} catch (reason) {
-			setConfiguredKey(previousKey);
-			setError(reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setBusy(false);
-		}
-	}, [configuredKey, applyConfig, showModelNotice]);
+	const applyConfigured = useCallback(
+		async (key: string) => {
+			if (!key || key === configuredKey) return;
+			const previousKey = configuredKey;
+			setConfiguredKey(key);
+			setBusy(true);
+			setError("");
+			try {
+				const next = await api<AgentConfigView>("/api/agent/config/apply", {
+					method: "POST",
+					body: JSON.stringify({ key }),
+				});
+				applyConfig(next);
+				showModelNotice(`已切换模型：${key}`);
+			} catch (reason) {
+				setConfiguredKey(previousKey);
+				setError(reason instanceof Error ? reason.message : String(reason));
+			} finally {
+				setBusy(false);
+			}
+		},
+		[configuredKey, applyConfig, showModelNotice],
+	);
 
-	const refreshSessions = useCallback(async (preferredId?: string) => {
-		const result = await api<{ sessions: AgentSessionSummary[] }>(sessionListUrl);
-		setSessions(result.sessions);
-		const nextId = preferredId && result.sessions.some((session) => session.id === preferredId)
-			? preferredId
-			: result.sessions[0]?.id;
-		if (!nextId) {
-			setActive(undefined);
-			return;
-		}
-		const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(nextId)}`);
-		setActive(snapshot);
-		await restoreSidebarFromSession(snapshot);
-	}, [restoreSidebarFromSession, sessionListUrl]);
+	const focusSessionById = useCallback(
+		async (sessionId: string): Promise<boolean> => {
+			try {
+				// 论文作用域的会话（如一键研究）不在 general 会话列表里，按 ID 直接拉取并合并进侧栏。
+				const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
+				setActive(snapshot);
+				setSessions((current) =>
+					current.some((session) => session.id === snapshot.id)
+						? current
+						: [summaryFromSnapshot(snapshot), ...current],
+				);
+				await restoreSidebarFromSession(snapshot);
+				return true;
+			} catch {
+				return false;
+			}
+		},
+		[restoreSidebarFromSession],
+	);
+
+	const refreshSessions = useCallback(
+		async (preferredId?: string) => {
+			const result = await api<{ sessions: AgentSessionSummary[] }>(sessionListUrl);
+			setSessions(result.sessions);
+			if (preferredId && !result.sessions.some((session) => session.id === preferredId)) {
+				// 当前会话不在 general 列表（如论文作用域的研究会话），直接聚焦并合并进侧栏。
+				if (await focusSessionById(preferredId)) return;
+			}
+			const nextId =
+				preferredId && result.sessions.some((session) => session.id === preferredId)
+					? preferredId
+					: result.sessions[0]?.id;
+			if (!nextId) {
+				setActive(undefined);
+				return;
+			}
+			const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(nextId)}`);
+			setActive(snapshot);
+			await restoreSidebarFromSession(snapshot);
+		},
+		[restoreSidebarFromSession, sessionListUrl, focusSessionById],
+	);
 
 	useEffect(() => {
 		void (async () => {
 			try {
+				if (focusSessionId && (await focusSessionById(focusSessionId))) {
+					applyConfig(await api<AgentConfigView>("/api/agent/config"));
+					return;
+				}
 				const [nextConfig, sessionResult] = await Promise.all([
 					api<AgentConfigView>("/api/agent/config"),
 					api<{ sessions: AgentSessionSummary[] }>(sessionListUrl),
@@ -1014,7 +1154,7 @@ export function AgentPage({
 				setLoading(false);
 			}
 		})();
-	}, [applyConfig, restoreSidebarFromSession, sessionListUrl]);
+	}, [applyConfig, restoreSidebarFromSession, sessionListUrl, focusSessionId, focusSessionById]);
 
 	const activeId = active?.id;
 	const dismissSessionError = useCallback(async (sessionId: string) => {
@@ -1076,7 +1216,9 @@ export function AgentPage({
 			}
 			if (event.type === "message") {
 				setActive((current) =>
-					current?.id === event.sessionId ? { ...current, messages: upsert(current.messages, event.message) } : current,
+					current?.id === event.sessionId
+						? { ...current, messages: upsert(current.messages, event.message) }
+						: current,
 				);
 				return;
 			}
@@ -1139,23 +1281,23 @@ export function AgentPage({
 						: current,
 				);
 			}
-			};
-			void (async () => {
-				while (!controller.signal.aborted) {
+		};
+		void (async () => {
+			while (!controller.signal.aborted) {
 				try {
-						setStreamState("reconnecting");
+					setStreamState("reconnecting");
 					await apiEventStream(
 						`/api/agent/sessions/${encodeURIComponent(activeId)}/events`,
 						({ event, data }) => {
 							if (event === "snapshot") {
 								const snapshot = data as AgentSessionSnapshot;
-									// 防御旧会话连接残留的 snapshot 覆盖当前会话
-									if (snapshot.id && snapshot.id !== activeId) return;
-									setActive(snapshot);
-									setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
-									setError("");
-									setStreamState("connected");
-									return;
+								// 防御旧会话连接残留的 snapshot 覆盖当前会话
+								if (snapshot.id && snapshot.id !== activeId) return;
+								setActive(snapshot);
+								setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
+								setError("");
+								setStreamState("connected");
+								return;
 							}
 							applyEvent(data as AgentEvent);
 						},
@@ -1205,6 +1347,8 @@ export function AgentPage({
 				body: JSON.stringify({
 					mode: paperContext ? "persistent" : newMode,
 					...(title ? { title } : {}),
+					thinkingLevel,
+					permissionMode,
 					...(paperContext
 						? { context: { kind: "paper", namespace: paperContext.namespace, paperId: paperContext.paperId } }
 						: {}),
@@ -1285,9 +1429,7 @@ export function AgentPage({
 			if (!targetSession) return;
 			const messageAttachments = [
 				...attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
-				...(paperContext
-					? [{ path: paperContext.pdfPath, name: `${paperContext.title}.pdf` }]
-					: []),
+				...(paperContext ? [{ path: paperContext.pdfPath, name: `${paperContext.title}.pdf` }] : []),
 			].filter((attachment, index, all) => all.findIndex((entry) => entry.path === attachment.path) === index);
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(targetSession.id)}/messages`,
@@ -1353,9 +1495,9 @@ export function AgentPage({
 
 	if (loading) {
 		return (
-		<section className={embedded ? "agent-embedded-loading" : "panel"}>
-			<h2>正在加载 Agent 对话…</h2>
-		</section>
+			<section className={embedded ? "agent-embedded-loading" : "panel"}>
+				<h2>正在加载 Agent 对话…</h2>
+			</section>
 		);
 	}
 
@@ -1367,371 +1509,537 @@ export function AgentPage({
 			<div
 				className={`agent-workspace${embedded ? " agent-workspace-embedded" : ""}`}
 				style={
-					embedded ? undefined : {
-						gridTemplateColumns: sidebarOpen
-							? resultPanelOpen
-								? `250px minmax(0, 1fr) ${resultPanelWidth}px`
-								: "250px minmax(0, 1fr)"
-							: resultPanelOpen
-								? `0px minmax(0, 1fr) ${resultPanelWidth}px`
-								: "0px minmax(0, 1fr)",
-					} as React.CSSProperties
+					embedded
+						? undefined
+						: ({
+								gridTemplateColumns: sidebarOpen
+									? resultPanelOpen
+										? `250px minmax(0, 1fr) ${resultPanelWidth}px`
+										: "250px minmax(0, 1fr)"
+									: resultPanelOpen
+										? `0px minmax(0, 1fr) ${resultPanelWidth}px`
+										: "0px minmax(0, 1fr)",
+							} as React.CSSProperties)
 				}
 			>
-				{!embedded && <aside className="panel agent-session-panel">
-					<button
-						className="agent-new-chat-button"
-						type="button"
-						onClick={() => {
-							setNewTitle("");
-							void createSession();
-						}}
-					>
-						+ 开始新对话
-					</button>
-					<div className="agent-session-list">
-						{orderedSessions.map((session) => (
-							<article className={active?.id === session.id ? "active" : ""} key={session.id}>
-								<button type="button" onClick={() => void selectSession(session.id)}>
-									<strong>{session.title}</strong>
-									<span>
-										{session.mode} · {session.status} · {timeLabel(session.updatedAt)}
-									</span>
-									{session.pendingUIRequests > 0 && <em>{session.pendingUIRequests} 个确认待处理</em>}
-								</button>
-								<div className="agent-session-more-wrap">
-									<button
-										className="agent-session-more"
-										type="button"
-										aria-label={`更多操作 ${session.title}`}
-										onMouseEnter={cancelSessionMenuClose}
-										onMouseLeave={scheduleSessionMenuClose}
-										onClick={(event) => {
-											const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-											setMenuOpen(
-												menuOpen?.id === session.id
-													? null
-													: { id: session.id, left: rect.right - 104, top: rect.bottom + 4 },
-												);
-										}}
-									>
-										⋯
-									</button>
-									{menuOpen?.id === session.id && (
-										<div
-											className="agent-session-menu"
-											role="menu"
-											onMouseEnter={cancelSessionMenuClose}
-											onMouseLeave={scheduleSessionMenuClose}
-											style={{ position: "fixed", left: menuOpen.left, top: menuOpen.top, zIndex: 999 }}
+				{!embedded && (
+					<aside className="panel agent-session-panel">
+						<button
+							className="agent-new-chat-button"
+							type="button"
+							onClick={() => {
+								setNewTitle("");
+								void createSession();
+							}}
+							title="创建新的对话或研读会话"
+						>
+							<Plus size={15} strokeWidth={2.5} />
+							<span>新建研究会话</span>
+						</button>
+						<div className="agent-session-list">
+							{orderedSessions.map((session) => {
+								const isActive = active?.id === session.id;
+								const isRunning = session.status === "running";
+								const isResearch =
+									session.title.includes("研究") ||
+									session.title.includes("略读") ||
+									session.title.includes("精读");
+								return (
+									<article className={isActive ? "active" : ""} key={session.id}>
+										<button
+											type="button"
+											className="agent-session-item-btn"
+											onClick={() => void selectSession(session.id)}
+											title={session.title}
 										>
+											<div className="agent-session-item-header">
+												<div className={`agent-session-type-icon${isRunning ? " is-running" : ""}`}>
+													{isResearch ? <Sparkles size={13} /> : <MessageSquare size={13} />}
+												</div>
+												<strong className="agent-session-title">{session.title}</strong>
+											</div>
+											<div className="agent-session-meta">
+												<span className={`agent-status-tag ${session.status}`}>
+													{isRunning && <span className="agent-pulse-dot" />}
+													{session.status === "running"
+														? "运行中"
+														: session.status === "stopping"
+															? "停止中"
+															: session.status === "error"
+																? "异常"
+																: "就绪"}
+												</span>
+												<span className="agent-session-time">{timeLabel(session.updatedAt)}</span>
+											</div>
+											{session.pendingUIRequests > 0 && (
+												<div className="agent-session-pending-badge">
+													{session.pendingUIRequests} 个待确认
+												</div>
+											)}
+										</button>
+										<div className="agent-session-more-wrap">
 											<button
+												className="agent-session-more"
 												type="button"
-												onClick={() => {
-													setMenuOpen(null);
-													void renameSession(session.id);
+												aria-label={`更多操作 ${session.title}`}
+												title="更多操作"
+												onMouseEnter={cancelSessionMenuClose}
+												onMouseLeave={scheduleSessionMenuClose}
+												onClick={(event) => {
+													const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+													setMenuOpen(
+														menuOpen?.id === session.id
+															? null
+															: { id: session.id, left: rect.right - 104, top: rect.bottom + 4 },
+													);
 												}}
 											>
-												编辑
+												⋯
 											</button>
-											<button
-												type="button"
-												onClick={() => {
-													setMenuOpen(null);
-													void deleteSession(session.id);
-												}}
-											>
-												删除
-											</button>
+											{menuOpen?.id === session.id && (
+												<div
+													className="agent-session-menu"
+													role="menu"
+													onMouseEnter={cancelSessionMenuClose}
+													onMouseLeave={scheduleSessionMenuClose}
+													style={{
+														position: "fixed",
+														left: menuOpen.left,
+														top: menuOpen.top,
+														zIndex: 999,
+													}}
+												>
+													<button
+														type="button"
+														onClick={() => {
+															setMenuOpen(null);
+															void renameSession(session.id);
+														}}
+													>
+														<Edit3 size={13} />
+														<span>重命名</span>
+													</button>
+													<button
+														type="button"
+														className="danger"
+														onClick={() => {
+															setMenuOpen(null);
+															void deleteSession(session.id);
+														}}
+													>
+														<Trash2 size={13} />
+														<span>删除</span>
+													</button>
+												</div>
+											)}
 										</div>
-									)}
-								</div>
-							</article>
-						))}
-							{!orderedSessions.length && <p className="muted">新建一个会话后开始对话。</p>}
-					</div>
-					<div className="agent-template-list">
-						<span className="agent-template-head">任务模板</span>
-						{taskTemplates.map((template) => (
-							<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
-								<strong>{template.title}</strong>
-							</button>
-						))}
-					</div>
-				</aside>}
+									</article>
+								);
+							})}
+							{!orderedSessions.length && (
+								<p className="muted agent-session-empty">暂无会话，点击上方按钮新建开始。</p>
+							)}
+						</div>
+						<div className="agent-template-section">
+							<div className="agent-template-head">
+								<Sparkles size={12} />
+								<span>常用任务模板</span>
+							</div>
+							<div className="agent-template-list">
+								{taskTemplates.map((template) => (
+									<button
+										key={template.title}
+										type="button"
+										className="agent-template-item"
+										onClick={() => setPrompt(template.prompt)}
+										title={template.prompt}
+									>
+										<span>{template.title}</span>
+										<ArrowUpRight size={13} className="template-arrow-icon" />
+									</button>
+								))}
+							</div>
+						</div>
+					</aside>
+				)}
 
 				<section className={`panel agent-chat-panel${embedded ? " agent-chat-panel-embedded" : ""}`}>
 					<div className="agent-chat-column">
-					<div className="agent-chat-heading">
-						{!embedded && <button
-							className="agent-sidebar-toggle"
-							type="button"
-							onClick={() => {
-								setSidebarOpen((current) => {
-									window.localStorage.setItem("paper-agent-sidebar-open", current ? "closed" : "open");
-									return !current;
-								});
-							}}
-							aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
-							title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
-						>
-							<Menu size={16} />
-						</button>}
-						<h2 className="agent-chat-title">{embedded ? "论文助手" : (active?.title ?? "")}</h2>
-						{embedded && paperContext && (
-							<div className="paper-session-controls">
-								<select
-									aria-label="论文会话"
-									value={active?.id ?? ""}
-									onChange={(event) => {
-										if (event.target.value) void selectSession(event.target.value);
-										else setActive(undefined);
-									}}
-								>
-									<option value="">新会话</option>
-									{orderedSessions.map((session) => (
-										<option key={session.id} value={session.id}>{session.title}</option>
-									))}
-								</select>
+						<div className="agent-chat-heading">
+							{!embedded && (
 								<button
+									className="agent-sidebar-toggle"
 									type="button"
-									disabled={busy || !active}
 									onClick={() => {
-										setActive(undefined);
-										setAttachments([]);
+										setSidebarOpen((current) => {
+											window.localStorage.setItem("paper-agent-sidebar-open", current ? "closed" : "open");
+											return !current;
+										});
 									}}
+									aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+									title={sidebarOpen ? "收起会话列表" : "展开会话列表"}
 								>
-									新建
+									{sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
 								</button>
-								<button
-									type="button"
-									disabled={busy || !active}
-									onClick={() => active && void deleteSession(active.id)}
-								>
-									删除
+							)}
+							<h2 className="agent-chat-title">{embedded ? "论文助手" : (active?.title ?? "")}</h2>
+							{embedded && paperContext && (
+								<div className="paper-session-controls">
+									<select
+										aria-label="论文会话"
+										value={active?.id ?? ""}
+										onChange={(event) => {
+											if (event.target.value) void selectSession(event.target.value);
+											else setActive(undefined);
+										}}
+									>
+										<option value="">新会话</option>
+										{orderedSessions.map((session) => (
+											<option key={session.id} value={session.id}>
+												{session.title}
+											</option>
+										))}
+									</select>
+									<button
+										type="button"
+										disabled={busy || !active}
+										onClick={() => {
+											setActive(undefined);
+											setAttachments([]);
+										}}
+									>
+										新建
+									</button>
+									<button
+										type="button"
+										disabled={busy || !active}
+										onClick={() => active && void deleteSession(active.id)}
+									>
+										删除
+									</button>
+								</div>
+							)}
+							{running && (
+								<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
+									停止生成
 								</button>
+							)}
+						</div>
+						{embedded && paperContext && (
+							<div className="paper-agent-context">
+								<span>当前 PDF</span>
+								<strong>{paperContext.title}</strong>
+								{paperContext.pdfSha256 && <code>{paperContext.pdfSha256.slice(0, 10)}</code>}
 							</div>
 						)}
-						{running && (
-							<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
-								停止生成
-							</button>
+
+						{active?.error && (
+							<DismissibleErrorBanner
+								message={active.error}
+								onDismiss={() => void dismissSessionError(active.id)}
+							/>
 						)}
-					</div>
-					{embedded && paperContext && (
-						<div className="paper-agent-context">
-							<span>当前 PDF</span>
-							<strong>{paperContext.title}</strong>
-							{paperContext.pdfSha256 && <code>{paperContext.pdfSha256.slice(0, 10)}</code>}
+						{active?.uiRequests.map((request) => (
+							<AgentUIRequestCard key={request.id} request={request} disabled={busy} onRespond={respond} />
+						))}
+
+						<div className="agent-transcript-shell">
+							<div
+								className="agent-transcript"
+								ref={transcriptRef}
+								onScroll={handleTranscriptScroll}
+								onWheel={handleTranscriptWheel}
+							>
+								{active?.messages.map((message) => {
+									const messageResults = resultDocumentsByMessage.get(message.id) ?? [];
+									const messageTools = toolsByMessage.get(message.id) ?? [];
+									return (
+										<article className={`agent-message ${message.role} ${message.status}`} key={message.id}>
+											<header>
+												<strong>{message.role === "user" ? "你" : "Paper Agent"}</strong>
+												<span>{timeLabel(message.createdAt)}</span>
+											</header>
+											<div className="agent-message-text">
+												{message.content ? (
+													message.role === "assistant" ? (
+														<AgentMarkdown
+															content={message.content}
+															onOpenResult={(url) => void openSidebarDocument(url)}
+														/>
+													) : (
+														<span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
+													)
+												) : message.status === "streaming" ? (
+													"正在思考并调用研究工具…"
+												) : messageResults.length === 0 ? (
+													"本轮主要执行了工具调用。"
+												) : null}
+											</div>
+											{messageResults.length > 0 && (
+												<div className="agent-result-card-list">
+													{messageResults.map((document) => (
+														<AgentResultCard
+															key={document.id}
+															document={document}
+															active={activeResultDocument?.url === document.url && resultPanelOpen}
+															rowCount={document.rowCount ?? resultRowCounts[document.url]}
+															onOpen={() => void openSidebarDocument(document.url)}
+														/>
+													))}
+												</div>
+											)}
+
+											{message.thinking ? (
+												<ThinkingBlock
+													thinking={message.thinking}
+													streaming={message.status === "streaming"}
+												/>
+											) : message.status === "streaming" ? (
+												<div className="agent-thinking-streaming">正在思考…</div>
+											) : null}
+											{messageTools.length > 0 && <AgentToolGroup tools={messageTools} />}
+											{message.error && <small className="error-text">{message.error}</small>}
+										</article>
+									);
+								})}
+								{!active && (
+									<div className="agent-chat-empty">
+										<Sparkles size={28} />
+										<h3>{embedded ? "和 Paper Agent 一起阅读" : "在网页中使用完整的 Paper Agent 工具"}</h3>
+										<p>
+											{embedded
+												? "第一次提问时会创建这篇论文的持续会话，之后打开仍可继续讨论。"
+												: "新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。"}
+										</p>
+										{!embedded && (
+											<div className="agent-suggestion-grid">
+												{taskTemplates.map((template) => (
+													<button
+														key={template.title}
+														type="button"
+														onClick={() => setPrompt(template.prompt)}
+													>
+														<strong>{template.title}</strong>
+														<span>{template.prompt.slice(0, 56)}…</span>
+													</button>
+												))}
+											</div>
+										)}
+									</div>
+								)}
+								<div aria-hidden="true" />
+							</div>
+							{showLatestButton && (
+								<button className="agent-scroll-latest" type="button" onClick={() => scrollToLatest()}>
+									回到最新
+								</button>
+							)}
 						</div>
-					)}
 
-					{active?.error && (
-						<DismissibleErrorBanner message={active.error} onDismiss={() => void dismissSessionError(active.id)} />
-					)}
-					{active?.uiRequests.map((request) => (
-						<AgentUIRequestCard key={request.id} request={request} disabled={busy} onRespond={respond} />
-					))}
-
-					<div className="agent-transcript-shell">
-					<div
-						className="agent-transcript"
-						ref={transcriptRef}
-						onScroll={handleTranscriptScroll}
-						onWheel={handleTranscriptWheel}
-					>
-						{active?.messages.map((message) => {
-							const messageResults = resultDocumentsByMessage.get(message.id) ?? [];
-							const messageTools = toolsByMessage.get(message.id) ?? [];
-							return (
-							<article className={`agent-message ${message.role} ${message.status}`} key={message.id}>
-								<header>
-									<strong>{message.role === "user" ? "你" : "Paper Agent"}</strong>
-									<span>{timeLabel(message.createdAt)}</span>
-								</header>
-								<div className="agent-message-text">
-									{message.content ? (
-										message.role === "assistant" ? (
-											<AgentMarkdown content={message.content} onOpenResult={(url) => void openSidebarDocument(url)} />
-										) : (
-											<span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
-										)
-									) : message.status === "streaming" ? (
-										"正在思考并调用研究工具…"
-									) : messageResults.length === 0 ? (
-										"本轮主要执行了工具调用。"
-									) : null}
+						<div className="agent-composer">
+							{embedded && (
+								<div className="paper-agent-quick-prompts">
+									{paperQuickPrompts.map((quickPrompt) => (
+										<button type="button" key={quickPrompt} onClick={() => setPrompt(quickPrompt)}>
+											{quickPrompt}
+										</button>
+									))}
 								</div>
-								{messageResults.length > 0 && (
-									<div className="agent-result-card-list">
-										{messageResults.map((document) => (
-											<AgentResultCard
-												key={document.id}
-												document={document}
-												active={activeResultDocument?.url === document.url && resultPanelOpen}
-												rowCount={document.rowCount ?? resultRowCounts[document.url]}
-												onOpen={() => void openSidebarDocument(document.url)}
-											/>
+							)}
+							<div className="agent-composer-card">
+								{skillPaletteOpen && (
+									<div className="agent-skill-palette">
+										<div className="agent-skill-palette-head">技能（/skill: 名称）</div>
+										{loadedSkills
+											.filter(
+												(skill) =>
+													skill.name.includes(skillFilter) || skill.description.includes(skillFilter),
+											)
+											.map((skill) => (
+												<button
+													key={skill.name}
+													type="button"
+													className="agent-skill-item"
+													onClick={() => {
+														setPrompt(`/skill:${skill.name} `);
+														setSkillPaletteOpen(false);
+													}}
+												>
+													<Sparkles size={12} />
+													<span>{skill.name}</span>
+												</button>
+											))}
+									</div>
+								)}
+								{attachments.length > 0 && (
+									<div className="agent-attachment-chips">
+										{attachments.map((attachment) => (
+											<span className="agent-attachment-chip" key={attachment.path}>
+												<Paperclip size={12} />
+												<span className="agent-attachment-chip-name">{attachment.name}</span>
+												<button
+													type="button"
+													aria-label={`移除 ${attachment.name}`}
+													onClick={() =>
+														setAttachments((current) =>
+															current.filter((entry) => entry.path !== attachment.path),
+														)
+													}
+												>
+													<X size={12} aria-hidden="true" />
+												</button>
+											</span>
 										))}
 									</div>
 								)}
-
-								{message.thinking ? (
-									<ThinkingBlock thinking={message.thinking} streaming={message.status === "streaming"} />
-								) : message.status === "streaming" ? (
-									<div className="agent-thinking-streaming">正在思考…</div>
-								) : null}
-								{messageTools.length > 0 && <AgentToolGroup tools={messageTools} />}
-								{message.error && <small className="error-text">{message.error}</small>}
-							</article>
-							);
-						})}
-						{!active && (
-							<div className="agent-chat-empty">
-								<Sparkles size={28} />
-								<h3>{embedded ? "和 Paper Agent 一起阅读" : "在网页中使用完整的 Paper Agent 工具"}</h3>
-								<p>{embedded ? "第一次提问时会创建这篇论文的持续会话，之后打开仍可继续讨论。" : "新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。"}</p>
-								{!embedded && <div className="agent-suggestion-grid">
-									{taskTemplates.map((template) => (
-										<button key={template.title} type="button" onClick={() => setPrompt(template.prompt)}>
-											<strong>{template.title}</strong>
-											<span>{template.prompt.slice(0, 56)}…</span>
-										</button>
-									))}
-								</div>}
-							</div>
-						)}
-						<div aria-hidden="true" />
-					</div>
-					{showLatestButton && (
-						<button className="agent-scroll-latest" type="button" onClick={() => scrollToLatest()}>
-							回到最新
-						</button>
-					)}
-					</div>
-
-					<div className="agent-composer">
-						{embedded && (
-							<div className="paper-agent-quick-prompts">
-								{paperQuickPrompts.map((quickPrompt) => (
-									<button type="button" key={quickPrompt} onClick={() => setPrompt(quickPrompt)}>
-										{quickPrompt}
-									</button>
-								))}
-							</div>
-						)}
-						{skillPaletteOpen && (
-							<div className="agent-skill-palette">
-								<div className="agent-skill-palette-head">技能（/skill: 名称）</div>
-								{loadedSkills
-									.filter((skill) => skill.name.includes(skillFilter) || skill.description.includes(skillFilter))
-									.map((skill) => (
-										<button
-											key={skill.name}
-											type="button"
-											onClick={() => {
-												setPrompt(`/skill:${skill.name} `);
-												setSkillPaletteOpen(false);
-											}}
-										>
-											{skill.name}
-										</button>
-									))}
-							</div>
-						)}
-						<textarea
-							value={prompt}
-							onChange={(event) => {
-								const value = event.target.value;
-								setPrompt(value);
-								if (value.startsWith("/skill:")) {
-									setSkillPaletteOpen(false);
-								} else if (value.startsWith("/")) {
-									setSkillFilter(value.slice(1).toLowerCase());
-									setSkillPaletteOpen(true);
-								} else {
-									setSkillPaletteOpen(false);
-								}
-							}}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-									event.preventDefault();
-									void send();
-								}
-							}}
-							placeholder="描述任务，或输入 / 选择技能… Ctrl / Cmd + Enter 发送"
-							rows={4}
-							disabled={(!active && !paperContext) || running}
-						/>
-						{attachments.length > 0 && (
-							<div className="agent-attachment-chips">
-								{attachments.map((attachment) => (
-									<span className="agent-attachment-chip" key={attachment.path}>
-										{attachment.name}
-										<button
-											type="button"
-											aria-label={`移除 ${attachment.name}`}
-											onClick={() => setAttachments((current) => current.filter((entry) => entry.path !== attachment.path))}
-										>
-											×
-										</button>
-									</span>
-								))}
-							</div>
-						)}
-						<div className="agent-composer-actions">
-							<div className="agent-composer-actions-left">
-								<button
-									className="agent-attach-button"
-									type="button"
-									title="上传附件（PDF / 文本 / 图片，最多 10 个）"
-									disabled={!active || running || uploading}
-									onClick={() => fileInputRef.current?.click()}
-								>
-									{uploading ? "上传中…" : "＋"}
-								</button>
-								<input
-									ref={fileInputRef}
-									type="file"
-									multiple
-									style={{ display: "none" }}
-									onChange={(event) => void handleFiles(event.target.files)}
+								<textarea
+									className="agent-composer-textarea"
+									value={prompt}
+									onChange={(event) => {
+										const value = event.target.value;
+										setPrompt(value);
+										if (value.startsWith("/skill:")) {
+											setSkillPaletteOpen(false);
+										} else if (value.startsWith("/")) {
+											setSkillFilter(value.slice(1).toLowerCase());
+											setSkillPaletteOpen(true);
+										} else {
+											setSkillPaletteOpen(false);
+										}
+									}}
+									onKeyDown={(event) => {
+										if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+											event.preventDefault();
+											void send();
+										}
+									}}
+									placeholder="描述任务，或输入 / 选择技能… Ctrl / Cmd + Enter 发送"
+									rows={3}
+									disabled={(!active && !paperContext) || running}
 								/>
-								<small className="agent-composer-hint">写入、下载、团队提议与配置变更会在上方出现人工确认卡片。</small>
-							</div>
-							<div className="agent-composer-actions-right">
-								<select
-									className="agent-model-switcher"
-									aria-label="切换对话模型"
-									title="切换对话模型"
-									value={configuredKey}
-									disabled={busy || running || !config?.configuredModels.length}
-									onChange={(event) => void applyConfigured(event.target.value)}
-								>
-									{!configuredKey && <option value="">选择模型</option>}
-									{[...new Set(config?.configuredModels.map((model) => model.providerId) ?? [])].map((providerId) => (
-										<optgroup key={providerId} label={providerId}>
-											{config?.configuredModels
-												.filter((model) => model.providerId === providerId)
-												.map((model) => (
-													<option key={model.key} value={model.key} disabled={!model.credentialsAvailable}>
-														{model.modelId}{model.credentialsAvailable ? "" : "（缺少密钥）"}
+								<div className="agent-composer-toolbar">
+									<div className="agent-composer-toolbar-left">
+										<button
+											className="agent-attach-btn"
+											type="button"
+											title="上传附件（PDF / 文本 / 图片，最多 10 个）"
+											disabled={!active || running || uploading}
+											onClick={() => fileInputRef.current?.click()}
+										>
+											{uploading ? (
+												<Loader2 size={15} className="agent-spinning" />
+											) : (
+												<Paperclip size={15} />
+											)}
+										</button>
+										<input
+											ref={fileInputRef}
+											type="file"
+											multiple
+											style={{ display: "none" }}
+											onChange={(event) => void handleFiles(event.target.files)}
+										/>
+										<label className="agent-composer-pill" title="思考强度：控制模型推理深度">
+											<Brain size={13} />
+											<select
+												className="agent-composer-pill-select"
+												aria-label="思考强度"
+												value={thinkingLevel}
+												disabled={busy}
+												onChange={(event) =>
+													void changeThinkingLevel(event.target.value as AgentThinkingLevel)
+												}
+											>
+												{thinkingLevelOptions.map((option) => (
+													<option key={option.value} value={option.value}>
+														{option.label}
 													</option>
 												))}
-										</optgroup>
-									))}
-								</select>
-								<button
-									className="button primary agent-send-button"
-									type="button"
-									disabled={(!active && !paperContext) || !prompt.trim() || running || busy || !configurationReady}
-									onClick={() => void send()}
-								>
-									发送
-								</button>
+											</select>
+										</label>
+										<label
+											className={`agent-composer-pill${permissionMode === "auto" ? " auto" : ""}`}
+											title={
+												permissionMode === "auto"
+													? "自动批准所有确认请求（写入、下载、团队提议等不再逐项询问）"
+													: "写入、下载等敏感操作会先弹出确认卡片"
+											}
+										>
+											<ShieldCheck size={13} />
+											<select
+												className="agent-composer-pill-select"
+												aria-label="权限模式"
+												value={permissionMode}
+												disabled={busy}
+												onChange={(event) =>
+													void changePermissionMode(event.target.value as AgentPermissionMode)
+												}
+											>
+												{permissionModeOptions.map((option) => (
+													<option key={option.value} value={option.value}>
+														{option.label}
+													</option>
+												))}
+											</select>
+										</label>
+									</div>
+									<div className="agent-composer-toolbar-right">
+										<div className="agent-model-switcher-wrap" title="切换对话模型">
+											<Bot size={13} className="agent-model-switcher-icon" />
+											<select
+												className="agent-model-switcher"
+												aria-label="切换对话模型"
+												value={configuredKey}
+												disabled={busy || running || !config?.configuredModels.length}
+												onChange={(event) => void applyConfigured(event.target.value)}
+											>
+												{!configuredKey && <option value="">选择模型</option>}
+												{[...new Set(config?.configuredModels.map((model) => model.providerId) ?? [])].map(
+													(providerId) => (
+														<optgroup key={providerId} label={providerId}>
+															{config?.configuredModels
+																.filter((model) => model.providerId === providerId)
+																.map((model) => (
+																	<option
+																		key={model.key}
+																		value={model.key}
+																		disabled={!model.credentialsAvailable}
+																	>
+																		{model.modelId}
+																		{model.credentialsAvailable ? "" : "（缺少密钥）"}
+																	</option>
+																))}
+														</optgroup>
+													),
+												)}
+											</select>
+										</div>
+										<button
+											className="agent-send-button"
+											type="button"
+											disabled={
+												(!active && !paperContext) ||
+												!prompt.trim() ||
+												running ||
+												busy ||
+												!configurationReady
+											}
+											onClick={() => void send()}
+											title={running ? "正在生成中…" : "发送 (Ctrl+Enter)"}
+										>
+											{running ? (
+												<Loader2 size={15} className="agent-spinning" />
+											) : (
+												<>
+													<span>发送</span>
+													<ArrowUp size={14} strokeWidth={2.5} />
+												</>
+											)}
+										</button>
+									</div>
+								</div>
 							</div>
 						</div>
-					</div>
 					</div>
 				</section>
 
@@ -1749,7 +2057,7 @@ export function AgentPage({
 							activeDocument={activeResultDocument}
 							activeRowCount={
 								activeResultDocument
-									? resultRowCounts[activeResultDocument.url] ?? activeResultDocument.rowCount
+									? (resultRowCounts[activeResultDocument.url] ?? activeResultDocument.rowCount)
 									: undefined
 							}
 							tables={sidebarTables}

@@ -35,7 +35,7 @@
 | 应用层契约 | `src/app/application/paper-agent-contracts.ts` | `Team*Input` 类型 |
 | 本地 HTTP 路由 | `src/app/presentation/team-routes.ts` | `/api/team/*` |
 | Pi 工具 | `src/team/presentation/team-corpus-tools.ts` | `manage_team_literature_server` |
-| Web 页面 | `web/src/App.tsx` 中 `function TeamPage()`（约 3944 行起） | 团队知识库页 |
+| Web 页面 | `web/src/team-page.tsx`（由 `web/src/App.tsx` 懒加载） | 团队知识库页；协作面板在 `web/src/team-collaboration-panel.tsx` |
 | 个人库写入 | `src/literature/application/literature-store-write.ts` | `upsertPaper()` 返回 created/updated/unchanged |
 | 个人库材料 | `src/literature/application/literature-store-materials.ts` | `putBlob()`、`savePaperVersion()`、`listPaperVersions()`、`putDerived()`、`listDerived()` |
 | 测试 | `test/team-corpus-server.test.ts` 等 5 个文件、`team-server/test/standalone.test.ts`、`scripts/team-corpus-smoke.ts` | 服务端测试用 `createTeamCorpusServer` 起 loopback 实例 |
@@ -223,15 +223,104 @@ Web 待审核区三个列表（论文、派生、Artifact）增加全选/多选�
 - `docs/team-handoff.md` 第 12 节按各阶段实际结果重写。
 - `docs/README.md` 文档索引已包含本计划链接，阶段结束后按需更新描述。
 
-## 7. 交付规范
+## 7. 阶段六：团队共享分类（2026-09-14）
+
+**状态（2026-09-14）。** 三个任务均已实施：`searchPapers` 新增 `paperIds` 白名单、`GET /search` 新增可重复的 `topic` 参数（多分类取并集）、客户端/本地路由/Agent 工具全部透传，Web 的「高级过滤器」新增分类下拉并在启用时可一键清除；`collectionIds` 已在提案与拉取两端清除；提案可选携带分类请求，由审核者在批准时落地。已通过 `tsc`（三处）、lint、Web 构建、根目录测试、team-server 测试与 `scripts/team-corpus-smoke.ts`。
+
+**实施中修正的设计（重要）。** 原任务 6.2 设想"提案成功后由客户端直接调用 `POST /topics` 归类"，但 `changeTopic` 对非 `reviewer` 一律返回 403，且服务端在提案时会重建 `curation.teamReview`、丢弃客户端写入的字段，因此普通提交者根本走不通这条路径。改为：提案把分类请求记录在审核信封的 `requestedTopicIds` 上，**批准时由服务端应用**——批准即归类，同时满足"只有策展人能定义/写入分类"与"请求可见可审"。据此新增两条规则：请求只能引用已存在的分类（客户端在提案前校验）；对**已发布**论文请求分类会被整批 400 拒绝（已发布记录没有审核步骤，接受它等于绕开审核写分类）。
+
+**需求。** 团队库的论文列表目前是平铺的：读者无法按主题浏览，也看不出某篇论文属于哪个主题；贡献者希望在提交论文时顺手把分类带上去，让团队分类随提案自然生长。
+
+**先不要重复造。** 分类的定义、成员、权限、审计和 Web 编辑界面都已经存在。本阶段不新增 collection 概念、不新增存储目录、不改动任何数据格式：
+
+- 协议 `TeamTopic`（`team-corpus-types.ts`）即分类；存储在 `{namespace}/topics/*.json`，由 `team-collaboration-repository.ts` 的 `topics()` / `changeTopic()` 负责。
+- `GET/POST /v1/namespaces/{ns}/topics`（`team-content-routes.ts`）：**写入要求 `reviewer` 或 `admin`**，读取要求 `reader` 或 `reviewer`；乐观并发 `expectedVersion` 不符返回 409；审计事件 `topic.save` / `topic.delete`；单个分类最多 1000 条目；条目只允许指向已发布内容。
+- Web："专题集合"页签（`web/src/team-collaboration-panel.tsx`）可以创建、编辑、删除分类并挑选内容，创建按钮对非 reviewer 隐藏。
+- 已有能力只能过滤**混合内容列表**（`GET /content?topicId=`，实现为 `team-content-service.ts` 中的全量扫描后过滤）。**论文检索 `GET /search` 不支持按分类过滤**，这才是"论文平铺"的直接原因。
+
+**注意分层。** `TeamKnowledgeStore` 的 `literature` 是外部注入的 `TeamLiteratureRepository`，而 `collaboration` 由 store 自己构造（`team-knowledge-store.ts` 约 137-144 行）。所以**"分类 → 论文"的解析必须放在路由/服务层**，不能反过来让 `FileTeamLiteratureRepository` 去读 `topics/`。
+
+### 7.1 明确排除的事
+
+- **不把团队库迁移到 SQLite。** 团队服务的既定边界（`docs/team-handoff.md` 第 2 节）把个人库 `personal.sqlite` 与多实例共享写存储列为非目标；分类不需要数据库，`topics/` 已经证明文件存储够用。换库要连带重做备份、恢复、恢复日志与审计 outbox，收益为零。
+- **不做分类嵌套（`parentId`）。** 个人库靠 SQL 外键级联处理删除与改名，文件存储下要手写补偿逻辑；当前规模不值得。将来要做时另开一节。
+- **分类成员关系不进审核指纹。** 指纹只覆盖规范化标题、规范化摘要、年份、规范化 identifiers 和 `pdf`/`artifact` 下载链接（见本文件"评审与补强记录"的"审核指纹收窄"）。整理分类属于元数据动作，不应触发 revision。
+- **不放开分类写权限给 contributor。** 分类对读者等同"被团队认可"的信号，谁都能写就能造出看起来权威的分类名。需要整理分类的人由管理员授予 `reviewer` 角色即可，不需要改代码。
+
+### 7.2 任务 6.1 论文检索支持按分类过滤
+
+**改动（服务端）。**
+
+- `team-server/src/domain/team-literature-repository.ts`：`searchPapers` 的 options 增加 `paperIds?: string[]`，语义是**白名单**。必须区分 `undefined`（不做分类过滤）与 `[]`（结果为空），这是这块最容易写错的地方。
+- `file-team-literature-repository.ts`：在既有过滤链（约 247-280 行的一串 `continue`）中增加一条白名单判断。它必须位于 `offset`/`limit` 切片（约 310-313 行）**之前**，否则分页会返回空页。
+- `team-corpus-server.ts` 的 `GET /search`：用现有 `listParameter(url, "topic")` 解析可重复的 `topic` 参数；存在时通过 `store.collaboration.topics()` 取出这些分类中 `resource === "papers"` 的条目 id 做**并集**，作为 `paperIds` 传入。分类 id 不存在时返回空结果而不是 404，避免泄露分类存在性。
+- 若日后分类条目规模变大，可在这一层加"写入失效的论文→分类反向索引"，但不要把它下沉到 literature 仓储。
+
+**改动（客户端与本地层）。**
+
+- `src/team/application/team-corpus-client.ts` 的 `search()`：入参增加 `topicIds?: string[]`，用 `query.append("topic", id)`。
+- `src/app/application/paper-agent-team-access.ts` 的 `searchTeamLibrary()`：透传 `topicIds`。
+- `src/app/presentation/team-routes.ts` 的 `GET /api/team/search`：`url.searchParams.getAll("topic")` → `topicIds`。
+- `src/team/presentation/team-corpus-tools.ts` 的 `search` action：增加可选参数 `topics`（分类 id 数组）。
+
+**改动（Web）。**
+
+- `web/src/team-page.tsx`：分类数据取现有的 `GET /api/team/topics`，**不需要新接口**。在"已共享论文"区增加分类栏（"全部" + 各分类），点击后重新调用 `/api/team/search` 并带上 `topic`；论文行显示所属分类标签，用同一份 topics 数据在客户端计算，零额外请求。
+- `loadMoreShared()` 必须带上当前分类，否则翻页会混入其他分类。
+- 可选项：增加"未分类"筛选。它需要在服务端加一个显式开关（例如 `untopic=true`），**不要在客户端伪造**，否则与分页矛盾。
+
+**测试。**
+
+- `test/team-corpus-server.test.ts`：分类内过滤正确；多个分类取并集；不存在的分类 id 返回空结果而非 404；**分页正确**——构造多于一个 `limit` 的分类成员，断言第二页仍有结果（这是最容易漏测的一条）；`paperIds: []` 返回空结果而不是全量。
+- `team-server/test/repository-index.test.ts`：`changeTopic()` 之后新加入的论文立即能被过滤命中（防止引入缓存后忘记失效）。
+
+**文档。** `docs/team-handoff.md` 第 7 节的搜索参数表增加 `topic`；`docs/team-knowledge-base.md` 补一句"论文可按专题浏览"。
+
+### 7.3 任务 6.2 提案时携带分类（已按修正后的机制实施）
+
+**机制。** 提案把分类请求写在审核信封上，**由审核者批准时应用**（见本阶段开头的"实施中修正的设计"）。
+
+**改动。**
+
+- 协议：`PaperCuration.teamReview` 增加 `requestedTopicIds?: string[]`（两份 `literature-types.ts` 逐行一致）。
+- 服务端：`POST /proposals` 可选 body `topicIds`（≤50 个、每个 ≤128 字符，`topicIdsBody` 校验）；`proposePapers` 把它写入新建/重置/停放修订三处信封并且**保留**原有请求；`POST /reviews` 在批准后调用 `applyRequestedCategories()`，按批次对每个分类只写一次（去重后追加 `{resource:"papers", id}`），并发冲突记入 `categories.skipped` 而不回滚既成的审核，并写 `topic.save` 审计。
+- 客户端：`TeamCorpusClient.proposePapers()` 增加 `options.topicIds`；新增 `resolveRequestedTopics()`（`src/team/application/team-topic-membership.ts`）在提案前用 `GET /topics` 校验分类是否存在，未知分类直接报错。
+- 接口面：Agent 工具 `propose` 的 `topic_ids`（并放进 `authorize` 的 `details`，确认预览可见）；本地层 `TeamPaperProposalInput.topicIds` 与 `/api/team/proposals/prepare|execute`；Web 提案面板的分类多选（只列已存在的分类）。
+- **已发布论文不允许请求分类**：`proposePapers` 在写入前整批 400 拒绝，避免出现"没有审核步骤的分类写入"。
+
+**产品取舍。** 不做个人分类树的自动上行。个人库分类是私有组织，团队分类是共享策展；只在用户显式选择时带入，且必须在确认面板中可见。分类用**数组**而不是斜杠拼接的字符串：个人库的分类名没有字符限制（`personal-schema-core.ts` 的 `collections` 表只有同级同名唯一索引），名字里可以合法包含 `/`。
+
+**测试。** `test/team-corpus-server.test.ts` 覆盖：请求被记录但批准前不归类；批准后 `categories.applied` 包含既有分类、`categories.skipped` 包含不存在的分类；批准后搜索能按该分类命中；对已发布论文重复请求被 400 拒绝。
+
+### 7.4 任务 6.3 修正 `collectionIds` 的幽灵携带
+
+**问题。** `sanitizePaperRecordForTeamProposal()`（`src/team/application/team-corpus-client.ts` 约 48 行）只清空 `userNotes` 和 `screening`，个人库的 `collectionIds` 会被原样带进团队记录，并在 `mergePaperRecords()` 中做并集（`literature-identifiers.ts` 约 360 行）；`sanitizePulledRecord()`（`src/team/application/team-pull.ts` 约 55 行）同样不清除。结果是个人库的分类 id 会随论文上行到团队、再下行进其他成员的个人库，指向对方不存在的分类。
+
+个人库写入用的是 `INSERT ... SELECT ... FROM collections WHERE namespace_id = ? AND id = ?`（`personal-paper-repository.ts` 约 132-135 行），不存在的分类会被静默忽略，因此不会触发外键错误；但 `record_json` 快照与 `paper_collections` 关系表会不一致。
+
+**改动。** 两个脱敏函数都显式清空 `collectionIds`，并加注释说明"团队侧分类走 `TeamTopic`，不使用个人库分类 id"。
+
+**测试。** 提案后服务端记录 `collectionIds` 为空；pull 回个人库的记录 `collectionIds` 为空。
+
+### 7.5 已知代价与风险
+
+- `GET /search` 目前是 offset 分页，并且为了判断 `hasMore` 会**额外执行一次 `limit: 1` 的完整搜索**（`team-corpus-server.ts` 约 212-221 行）。加上分类过滤后每翻一页要扫两遍全部记录。当前规模可以接受；若日后变慢，改成单次多取一条（`limit + 1`）即可，接口不用动。
+- 分类内容仍受"只允许已发布内容"约束，因此分类不会让待审记录对读者可见。反过来，已批准论文之后被拒绝或删除时，它只是从分类视图里消失，分类文件不会被自动清理——这是可接受的，不要为此引入级联。
+- 删除分类**不删除论文**（与个人库"删分类不删论文"一致）。这条语义要在测试里固化。
+- Web 端只做到"按分类浏览"，分类自身的管理仍在"专题集合"页签，不合并两处界面。
+
+**验收标准。** Web 上可以按分类浏览团队论文，翻页不串分类；提案可以同时归入已存在的分类；`collectionIds` 不再跨端流动；`npm run check` 通过；文档三处（`team-handoff.md`、`team-knowledge-base.md`、`team-server/README.md`）同步。
+
+## 8. 交付规范
 
 - 每阶段一个分支、一个 PR，分支名 `team/phase-<n>-<slug>`。
 - PR 描述必须包含：改动的接口列表、协议改动是否已同步两份拷贝、新增测试名、`npm run check` 输出的最后 10 行。
 - 不合并到 `main` 之前，先把 PR 编号发给评审者。
 - 阶段一必须最先完成，阶段二依赖阶段一（可见性规则）。阶段三、四可并行，阶段五最后。
+- 阶段六中任务 6.3（清理 `collectionIds`）不依赖任何前置任务，可以先单独提交；6.1 与 6.2 都会改 `team-corpus-client.ts`、`team-routes.ts` 与 `team-page.tsx`，建议同一分支内顺序提交以避免冲突。
 - 如果某项任务在实现中发现与本计划冲突（例如类型不允许、边界测试失败），在 PR 描述中写明冲突和你选择的替代方案，不要静默改变范围。
 
-## 8. 评审清单（评审者使用）
+## 9. 评审清单（评审者使用）
 
 每个 PR 评审时逐项确认：
 
@@ -248,7 +337,7 @@ Web 待审核区三个列表（论文、派生、Artifact）增加全选/多选�
 - [ ] 文档三处（`team-handoff.md`、`team-knowledge-base.md`、`team-server/README.md`）同步；
 - [ ] `docs/agent-tools.md` 由脚本重新生成而非手改（`npm run docs:tools:check` 通过）。
 
-## 9. 评审与补强记录（2026-09-11）
+## 10. 评审与补强记录（2026-09-11）
 
 五个阶段由实施方完成后，评审方复核并补强了以下内容，均已随同一批改动落地：
 

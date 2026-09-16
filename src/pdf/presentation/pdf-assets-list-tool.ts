@@ -1,6 +1,9 @@
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { sha256File } from "../../artifacts/application/artifact-discovery.ts";
+import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
 import {
 	augmentPaperAssetsWithOcr,
 	detectPaperAssets,
@@ -10,6 +13,7 @@ import {
 	refinePaperAssetRegions,
 } from "../application/pdf-assets.ts";
 import { getPdfPageCount, parsePageSelection, validatePdfPath } from "../application/pdf-document.ts";
+import { PdfAnnotationStore } from "../infrastructure/pdf-annotation-store.ts";
 import type { ListPaperAssetsDetails } from "./pdf-asset-tool-contracts.ts";
 
 export function registerPdfAssetsListTool(pi: ExtensionAPI): void {
@@ -23,6 +27,7 @@ export function registerPdfAssetsListTool(pi: ExtensionAPI): void {
 			"Call list_paper_assets before deep evaluation analysis, then extract every figure/table that carries a core claim.",
 			"Treat candidate regions as navigation hints even when confidence is high; verify complete edges with render_pdf_page and pass asset_id to extraction tools.",
 			"Use mentions to connect prose claims to an asset, but disclose ambiguous mappings and inspect the cited page context.",
+			"Saved manual crop corrections take precedence over automatic estimates for the exact PDF SHA-256.",
 		],
 		parameters: Type.Object({
 			path: Type.String({ description: "PDF path, relative to the working directory or absolute" }),
@@ -39,13 +44,18 @@ export function registerPdfAssetsListTool(pi: ExtensionAPI): void {
 				listEmbeddedImages(pi, absolutePath, selectedPages, signal),
 			]);
 			const textAssets = detectPaperAssets(layouts);
-			const assets = await refinePaperAssetRegions(
+			const automaticAssets = await refinePaperAssetRegions(
 				pi,
 				absolutePath,
 				layouts,
 				await augmentPaperAssetsWithOcr(pi, absolutePath, layouts, textAssets, { signal }),
 				signal,
 			);
+			const [config, pdfSha256] = await Promise.all([loadPaperAgentConfig(ctx.cwd), sha256File(absolutePath)]);
+			const annotations = new PdfAnnotationStore(
+				join(config.storage.dataRoot ?? join(ctx.cwd, ".paper-agent"), "pdf-annotations"),
+			);
+			const assets = await annotations.apply(pdfSha256, automaticAssets);
 			const output = [
 				`PDF: ${absolutePath}`,
 				`Pages indexed: ${selectedPages.join(", ")}`,
@@ -59,6 +69,16 @@ export function registerPdfAssetsListTool(pi: ExtensionAPI): void {
 								`- asset_id=${asset.id}: ${asset.caption}`,
 								`  page=${asset.page}; caption_box=[${formatBox(asset.captionBox)}]`,
 								`  candidate_region=[${formatBox(asset.candidateRegion)}]; confidence=${asset.regionConfidence}`,
+								...(asset.manualCorrection
+									? [
+											"  manual_correction=" +
+												asset.manualCorrection.id +
+												"; author=" +
+												asset.manualCorrection.author +
+												"; created_at=" +
+												asset.manualCorrection.createdAt,
+										]
+									: []),
 								...(asset.continuationRegions ?? []).map(
 									(continuation) =>
 										`  continuation_page=${continuation.page}; region=[${formatBox(continuation.region)}]; confidence=${continuation.confidence}`,

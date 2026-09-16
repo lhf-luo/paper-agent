@@ -1,4 +1,4 @@
-import { ArrowUpRight, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, BookmarkPlus, Check, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree, PAPER_DRAG_TYPE } from "./collection-tree";
@@ -119,6 +119,7 @@ export function AccessibleModal({
 	description,
 	onClose,
 	children,
+	footer,
 	className = "",
 	maxWidth = 640,
 }: {
@@ -126,6 +127,7 @@ export function AccessibleModal({
 	description?: string;
 	onClose: () => void;
 	children: React.ReactNode;
+	footer?: React.ReactNode;
 	className?: string;
 	maxWidth?: number | string;
 }) {
@@ -210,6 +212,7 @@ export function AccessibleModal({
 					</button>
 				</div>
 				<div className="accessible-modal-body">{children}</div>
+				{footer && <div className="accessible-modal-footer">{footer}</div>}
 			</div>
 		</div>
 	);
@@ -243,6 +246,9 @@ export function PaperCard({
 	deleteLabel = "Delete",
 	deleteBusy,
 	dragPaperIds,
+	onSave,
+	saved,
+	saveBusy,
 }: {
 	paper: PaperRecord;
 	selected?: boolean;
@@ -262,6 +268,9 @@ export function PaperCard({
 	deleteLabel?: string;
 	deleteBusy?: boolean;
 	dragPaperIds?: string[];
+	onSave?: (paper: PaperRecord) => void;
+	saved?: boolean;
+	saveBusy?: boolean;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [menuMode, setMenuMode] = useState<"add" | "move" | "notes" | null>(null);
@@ -344,6 +353,18 @@ export function PaperCard({
 						</a>
 					);
 				})()}
+				{onSave && (
+					<button
+						className={`paper-card-save-btn${saved ? " saved" : ""}`}
+						type="button"
+						disabled={saved || saveBusy}
+						title={saved ? "已保存到个人库" : "保存到个人库"}
+						onClick={() => onSave(paper)}
+					>
+						{saved ? <Check size={13} /> : <BookmarkPlus size={13} />}
+						<span>{saved ? "已保存" : saveBusy ? "保存中…" : "保存"}</span>
+					</button>
+				)}
 				{((collections && onAddToCollection && onMoveToCollection) ||
 					onLoadLocalPdf ||
 					onDelete ||
@@ -521,7 +542,7 @@ export function PaperDetailDrawer({ paper, onClose }: { paper: PaperRecord; onCl
 				<header className="paper-detail-head">
 					<strong>论文详情</strong>
 					<button type="button" className="paper-detail-close" aria-label="关闭" onClick={onClose}>
-						×
+						<X size={16} aria-hidden="true" />
 					</button>
 				</header>
 				<div className="paper-detail-body">

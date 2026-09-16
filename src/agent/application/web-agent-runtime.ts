@@ -108,15 +108,20 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				systemPrompt: this.systemPrompt,
 			});
 			await resourceLoader.reload();
-			const piSessionFile = await this.sessionStore.findPiSessionFile(session.id);
-			const sessionManager = piSessionFile
-				? SessionManager.open(piSessionFile, this.sessionStore.piSessionDir, this.projectRoot)
-				: SessionManager.create(this.projectRoot, this.sessionStore.piSessionDir, { id: session.id });
+			// UI history is persisted separately; once turns must never reload an earlier Pi context.
+			const piSessionFile =
+				session.mode === "persistent" ? await this.sessionStore.findPiSessionFile(session.id) : undefined;
+			const sessionManager =
+				session.mode === "once"
+					? SessionManager.inMemory(this.projectRoot)
+					: piSessionFile
+						? SessionManager.open(piSessionFile, this.sessionStore.piSessionDir, this.projectRoot)
+						: SessionManager.create(this.projectRoot, this.sessionStore.piSessionDir, { id: session.id });
 			const result = await createAgentSession({
 				cwd: this.projectRoot,
 				agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
 				model,
-				thinkingLevel: "low",
+				thinkingLevel: session.thinkingLevel ?? "low",
 				modelRuntime,
 				resourceLoader,
 				sessionManager,

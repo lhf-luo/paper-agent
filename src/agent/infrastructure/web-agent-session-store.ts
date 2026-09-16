@@ -5,6 +5,7 @@ import type {
 	WebAgentMessageView,
 	WebAgentMode,
 	WebAgentSessionContext,
+	WebAgentThinkingLevel,
 	WebAgentToolView,
 } from "../domain/web-agent-contracts.ts";
 import { PaperAgentSessionRepository } from "./paper-agent-session-repository.ts";
@@ -19,6 +20,8 @@ export interface PersistedSessionView {
 	error?: string;
 	messages: WebAgentMessageView[];
 	tools: WebAgentToolView[];
+	thinkingLevel?: WebAgentThinkingLevel;
+	permissionMode?: "ask" | "auto";
 }
 
 interface PersistedViewWriteState {

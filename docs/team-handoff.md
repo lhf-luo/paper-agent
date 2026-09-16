@@ -239,14 +239,14 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| `GET` | `/search` | `reader` | 分页搜索团队论文（默认只返回 `team-approved`） |
+| `GET` | `/search` | `reader` | 分页搜索团队论文（默认只返回 `team-approved`），可用 `topic` 限定专题 |
 | `GET` | `/papers/{paperId}` | `reader` | 读取一篇团队论文；非 `team-approved` 且调用方不是 `reviewer`/`admin` 时返回 404 |
 | `GET` | `/papers/{paperId}/versions` | `reader` | 列出该论文的 PDF 版本（含 `sha256`），可见性与单篇读取一致 |
 | `GET` | `/proposals` | `reviewer`（`mine=true` 时为 `contributor`） | 查看待审核论文，包括对已批准记录的待审修订（`curation.teamReview.revision: true`）；`mine=true` 只返回当前身份提交的提案，优先按成员 id 匹配 |
-| `POST` | `/proposals` | `contributor` | 提交论文提案 |
+| `POST` | `/proposals` | `contributor` | 提交论文提案；body 可选 `topicIds`（已存在的专题 id 列表），记录在审核信封上 |
 | `POST` | `/proposals/withdraw` | `contributor` | 撤回自己尚未被审核的提案，body `{ paperIds }`；任一条不满足整批 400 |
 | `POST` | `/reviews/preview` | `reviewer` | `{ resource, ids }`，返回四类内容的完整快照与版本 |
-| `POST` | `/reviews` | `reviewer` | 审核论文和待审附件；必须携带预览返回的 `expectedVersions`。批准修订替换，拒绝修订保留已发布记录 |
+| `POST` | `/reviews` | `reviewer` | 审核论文和待审附件；必须携带预览返回的 `expectedVersions`。批准修订替换，拒绝修订保留已发布记录。批准时应用提案请求的专题，响应中的 `categories.applied` / `categories.skipped` 说明结果 |
 | `GET` | `/derived` | `reader` 或 `reviewer` | 查看派生记录 |
 | `POST` | `/derived` | `contributor` | 提交派生记录 |
 | `POST` | `/derived/reviews` | `reviewer` | 审核派生记录 |
@@ -275,11 +275,15 @@ Authorization: Bearer <token>
 | `POST` | `/topics` | `reviewer` | 创建/编辑/删除专题；编辑和删除必须携带 `expectedVersion`，成员最多 1000 条已发布内容引用 |
 | `GET` | `/maintenance` | `admin` | 最近备份与恢复演练的成功/失败状态、时间和诊断提示 |
 
-搜索支持 `q`、`yearFrom`、`yearTo`、`author`、`venue`、`type`、`openAccess`、`status`、`cursor` 和 `limit`。当前 `cursor` 实际是数字 offset 的字符串。`author`、`venue`、`type` 和 `status` 可重复或逗号分隔。
+搜索支持 `q`、`yearFrom`、`yearTo`、`author`、`venue`、`type`、`openAccess`、`status`、`topic`、`cursor` 和 `limit`。当前 `cursor` 实际是数字 offset 的字符串。`author`、`venue`、`type`、`status` 和 `topic` 可重复或逗号分隔。
+
+`topic` 是团队专题（`TeamTopic`）id，用于把搜索限定在若干专题内；传入多个时取并集，只统计专题中 `resource` 为 `papers` 的引用。过滤在分页切片之前完成，因此翻页不会返回空页。**不存在的专题 id 会让结果为空，而不是返回 404**，避免暴露某专题是否存在。
 
 `status` 取值 `team-proposed`、`team-approved`、`team-rejected`。**未传时默认只返回 `team-approved`**；传入任何非 `team-approved` 值需要 `reviewer` 或 `admin`，否则返回 403。因此普通 `reader` 无法通过搜索发现待审核或被拒绝的记录。
 
-`GET /papers/{paperId}` 与 `/papers/{paperId}/versions` 对不可见的记录一律返回 **404 而不是 403**，以避免泄露记录是否存在。
+`GET /papers/{paperId}` 与 `/papers/{paperId}/versions` 对不可见的记录返回 **404 而不是 403**，以避免泄露记录是否存在。
+
+**提案请求专题。** `POST /proposals` 的 body 可选 `topicIds`（最多 50 个，每个不超过 128 字符）。因为只有 `reviewer` 能写专题，提案人无法直接归类，所以请求写入 `curation.teamReview.requestedTopicIds`，在审核者批准时才落到专题上：批准即归类，等待批准期间论文不会出现在任何专题视图里。请求只能引用**已存在**的专题（客户端在提案前用 `GET /topics` 校验），批准时仍不存在的专题记入 `categories.skipped` 而不会隐式创建。对**已发布**的论文请求专题会被整批 400 拒绝——已发布的记录没有审核步骤，接受它就等于绕开审核写入专题，应改由策展人在 `/topics` 中归类。
 
 新内容列表默认 50 条，`limit` 为 1–200；响应为 `{ entries, total, nextCursor? }`。`/content` 不包含 Markdown、派生结果或完整 Artifact 清单，正文由单条接口按需读取。Web 概览每类只获取已发布和待审的前 25 条摘要，完整列表通过协作区分页访问。旧的 `/derived`、`/pages`、`/artifacts` 完整列表接口仍保留兼容；新客户端应使用 `/content`。
 

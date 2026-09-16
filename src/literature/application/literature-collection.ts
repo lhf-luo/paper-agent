@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { readableErrorMessage } from "../../shared/infrastructure/network-errors.ts";
 import { deduplicatePaperRecords, findPossibleDuplicates, sha256Text } from "../domain/literature-identifiers.ts";
+import { rerankByQueryRelevance } from "../domain/literature-relevance.ts";
 import type {
 	LiteratureProvider,
 	PaperRecord,
@@ -289,7 +290,8 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		sourceCounts[outcome.provider] = (sourceCounts[outcome.provider] ?? 0) + outcome.records.length;
 		failures.push(...outcome.failures);
 	}
-	const results = deduplicatePaperRecords(allRecords);
+	// 多源结果原本按 provider 块状拼接, 这里按查询相关性统一重排, 精确标题命中排到最前。
+	const results = rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
 	for (const record of results) {
 		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
 	}
@@ -299,13 +301,14 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		options.providers.map((provider) => {
 			const providerFailures = failures.filter((failure) => failure.provider === provider);
 			const recordCount = sourceCounts[provider] ?? 0;
-			const status = providerFailures.length && recordCount
-				? "partial"
-				: providerFailures.some((failure) => failure.rateLimited)
-					? "rate-limited"
-					: providerFailures.length
-						? "failed"
-						: "healthy";
+			const status =
+				providerFailures.length && recordCount
+					? "partial"
+					: providerFailures.some((failure) => failure.rateLimited)
+						? "rate-limited"
+						: providerFailures.length
+							? "failed"
+							: "healthy";
 			return [
 				provider,
 				{

@@ -525,6 +525,8 @@ export type AgentApiKind = "openai-completions" | "openai-responses" | "anthropi
 
 export type AgentMode = "once" | "persistent";
 export type AgentSessionStatus = "idle" | "running" | "stopping" | "error";
+export type AgentThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type AgentPermissionMode = "ask" | "auto";
 
 export interface AgentConfiguredModelView {
 	key: string;
@@ -598,6 +600,8 @@ export interface AgentSessionSummary {
 	updatedAt: string;
 	error?: string;
 	pendingUIRequests: number;
+	thinkingLevel?: AgentThinkingLevel;
+	permissionMode?: AgentPermissionMode;
 }
 
 export interface AgentSessionSnapshot extends AgentSessionSummary {
@@ -674,4 +678,15 @@ export interface ReaderPaperDetails {
 export interface LocalPdfImportIssue {
 	filename: string;
 	message: string;
+}
+
+export type AutomatedResearchDepth = "quick" | "methods" | "full" | "reproduce";
+
+export interface AutomatedResearchPlan {
+	depth: AutomatedResearchDepth;
+	depthLabel: string;
+	stages: Array<{ id: string; label: string; purpose: string }>;
+	unattended: true;
+	readOnly: true;
+	humanGates: string[];
 }

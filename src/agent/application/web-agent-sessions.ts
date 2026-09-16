@@ -5,11 +5,13 @@ import {
 	type WebAgentEventSubscription,
 	type WebAgentMessageView,
 	type WebAgentMode,
+	type WebAgentPermissionMode,
 	WebAgentServiceError,
 	type WebAgentSessionContext,
 	type WebAgentSessionSnapshot,
 	type WebAgentSessionFilter,
 	type WebAgentSessionSummary,
+	type WebAgentThinkingLevel,
 	type WebAgentToolView,
 } from "../domain/web-agent-contracts.ts";
 
@@ -57,6 +59,8 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			updatedAt: session.updatedAt,
 			error: session.error ? this.redact(session.error) : undefined,
 			pendingUIRequests: session.pendingUI.size,
+			thinkingLevel: session.thinkingLevel,
+			permissionMode: session.permissionMode,
 		};
 	}
 
@@ -86,7 +90,13 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			.map((session) => this.summary(session));
 	}
 
-	createSession(input: { mode: WebAgentMode; title?: string; context?: WebAgentSessionContext }): WebAgentSessionSnapshot {
+	createSession(input: {
+		mode: WebAgentMode;
+		title?: string;
+		context?: WebAgentSessionContext;
+		thinkingLevel?: WebAgentThinkingLevel;
+		permissionMode?: WebAgentPermissionMode;
+	}): WebAgentSessionSnapshot {
 		this.assertOpen();
 		if (input.mode !== "once" && input.mode !== "persistent") {
 			throw new WebAgentServiceError(400, "会话模式必须是 once 或 persistent");
@@ -124,9 +134,45 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			eventId: 0,
 			toolMessageAnchors: new Map(),
 			abortRequested: false,
+			thinkingLevel: input.thinkingLevel,
+			permissionMode: input.permissionMode ?? "ask",
 		};
 		this.sessions.set(session.id, session);
 		this.persistView(session);
+		return this.snapshot(session);
+	}
+
+	async updateSessionSettings(
+		id: string,
+		input: {
+			thinkingLevel?: WebAgentThinkingLevel;
+			permissionMode?: WebAgentPermissionMode;
+		},
+	): Promise<WebAgentSessionSnapshot> {
+		this.assertOpen();
+		const session = this.managedSession(id);
+		if (
+			input.thinkingLevel === undefined &&
+			input.permissionMode === undefined
+		) {
+			throw new WebAgentServiceError(400, "请提供 thinkingLevel 或 permissionMode 之一");
+		}
+		if (input.thinkingLevel !== undefined) session.thinkingLevel = input.thinkingLevel;
+		if (input.permissionMode !== undefined) session.permissionMode = input.permissionMode;
+		if (session.pi && input.thinkingLevel !== undefined) {
+			try {
+				session.pi.setThinkingLevel(input.thinkingLevel);
+			} catch (reason) {
+				// Pi 会按模型能力收敛思考强度；失败时保留会话设置, 下次创建 Pi 会话再应用。
+				this.emit(session, {
+					type: "notice",
+					level: "warning",
+					message: `思考强度设置将在下一轮对话生效：${this.redact(reason)}`,
+				});
+			}
+		}
+		this.touch(session);
+		this.emitSession(session);
 		return this.snapshot(session);
 	}
 

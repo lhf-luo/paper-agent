@@ -32,14 +32,11 @@ import {
 	Radio,
 	RefreshCw,
 	RotateCcw,
-	Search,
 	Send,
 	ShieldAlert,
 	ShieldCheck,
-	SlidersHorizontal,
 	Sparkles,
 	Trash2,
-	Unlock,
 	UploadCloud,
 	Users,
 	X,
@@ -48,14 +45,15 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TeamPageSourcesInput, TeamReviewSnapshot } from "../../src/team/domain/team-corpus-types";
 import { api, jsonBody } from "./api";
-import { AccessibleModal, ConsentCard, confirmOperation, EmptyState, LoadingBlock, StatusPill } from "./components";
+import { AccessibleModal, confirmOperation, EmptyState, LoadingBlock, StatusPill } from "./components";
 import { useRouterContext } from "./router";
-import type { ConfirmationGrant, PaperRecord, PreparedOperation } from "./types";
-import { TeamKnowledgeDialog, type TeamKnowledgeValue } from "./team-content-view";
-import { useWorkspace } from "./workspace-context";
 import { TeamCollaborationPanel } from "./team-collaboration-panel";
-import { TeamOperationPreview } from "./team-operation-preview";
+import { TeamKnowledgeDialog, type TeamKnowledgeValue } from "./team-content-view";
+import { showDerivedAndArtifactFeatures } from "./team-feature-flags";
 import { TeamMembersPanel } from "./team-members-panel";
+import { TeamOperationModal } from "./team-operation-preview";
+import type { ConfirmationGrant, PaperRecord, PreparedOperation } from "./types";
+import { useWorkspace } from "./workspace-context";
 
 interface ToastItem {
 	id: string;
@@ -316,6 +314,10 @@ export function TeamPage() {
 	const [personal, setPersonal] = useState<PaperRecord[]>([]);
 	const [personalPaperPdfs, setPersonalPaperPdfs] = useState<Record<string, number>>({});
 	const [selectedPersonal, setSelectedPersonal] = useState<Set<string>>(new Set());
+	// 团队共享分类：提案可请求归入已存在的分类，由审核者在批准时生效（分类只有审核者可写）。
+	const [proposalTopics, setProposalTopics] = useState<Array<{ id: string; title: string }>>([]);
+	const [proposalTopicsError, setProposalTopicsError] = useState<string>();
+	const [proposalTopicIds, setProposalTopicIds] = useState<Set<string>>(new Set());
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [pendingRequest, setPendingRequest] = useState<{ path: string; payload: Record<string, unknown> }>();
 	const [busy, setBusy] = useState(false);
@@ -354,29 +356,9 @@ export function TeamPage() {
 	const [backupPath, setBackupPath] = useState("");
 	const [assetTab, setAssetTab] = useState<"blob" | "derived" | "pages">("blob");
 
-	// Search console state (P1: complete search filters)
-	const [teamQuery, setTeamQuery] = useState("");
-	const [teamAuthor, setTeamAuthor] = useState("");
-	const [teamVenue, setTeamVenue] = useState("");
-	const [teamYearFrom, setTeamYearFrom] = useState("");
-	const [teamYearTo, setTeamYearTo] = useState("");
-	const [teamType, setTeamType] = useState("");
-	const [teamOpenAccess, setTeamOpenAccess] = useState<"all" | "true" | "false">("all");
-	const [teamStatus, setTeamStatus] = useState<string>("");
-	const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-	const [teamSearchResults, setTeamSearchResults] = useState<PaperRecord[]>([]);
-	const [teamSearchCursor, setTeamSearchCursor] = useState<string>();
-	const [teamSearchLoading, setTeamSearchLoading] = useState(false);
-
-	// SEPARATE SELECTION SETS (P2: no more mutual wiping!)
-	const [searchPullSelection, setSearchPullSelection] = useState<Set<string>>(new Set());
-	const [sharedPullSelection, setSharedPullSelection] = useState<Set<string>>(new Set());
-	const [includePdf, setIncludePdf] = useState(false);
+	// 论文详情弹窗内「拉取」固定不强制携带 PDF（可选在协作面板检索中心批量同步 PDF）。
+	const [includePdf] = useState(false);
 	const [pullResult, setPullResult] = useState<any>();
-
-	// Shared papers & pagination
-	const [sharedPapers, setSharedPapers] = useState<PaperRecord[]>([]);
-	const [sharedCursor, setSharedCursor] = useState<string>();
 
 	// Derived memory
 	const [personalDerived, setPersonalDerived] = useState<
@@ -404,7 +386,8 @@ export function TeamPage() {
 	// Review tab synchronized with URL (?queue=derived)
 	const [reviewTab, setReviewTabState] = useState<"papers" | "derived" | "artifacts" | "pages">(() => {
 		const q = params.queue;
-		if (q === "derived" || q === "artifacts" || q === "pages") return q;
+		if (q === "pages") return q;
+		if (showDerivedAndArtifactFeatures && (q === "derived" || q === "artifacts")) return q;
 		return "papers";
 	});
 
@@ -430,6 +413,7 @@ export function TeamPage() {
 
 	// Expanded abstract accordion state for paper cards
 	const [expandedAbstracts, setExpandedAbstracts] = useState<Set<string>>(new Set());
+	const [previewPaper, setPreviewPaper] = useState<PaperRecord | null>(null);
 
 	// Batch review confirmation modal state
 	const [batchConfirm, setBatchConfirm] = useState<{
@@ -441,24 +425,23 @@ export function TeamPage() {
 
 	// Keyboard accessibility: Escape to close modals
 	useEffect(() => {
-		if (!activeDiffPaper && !batchConfirm) return;
+		if (!activeDiffPaper && !batchConfirm && !previewPaper) return;
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				if (activeDiffPaper) setActiveDiffPaper(null);
 				if (batchConfirm) setBatchConfirm(null);
+				if (previewPaper) setPreviewPaper(null);
 			}
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [activeDiffPaper, batchConfirm, setActiveDiffPaper]);
+	}, [activeDiffPaper, batchConfirm, setActiveDiffPaper, previewPaper]);
 
 	// LIVE SYNC POLLING ENGINE (P1: 30-45s real-time sync)
 	const [autoSync, setAutoSync] = useState(true);
 	const [, setLastSyncedAt] = useState<Date>(new Date());
 	const [isSyncing, setIsSyncing] = useState(false);
 	const syncTimerRef = useRef<number | null>(null);
-	// Guards the "已共享论文" first-page seed so silent 30s polls never wipe "load more" progress.
-	const sharedSeededRef = useRef(false);
 
 	// Fetch team overview without wiping user form state or selections
 	const load = useCallback(
@@ -503,13 +486,6 @@ export function TeamPage() {
 						}
 						return next;
 					});
-					// Seed the shared-papers list on the first load and on explicit (non-silent) refresh,
-					// but NOT on 30s background polls — otherwise "load more" progress is wiped every cycle.
-					if (!silent || !sharedSeededRef.current) {
-						setSharedPapers(team.papers);
-						setSharedCursor(team.papers.length >= 50 ? "50" : undefined);
-						sharedSeededRef.current = true;
-					}
 				}
 
 				setLastSyncedAt(new Date());
@@ -528,6 +504,26 @@ export function TeamPage() {
 		void load();
 	}, [load]);
 
+	// 分类清单挂载时读取一次，用于提案面板。失败原因要显示出来，否则"没有分类"和"读取失败"在界面上
+	// 长得一模一样，用户只会以为功能不存在。
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const result = await api<{ entries: Array<{ id: string; title: string }> }>("/api/team/topics?limit=200");
+				if (cancelled) return;
+				setProposalTopics(result.entries);
+				setProposalTopicsError(undefined);
+			} catch (failure) {
+				if (cancelled) return;
+				setProposalTopicsError(failure instanceof Error ? failure.message : String(failure));
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	// Auto-polling interval (every 30 seconds when tab is active)
 	useEffect(() => {
 		if (!autoSync) {
@@ -545,15 +541,13 @@ export function TeamPage() {
 
 	const enterDemoMode = useCallback(() => {
 		setDemoMode(true);
-		setSharedPapers(MOCK_DEMO_OVERVIEW.papers);
 		pushToast("info", "已进入交互式演示导览模式，所有功能模块已填充沙箱数据。", "演示导览生效");
 	}, [pushToast]);
 
 	const exitDemoMode = useCallback(() => {
 		setDemoMode(false);
-		setSharedPapers(rawOverview?.papers ?? []);
 		void load();
-	}, [rawOverview, load]);
+	}, [load]);
 
 	// Detect PDF versions for selected personal papers to advise contributor (P2)
 	const inspectPersonalPdfs = useCallback(
@@ -643,14 +637,13 @@ export function TeamPage() {
 			setPending(undefined);
 			setPendingRequest(undefined);
 			setSelectedPersonal(new Set());
-			setSearchPullSelection(new Set());
-			setSharedPullSelection(new Set());
 			setDerivedSelection(new Set());
 			setReviewSelection({ papers: new Set(), derived: new Set(), artifacts: new Set(), pages: new Set() });
 			setPageSelection(new Set());
 			setBatchReason("");
 			setItemReasons({});
 			await load(true);
+			setReviewRefresh((n) => n + 1);
 		} catch (reason) {
 			pushToast("error", reason instanceof Error ? reason.message : String(reason), "操作执行失败");
 			setPending(undefined);
@@ -685,70 +678,6 @@ export function TeamPage() {
 			pushToast("error", reason instanceof Error ? reason.message : String(reason));
 		} finally {
 			setBlobLoading(false);
-		}
-	};
-
-	// Full multi-dimensional search (P1)
-	const searchTeam = async (cursor?: string) => {
-		setTeamSearchLoading(true);
-		try {
-			const params = new URLSearchParams();
-			if (teamQuery.trim()) params.set("q", teamQuery.trim());
-			if (teamAuthor.trim()) params.set("author", teamAuthor.trim());
-			if (teamVenue.trim()) params.set("venue", teamVenue.trim());
-			if (teamYearFrom.trim()) params.set("yearFrom", teamYearFrom.trim());
-			if (teamYearTo.trim()) params.set("yearTo", teamYearTo.trim());
-			if (teamType.trim()) params.set("type", teamType.trim());
-			if (teamOpenAccess !== "all") params.set("openAccess", teamOpenAccess);
-			if (teamStatus.trim()) params.set("status", teamStatus.trim());
-			params.set("limit", "50");
-			if (cursor) params.set("cursor", cursor);
-
-			const result = await api<{ hits: Array<{ record: PaperRecord }>; nextCursor?: string }>(
-				`/api/team/search?${params.toString()}`,
-			);
-
-			setTeamSearchResults((current) =>
-				cursor ? [...current, ...result.hits.map((hit) => hit.record)] : result.hits.map((hit) => hit.record),
-			);
-			setTeamSearchCursor(result.nextCursor);
-			if (!cursor) {
-				pushToast("info", `找到 ${result.hits.length} 条检索结果`);
-			}
-		} catch (reason) {
-			pushToast("error", reason instanceof Error ? reason.message : String(reason), "检索团队论文失败");
-		} finally {
-			setTeamSearchLoading(false);
-		}
-	};
-
-	const resetSearch = () => {
-		setTeamQuery("");
-		setTeamAuthor("");
-		setTeamVenue("");
-		setTeamYearFrom("");
-		setTeamYearTo("");
-		setTeamType("");
-		setTeamOpenAccess("all");
-		setTeamStatus("");
-		setTeamSearchResults([]);
-		setTeamSearchCursor(undefined);
-	};
-
-	const loadMoreShared = async () => {
-		setTeamSearchLoading(true);
-		try {
-			const params = new URLSearchParams({ limit: "50" });
-			if (sharedCursor) params.set("cursor", sharedCursor);
-			const result = await api<{ hits: Array<{ record: PaperRecord }>; nextCursor?: string }>(
-				`/api/team/search?${params.toString()}`,
-			);
-			setSharedPapers((current) => [...current, ...result.hits.map((hit) => hit.record)]);
-			setSharedCursor(result.nextCursor);
-		} catch (reason) {
-			pushToast("error", reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setTeamSearchLoading(false);
 		}
 	};
 
@@ -900,6 +829,93 @@ export function TeamPage() {
 	const contributor = Boolean(capabilities.canContribute);
 	const reviewer = Boolean(capabilities.canReview);
 	const admin = Boolean(capabilities.canAdmin);
+
+	// ---- 审核工作台分页（每页 10 条，游标翻页；论文走 /api/team/proposals，其余走 content 接口）----
+	const REVIEW_PAGE_SIZE = 10;
+	const [reviewPageIndex, setReviewPageIndex] = useState(0);
+	const reviewPageIndexRef = useRef(0);
+	const reviewCursorsRef = useRef<(string | undefined)[]>([undefined]);
+	const [reviewHasNext, setReviewHasNext] = useState(false);
+	const [reviewTotal, setReviewTotal] = useState(0);
+	const [reviewPapers, setReviewPapers] = useState<PaperRecord[]>([]);
+	const [reviewEntries, setReviewEntries] = useState<Record<"derived" | "artifacts" | "pages", any[]>>({
+		derived: [],
+		artifacts: [],
+		pages: [],
+	});
+	const [reviewListLoading, setReviewListLoading] = useState(false);
+	const [reviewRefresh, setReviewRefresh] = useState(0);
+
+	const loadReviewPage = useCallback(
+		async (opts?: { cursor?: string; index?: number }) => {
+			if (!reviewer) return;
+			const resource = reviewTab;
+			const index = opts?.index ?? reviewPageIndexRef.current;
+			const cursor = opts?.cursor ?? reviewCursorsRef.current[index];
+			setReviewListLoading(true);
+			try {
+				let nextCursor: string | undefined;
+				let total = 0;
+				if (resource === "papers") {
+					const params = new URLSearchParams({ limit: String(REVIEW_PAGE_SIZE) });
+					if (cursor) params.set("cursor", cursor);
+					const result = await api<{ records: PaperRecord[]; nextCursor?: string }>(
+						`/api/team/proposals?${params.toString()}`,
+					);
+					setReviewPapers(result.records);
+					nextCursor = result.nextCursor;
+				} else {
+					const params = new URLSearchParams({ resource, pending: "true", limit: String(REVIEW_PAGE_SIZE) });
+					if (cursor) params.set("cursor", cursor);
+					const result = await api<{ entries: any[]; nextCursor?: string; total?: number }>(
+						`/api/team/content?${params.toString()}`,
+					);
+					// 与 overview 的知识概览保持同一形状：快照/派生记录/材料清单分别归位。
+					const mapped = (result.entries ?? []).map((entry: any) => ({
+						review: entry.review,
+						version: entry.version,
+						summaryOnly: true,
+						snapshot: entry.page,
+						record: entry.derived,
+						paperId: entry.id,
+						manifest: entry.artifact ? { pdfSha256: entry.artifact.pdfSha256 } : undefined,
+						candidateCount: entry.artifact?.candidateCount,
+						acquisitionCount: entry.artifact?.acquisitionCount,
+					}));
+					setReviewEntries((prev) => ({ ...prev, [resource]: mapped }));
+					nextCursor = result.nextCursor;
+					total = result.total ?? 0;
+				}
+				reviewCursorsRef.current[index + 1] = nextCursor;
+				reviewCursorsRef.current.length = index + 2;
+				setReviewHasNext(Boolean(nextCursor));
+				setReviewTotal(total);
+				setReviewSelection((prev) => ({ ...prev, [resource]: new Set() }));
+			} catch (reason) {
+				pushToast("error", reason instanceof Error ? reason.message : String(reason), "加载待审列表失败");
+			} finally {
+				setReviewListLoading(false);
+			}
+		},
+		[reviewTab, reviewer, pushToast],
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reviewRefresh 是操作后的手动刷新信号，故意触发整页重载
+	useEffect(() => {
+		// 切换审核类型或操作完成后：回到第 1 页重新加载。
+		reviewPageIndexRef.current = 0;
+		setReviewPageIndex(0);
+		reviewCursorsRef.current = [undefined];
+		setReviewHasNext(false);
+		void loadReviewPage({ cursor: undefined, index: 0 });
+	}, [loadReviewPage, reviewRefresh]);
+	const goToReviewPage = (target: number) => {
+		if (target < 0 || target === reviewPageIndexRef.current) return;
+		const cursor = reviewCursorsRef.current[target];
+		if (target > 0 && !cursor) return;
+		reviewPageIndexRef.current = target;
+		setReviewPageIndex(target);
+		void loadReviewPage({ cursor, index: target });
+	};
 
 	// Field Diff calculation
 	const fieldDiffs: FieldDiffEntry[] = useMemo(() => {
@@ -1313,6 +1329,7 @@ export function TeamPage() {
 				personalNamespace={personalNamespace}
 				autoSync={autoSync}
 				onChanged={() => void load()}
+				onPreviewPaper={setPreviewPaper}
 			/>
 			<p className="sub-empty-text">
 				下方概览各显示已发布和待审知识的前 25 条。完整分页列表、正文阅读和提案反馈位于上方协作区。
@@ -1353,27 +1370,230 @@ export function TeamPage() {
 				/>
 			)}
 			{pending && (
-				<AccessibleModal
-					title="确认团队操作"
-					onClose={() => {
-						if (!busy) {
-							setPending(undefined);
-							setPendingRequest(undefined);
-						}
+				<TeamOperationModal
+					key={pending.operationId}
+					operation={pending}
+					busy={busy}
+					onCancel={() => {
+						setPending(undefined);
+						setPendingRequest(undefined);
 					}}
-					maxWidth={1100}
-					className="team-content-dialog"
+					onConfirm={execute}
+				/>
+			)}
+
+			{/* PAPER DETAIL PREVIEW MODAL */}
+			{previewPaper && (
+				<AccessibleModal
+					title="团队文献详情"
+					onClose={() => setPreviewPaper(null)}
+					maxWidth={840}
+					className="team-paper-detail-modal"
 				>
-					<TeamOperationPreview key={pending.operationId} operation={pending} />
-					<ConsentCard
-						operation={pending}
-						busy={busy}
-						onCancel={() => {
-							setPending(undefined);
-							setPendingRequest(undefined);
-						}}
-						onConfirm={execute}
-					/>
+					<div className="team-paper-detail">
+						<div className="paper-detail-header">
+							<div className="paper-detail-badges">
+								<StatusPill status={previewPaper.curation?.teamReview?.status ?? "team-approved"} />
+								{previewPaper.venueRank && (
+									<span className={`ccf-badge ccf-${previewPaper.venueRank.toLowerCase()}`}>
+										CCF-{previewPaper.venueRank}
+									</span>
+								)}
+								{previewPaper.publicationType && (
+									<span className="avant-badge avant-badge-type">{previewPaper.publicationType}</span>
+								)}
+								{previewPaper.year && (
+									<span className="avant-badge avant-badge-year">
+										<Calendar size={11} /> {previewPaper.year}
+									</span>
+								)}
+								{previewPaper.citationCount != null && (
+									<span className="avant-badge avant-badge-cite">引用: {previewPaper.citationCount}</span>
+								)}
+							</div>
+							<h2 className="paper-detail-title">{previewPaper.title}</h2>
+							{previewPaper.venue && (
+								<div className="paper-detail-venue">
+									<Building size={14} />
+									<span>{previewPaper.venue}</span>
+								</div>
+							)}
+						</div>
+
+						<div className="paper-detail-section">
+							<h4>作者列表</h4>
+							<div className="card-authors-row">
+								{previewPaper.authors?.map((author) => (
+									<span key={author} className="author-pill">
+										{author}
+									</span>
+								))}
+							</div>
+						</div>
+
+						{previewPaper.abstract && (
+							<div className="paper-detail-section">
+								<h4>论文摘要</h4>
+								<p className="paper-detail-abstract">{previewPaper.abstract}</p>
+							</div>
+						)}
+
+						<div className="paper-detail-meta-grid">
+							<div className="detail-meta-group">
+								<h4>学术索引与标识符</h4>
+								<div className="card-identifiers-bar">
+									{previewPaper.identifiers?.doi && (
+										<a
+											href={`https://doi.org/${encodeURIComponent(previewPaper.identifiers.doi)}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="identifier-link"
+										>
+											<code>DOI: {previewPaper.identifiers.doi}</code>
+											<ExternalLink size={11} />
+										</a>
+									)}
+									{previewPaper.identifiers?.arxivId && (
+										<a
+											href={`https://arxiv.org/abs/${encodeURIComponent(previewPaper.identifiers.arxivId)}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="identifier-link"
+										>
+											<code>arXiv: {previewPaper.identifiers.arxivId}</code>
+											<ExternalLink size={11} />
+										</a>
+									)}
+									{previewPaper.identifiers?.openAlexId && (
+										<button
+											type="button"
+											className="identifier-copy-btn"
+											onClick={() => copyText(previewPaper.identifiers.openAlexId!, "已复制 OpenAlex ID")}
+										>
+											<code>OA: {previewPaper.identifiers.openAlexId}</code>
+											<Copy size={11} />
+										</button>
+									)}
+									{previewPaper.identifiers?.semanticScholarId && (
+										<button
+											type="button"
+											className="identifier-copy-btn"
+											onClick={() =>
+												copyText(previewPaper.identifiers.semanticScholarId!, "已复制 Semantic Scholar ID")
+											}
+										>
+											<code>S2: {previewPaper.identifiers.semanticScholarId.slice(0, 12)}…</code>
+											<Copy size={11} />
+										</button>
+									)}
+								</div>
+							</div>
+
+							{(previewPaper.curation?.teamReview?.proposedBy ||
+								previewPaper.curation?.teamReview?.reviewedBy) && (
+								<div className="detail-meta-group">
+									<h4>团队流转与评阅记录</h4>
+									<div className="team-review-history">
+										{previewPaper.curation.teamReview.proposedBy && (
+											<div className="review-history-item">
+												<Users size={12} />
+												<span>
+													提案贡献人：<strong>{previewPaper.curation.teamReview.proposedBy}</strong>
+												</span>
+												{previewPaper.curation.teamReview.proposedAt && (
+													<span className="history-time">
+														({new Date(previewPaper.curation.teamReview.proposedAt).toLocaleString()})
+													</span>
+												)}
+											</div>
+										)}
+										{previewPaper.curation.teamReview.reviewedBy && (
+											<div className="review-history-item">
+												<CheckCircle2 size={12} />
+												<span>
+													审核背书人：<strong>{previewPaper.curation.teamReview.reviewedBy}</strong>
+												</span>
+												{previewPaper.curation.teamReview.reviewedAt && (
+													<span className="history-time">
+														({new Date(previewPaper.curation.teamReview.reviewedAt).toLocaleString()})
+													</span>
+												)}
+											</div>
+										)}
+										{previewPaper.curation.teamReview.reason && (
+											<div className="review-history-notes">
+												<small>评审意见：{previewPaper.curation.teamReview.reason}</small>
+											</div>
+										)}
+									</div>
+								</div>
+							)}
+
+							{previewPaper.curation?.tags?.length ? (
+								<div className="detail-meta-group">
+									<h4>团队分类标签</h4>
+									<div className="card-authors-row">
+										{previewPaper.curation.tags.map((tag) => (
+											<span key={tag} className="avant-badge avant-badge-tag">
+												#{tag}
+											</span>
+										))}
+									</div>
+								</div>
+							) : null}
+
+							{previewPaper.links?.length ? (
+								<div className="detail-meta-group">
+									<h4>学术附件与来源</h4>
+									<div className="card-links-bar">
+										{previewPaper.links.map((link) => (
+											<a
+												key={`${link.kind}-${link.url}`}
+												href={link.url}
+												target="_blank"
+												rel="noopener noreferrer"
+												className={`resource-chip ${link.kind}`}
+											>
+												{link.kind === "pdf" && <FileText size={11} />}
+												{link.kind === "artifact" && <FileCode size={11} />}
+												<span>
+													{link.kind.toUpperCase()}
+													{link.openAccess ? " (OA)" : ""}
+												</span>
+												<ArrowUpRight size={11} />
+											</a>
+										))}
+									</div>
+								</div>
+							) : null}
+						</div>
+
+						<div className="modal-actions-footer">
+							<button
+								type="button"
+								className="avant-btn avant-btn-secondary"
+								onClick={() => {
+									copyText(
+										`${previewPaper.title}\n${previewPaper.authors?.join(", ")} (${previewPaper.year ?? ""})\n${previewPaper.venue ?? ""}${previewPaper.identifiers?.doi ? `\nDOI: ${previewPaper.identifiers.doi}` : ""}`,
+										"已复制文献引用信息",
+									);
+								}}
+							>
+								<Copy size={14} /> 复制引用
+							</button>
+							<button
+								type="button"
+								className="avant-btn avant-btn-primary"
+								disabled={busy}
+								onClick={() => {
+									pullPapers([previewPaper.id]);
+									setPreviewPaper(null);
+								}}
+							>
+								<Download size={14} /> 拉取到个人文献库
+							</button>
+						</div>
+					</div>
 				</AccessibleModal>
 			)}
 
@@ -1623,43 +1843,47 @@ export function TeamPage() {
 					</div>
 				</div>
 
-				<div className="hud-metric-card">
-					<div className="hud-metric-icon">
-						<Layers size={20} />
-					</div>
-					<div className="hud-metric-body">
-						<span className="hud-label">派生研究记忆</span>
-						<strong className="hud-value">
-							{canRead ? (stats.derivedCount ?? overview.derived?.length ?? 0) : "—"}
-						</strong>
-						<div className="hud-status-line">
-							{stats.pendingDerived ? (
-								<span className="pending-badge highlight">{stats.pendingDerived} 条待审核</span>
-							) : (
-								<span className="pending-badge clean">无积压</span>
-							)}
+				{showDerivedAndArtifactFeatures && (
+					<div className="hud-metric-card">
+						<div className="hud-metric-icon">
+							<Layers size={20} />
+						</div>
+						<div className="hud-metric-body">
+							<span className="hud-label">派生研究记忆</span>
+							<strong className="hud-value">
+								{canRead ? (stats.derivedCount ?? overview.derived?.length ?? 0) : "—"}
+							</strong>
+							<div className="hud-status-line">
+								{stats.pendingDerived ? (
+									<span className="pending-badge highlight">{stats.pendingDerived} 条待审核</span>
+								) : (
+									<span className="pending-badge clean">无积压</span>
+								)}
+							</div>
 						</div>
 					</div>
-				</div>
+				)}
 
-				<div className="hud-metric-card">
-					<div className="hud-metric-icon">
-						<FileCode size={20} />
-					</div>
-					<div className="hud-metric-body">
-						<span className="hud-label">Artifact Manifest</span>
-						<strong className="hud-value">
-							{canRead ? (stats.artifactCount ?? overview.artifacts?.length ?? 0) : "—"}
-						</strong>
-						<div className="hud-status-line">
-							{stats.pendingArtifacts ? (
-								<span className="pending-badge highlight">{stats.pendingArtifacts} 份待审核</span>
-							) : (
-								<span className="pending-badge clean">已同步</span>
-							)}
+				{showDerivedAndArtifactFeatures && (
+					<div className="hud-metric-card">
+						<div className="hud-metric-icon">
+							<FileCode size={20} />
+						</div>
+						<div className="hud-metric-body">
+							<span className="hud-label">Artifact Manifest</span>
+							<strong className="hud-value">
+								{canRead ? (stats.artifactCount ?? overview.artifacts?.length ?? 0) : "—"}
+							</strong>
+							<div className="hud-status-line">
+								{stats.pendingArtifacts ? (
+									<span className="pending-badge highlight">{stats.pendingArtifacts} 份待审核</span>
+								) : (
+									<span className="pending-badge clean">已同步</span>
+								)}
+							</div>
 						</div>
 					</div>
-				</div>
+				)}
 
 				<div className="hud-metric-card">
 					<div className="hud-metric-icon">
@@ -1700,34 +1924,36 @@ export function TeamPage() {
 								onClick={() => setReviewTab("papers")}
 							>
 								<BookOpen size={13} />
-								论文提案 ({overview.pendingPapers?.length ?? 0})
+								论文提案 ({stats.pendingPapers ?? 0})
 							</button>
-							<button
-								type="button"
-								role="tab"
-								id="tab-review-derived"
-								aria-selected={reviewTab === "derived"}
-								aria-controls="panel-review-derived"
-								className={`tab-chip ${reviewTab === "derived" ? "active" : ""}`}
-								onClick={() => setReviewTab("derived")}
-							>
-								<Layers size={13} />
-								派生知识 (
-								{overview.derived?.filter((e: any) => e.review.status === "team-proposed").length ?? 0})
-							</button>
-							<button
-								type="button"
-								role="tab"
-								id="tab-review-artifacts"
-								aria-selected={reviewTab === "artifacts"}
-								aria-controls="panel-review-artifacts"
-								className={`tab-chip ${reviewTab === "artifacts" ? "active" : ""}`}
-								onClick={() => setReviewTab("artifacts")}
-							>
-								<FileCode size={13} />
-								Artifacts (
-								{overview.artifacts?.filter((e: any) => e.review.status === "team-proposed").length ?? 0})
-							</button>
+							{showDerivedAndArtifactFeatures && (
+								<button
+									type="button"
+									role="tab"
+									id="tab-review-derived"
+									aria-selected={reviewTab === "derived"}
+									aria-controls="panel-review-derived"
+									className={`tab-chip ${reviewTab === "derived" ? "active" : ""}`}
+									onClick={() => setReviewTab("derived")}
+								>
+									<Layers size={13} />
+									派生知识 ({stats.pendingDerived ?? 0})
+								</button>
+							)}
+							{showDerivedAndArtifactFeatures && (
+								<button
+									type="button"
+									role="tab"
+									id="tab-review-artifacts"
+									aria-selected={reviewTab === "artifacts"}
+									aria-controls="panel-review-artifacts"
+									className={`tab-chip ${reviewTab === "artifacts" ? "active" : ""}`}
+									onClick={() => setReviewTab("artifacts")}
+								>
+									<FileCode size={13} />
+									Artifacts ({stats.pendingArtifacts ?? 0})
+								</button>
+							)}
 							<button
 								type="button"
 								role="tab"
@@ -1738,7 +1964,7 @@ export function TeamPage() {
 								onClick={() => setReviewTab("pages")}
 							>
 								<FileText size={13} />
-								知识页面 ({overview.pages?.filter((e: any) => e.review.status === "team-proposed").length ?? 0})
+								知识页面 ({stats.pendingPages ?? 0})
 							</button>
 						</div>
 					</div>
@@ -1757,14 +1983,14 @@ export function TeamPage() {
 										<input
 											type="checkbox"
 											checked={
-												Boolean(overview.pendingPapers?.length) &&
-												overview.pendingPapers.every((p: PaperRecord) => reviewSelection.papers?.has(p.id))
+												Boolean(reviewPapers.length) &&
+												reviewPapers.every((p: PaperRecord) => reviewSelection.papers?.has(p.id))
 											}
 											onChange={(e) =>
 												e.target.checked
 													? selectAllReview(
 															"papers",
-															overview.pendingPapers.map((p: PaperRecord) => p.id),
+															reviewPapers.map((p: PaperRecord) => p.id),
 														)
 													: clearReviewSelection("papers")
 											}
@@ -1772,7 +1998,7 @@ export function TeamPage() {
 										<span>全选本页待审</span>
 									</label>
 									<span className="selected-count-tag">
-										已选 {reviewSelection.papers?.size ?? 0} / {overview.pendingPapers?.length ?? 0}
+										已选 {reviewSelection.papers?.size ?? 0} / {reviewPapers.length ?? 0}
 									</span>
 								</div>
 
@@ -1804,9 +2030,9 @@ export function TeamPage() {
 								</div>
 							</div>
 
-							{overview.pendingPapers?.length ? (
+							{reviewPapers.length ? (
 								<div className="pending-cards-stack">
-									{overview.pendingPapers.map((paper: PaperRecord) => {
+									{reviewPapers.map((paper: PaperRecord) => {
 										const isRevision = Boolean(paper.curation?.teamReview?.revision);
 										const isSelected = reviewSelection.papers?.has(paper.id) ?? false;
 										const isAbstractExpanded = expandedAbstracts.has(paper.id);
@@ -2053,7 +2279,7 @@ export function TeamPage() {
 					)}
 
 					{/* 2. DERIVED MEMORY REVIEW TAB */}
-					{reviewTab === "derived" && (
+					{showDerivedAndArtifactFeatures && reviewTab === "derived" && (
 						<div
 							id="panel-review-derived"
 							role="tabpanel"
@@ -2065,8 +2291,8 @@ export function TeamPage() {
 									<input
 										type="checkbox"
 										checked={
-											Boolean(overview.derived?.length) &&
-											(overview.derived ?? [])
+											Boolean(reviewEntries.derived.length) &&
+											(reviewEntries.derived ?? [])
 												.filter((e: any) => e.review.status === "team-proposed")
 												.every((e: any) => reviewSelection.derived?.has(e.record.key))
 										}
@@ -2074,7 +2300,7 @@ export function TeamPage() {
 											e.target.checked
 												? selectAllReview(
 														"derived",
-														(overview.derived ?? [])
+														(reviewEntries.derived ?? [])
 															.filter((item: any) => item.review.status === "team-proposed")
 															.map((item: any) => item.record.key),
 													)
@@ -2113,7 +2339,7 @@ export function TeamPage() {
 							</div>
 
 							<div className="review-compact-list">
-								{(overview.derived ?? [])
+								{(reviewEntries.derived ?? [])
 									.filter((entry: any) => entry.review.status === "team-proposed")
 									.map((entry: any) => (
 										<div key={entry.record.key} className="review-compact-row">
@@ -2169,7 +2395,7 @@ export function TeamPage() {
 											</div>
 										</div>
 									))}
-								{!(overview.derived ?? []).some((e: any) => e.review.status === "team-proposed") && (
+								{!(reviewEntries.derived ?? []).some((e: any) => e.review.status === "team-proposed") && (
 									<EmptyState title="暂无待审核的派生知识" text="所有团队成员提交的派生分析均已完成审查。" />
 								)}
 							</div>
@@ -2177,7 +2403,7 @@ export function TeamPage() {
 					)}
 
 					{/* 3. ARTIFACT MANIFEST REVIEW TAB */}
-					{reviewTab === "artifacts" && (
+					{showDerivedAndArtifactFeatures && reviewTab === "artifacts" && (
 						<div
 							id="panel-review-artifacts"
 							role="tabpanel"
@@ -2189,8 +2415,8 @@ export function TeamPage() {
 									<input
 										type="checkbox"
 										checked={
-											Boolean(overview.artifacts?.length) &&
-											(overview.artifacts ?? [])
+											Boolean(reviewEntries.artifacts.length) &&
+											(reviewEntries.artifacts ?? [])
 												.filter((e: any) => e.review.status === "team-proposed")
 												.every((e: any) => reviewSelection.artifacts?.has(e.paperId))
 										}
@@ -2198,7 +2424,7 @@ export function TeamPage() {
 											e.target.checked
 												? selectAllReview(
 														"artifacts",
-														(overview.artifacts ?? [])
+														(reviewEntries.artifacts ?? [])
 															.filter((item: any) => item.review.status === "team-proposed")
 															.map((item: any) => item.paperId),
 													)
@@ -2237,7 +2463,7 @@ export function TeamPage() {
 							</div>
 
 							<div className="review-compact-list">
-								{(overview.artifacts ?? [])
+								{(reviewEntries.artifacts ?? [])
 									.filter((entry: any) => entry.review.status === "team-proposed")
 									.map((entry: any) => (
 										<div key={entry.paperId} className="review-compact-row">
@@ -2296,7 +2522,7 @@ export function TeamPage() {
 											</div>
 										</div>
 									))}
-								{!(overview.artifacts ?? []).some((e: any) => e.review.status === "team-proposed") && (
+								{!(reviewEntries.artifacts ?? []).some((e: any) => e.review.status === "team-proposed") && (
 									<EmptyState title="暂无待审核的 Artifact 证据" text="当前没有待处理的代码或模型抓取记录。" />
 								)}
 							</div>
@@ -2316,8 +2542,8 @@ export function TeamPage() {
 									<input
 										type="checkbox"
 										checked={
-											Boolean(overview.pages?.length) &&
-											(overview.pages ?? [])
+											Boolean(reviewEntries.pages.length) &&
+											(reviewEntries.pages ?? [])
 												.filter((e: any) => e.review.status === "team-proposed")
 												.every((e: any) => reviewSelection.pages?.has(e.snapshot.key))
 										}
@@ -2325,7 +2551,7 @@ export function TeamPage() {
 											e.target.checked
 												? selectAllReview(
 														"pages",
-														(overview.pages ?? [])
+														(reviewEntries.pages ?? [])
 															.filter((item: any) => item.review.status === "team-proposed")
 															.map((item: any) => item.snapshot.key),
 													)
@@ -2364,7 +2590,7 @@ export function TeamPage() {
 							</div>
 
 							<div className="review-compact-list">
-								{(overview.pages ?? [])
+								{(reviewEntries.pages ?? [])
 									.filter((entry: any) => entry.review.status === "team-proposed")
 									.map((entry: any) => (
 										<div key={entry.snapshot.key} className="review-compact-row">
@@ -2431,7 +2657,7 @@ export function TeamPage() {
 											</div>
 										</div>
 									))}
-								{!(overview.pages ?? []).some((e: any) => e.review.status === "team-proposed") && (
+								{!(reviewEntries.pages ?? []).some((e: any) => e.review.status === "team-proposed") && (
 									<EmptyState
 										title="暂无待审核的知识页面"
 										text="成员提交的调研笔记与 Wiki 页面快照会在此出现。"
@@ -2440,495 +2666,190 @@ export function TeamPage() {
 							</div>
 						</div>
 					)}
-				</section>
-			)}
 
-			{/* ========================================================================= */}
-			{/* P1 MULTI-DIMENSIONAL SEARCH CONSOLE (全维搜索) */}
-			{/* ========================================================================= */}
-			{canRead && (
-				<section className="avant-panel search-console-panel">
-					<div className="panel-header-editorial">
-						<div className="panel-title-block">
-							<span className="avant-eyebrow">REPOSITORY SEARCH · 共享检索</span>
-							<h2>检索团队论文库</h2>
-							<p>支持按关键词、作者、期刊/会议、年份区间、开放获取状态及审核状态组合精确查询。</p>
-						</div>
-						<div className="search-stats-badge">
-							<Search size={13} />
-							<span>{teamSearchResults.length} 条检索结果</span>
-						</div>
-					</div>
-
-					<form
-						className="search-console-form"
-						onSubmit={(e) => {
-							e.preventDefault();
-							void searchTeam();
-						}}
-					>
-						<div className="search-primary-line">
-							<div className="search-input-wrap">
-								<Search size={16} className="search-icon" />
-								<input
-									className="search-main-input"
-									value={teamQuery}
-									onChange={(e) => setTeamQuery(e.target.value)}
-									placeholder="输入论文标题、摘要、作者或 DOI 关键词…"
-								/>
-							</div>
-							<button
-								type="button"
-								className={`avant-btn avant-btn-secondary ${showAdvancedFilters ? "active" : ""}`}
-								onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-							>
-								<SlidersHorizontal size={14} />
-								高级过滤器
-							</button>
-							<button className="avant-btn avant-btn-primary" type="submit" disabled={teamSearchLoading}>
-								<Search size={14} className={teamSearchLoading ? "spin" : ""} />
-								{teamSearchLoading ? "检索中…" : "立即检索"}
-							</button>
-						</div>
-
-						{/* ADVANCED MULTI-FILTER DRAWER (P1) */}
-						{showAdvancedFilters && (
-							<div className="advanced-filters-drawer">
-								<label className="filter-field">
-									<span>
-										<Users size={12} /> 作者 (Author)
-									</span>
-									<input
-										className="avant-input"
-										value={teamAuthor}
-										onChange={(e) => setTeamAuthor(e.target.value)}
-										placeholder="例如：Vaswani, Hinton"
-									/>
-								</label>
-								<label className="filter-field">
-									<span>
-										<Building size={12} /> 会议 / 期刊 (Venue)
-									</span>
-									<input
-										className="avant-input"
-										value={teamVenue}
-										onChange={(e) => setTeamVenue(e.target.value)}
-										placeholder="例如：NeurIPS, ICML, CVPR"
-									/>
-								</label>
-								<label className="filter-field">
-									<span>
-										<Calendar size={12} /> 起始年份
-									</span>
-									<input
-										type="number"
-										className="avant-input"
-										value={teamYearFrom}
-										onChange={(e) => setTeamYearFrom(e.target.value)}
-										placeholder="例如：2020"
-									/>
-								</label>
-								<label className="filter-field">
-									<span>
-										<Calendar size={12} /> 结束年份
-									</span>
-									<input
-										type="number"
-										className="avant-input"
-										value={teamYearTo}
-										onChange={(e) => setTeamYearTo(e.target.value)}
-										placeholder="例如：2026"
-									/>
-								</label>
-								<label className="filter-field">
-									<span>
-										<BookOpen size={12} /> 文献类型
-									</span>
-									<select
-										className="avant-select"
-										value={teamType}
-										onChange={(e) => setTeamType(e.target.value)}
-									>
-										<option value="">全部类型</option>
-										<option value="journal-article">期刊论文 (Journal)</option>
-										<option value="proceedings-article">会议论文 (Conference)</option>
-										<option value="preprint">预印本 (Preprint)</option>
-										<option value="book">著作 / 章节</option>
-									</select>
-								</label>
-								<label className="filter-field">
-									<span>
-										<Unlock size={12} /> 开放获取 (OpenAccess)
-									</span>
-									<select
-										className="avant-select"
-										value={teamOpenAccess}
-										onChange={(e) => setTeamOpenAccess(e.target.value as any)}
-									>
-										<option value="all">全部（含闭源）</option>
-										<option value="true">仅开放获取 (OA Only)</option>
-										<option value="false">仅限制访问 (Non-OA)</option>
-									</select>
-								</label>
-								{reviewer && (
-									<label className="filter-field">
-										<span>
-											<ShieldCheck size={12} /> 审核状态 (Review Status)
-										</span>
-										<select
-											className="avant-select"
-											value={teamStatus}
-											onChange={(e) => setTeamStatus(e.target.value)}
-										>
-											<option value="">默认（仅已批准）</option>
-											<option value="team-approved">已批准 (Approved)</option>
-											<option value="team-proposed">待审核 (Proposed)</option>
-											<option value="team-rejected">已拒绝 (Rejected)</option>
-										</select>
-									</label>
-								)}
-								<div className="filter-field filter-reset-wrap">
-									<button type="button" className="avant-btn avant-btn-secondary" onClick={resetSearch}>
-										<RotateCcw size={13} />
-										重置筛选条件
-									</button>
-								</div>
-							</div>
-						)}
-					</form>
-
-					{/* SEARCH RESULTS DISPLAY (P2: SEPARATE SELECTION) */}
-					{teamSearchResults.length > 0 ? (
-						<div className="search-results-section">
-							<div className="results-action-bar">
-								<div className="selection-toolbar-left">
-									<label className="checkbox-wrap">
-										<input
-											type="checkbox"
-											checked={
-												teamSearchResults.length > 0 &&
-												teamSearchResults.every((p) => searchPullSelection.has(p.id))
-											}
-											onChange={(e) =>
-												setSearchPullSelection(
-													e.target.checked ? new Set(teamSearchResults.map((p) => p.id)) : new Set(),
-												)
-											}
-										/>
-										<span>全选检索结果</span>
-									</label>
-									<span className="selected-count-tag">已选 {searchPullSelection.size} 篇</span>
-								</div>
-
-								<div className="selection-toolbar-right">
-									<label className="checkbox-wrap">
-										<input
-											type="checkbox"
-											checked={includePdf}
-											onChange={(e) => setIncludePdf(e.target.checked)}
-										/>
-										<span>同步拉取 PDF 到本地</span>
-									</label>
-									<button
-										className="avant-btn avant-btn-primary"
-										type="button"
-										disabled={!searchPullSelection.size || busy}
-										onClick={() => pullPapers([...searchPullSelection])}
-									>
-										<Download size={14} />
-										拉取选中文献到个人库 ({searchPullSelection.size})
-									</button>
-								</div>
-							</div>
-
-							<div className="results-card-grid">
-								{teamSearchResults.map((paper) => {
-									const isChecked = searchPullSelection.has(paper.id);
-									return (
-										<article key={paper.id} className={`search-hit-card ${isChecked ? "checked" : ""}`}>
-											<div className="hit-card-top">
-												<input
-													type="checkbox"
-													aria-label={`选择拉取论文 ${paper.title}`}
-													checked={isChecked}
-													onChange={(e) =>
-														setSearchPullSelection((prev) => {
-															const next = new Set(prev);
-															if (e.target.checked) next.add(paper.id);
-															else next.delete(paper.id);
-															return next;
-														})
-													}
-												/>
-												<div className="hit-meta-pills">
-													<StatusPill status={paper.curation?.teamReview?.status ?? "team-approved"} />
-													{paper.year && <span className="year-pill">{paper.year}</span>}
-												</div>
-											</div>
-											<h4 className="hit-title">{paper.title}</h4>
-											<div className="hit-authors-venue">
-												<span>{paper.authors?.slice(0, 3).join(", ") || "作者未知"}</span>
-												{paper.venue && <span className="hit-venue"> · {paper.venue}</span>}
-											</div>
-											{paper.abstract && <p className="hit-abstract">{paper.abstract.slice(0, 160)}…</p>}
-										</article>
-									);
-								})}
-							</div>
-
-							{teamSearchCursor && (
-								<div className="pagination-center">
-									<button
-										className="avant-btn avant-btn-secondary"
-										type="button"
-										disabled={teamSearchLoading}
-										onClick={() => void searchTeam(teamSearchCursor)}
-									>
-										<RefreshCw size={13} className={teamSearchLoading ? "spin" : ""} />
-										加载更多检索结果
-									</button>
-								</div>
-							)}
-						</div>
-					) : (
-						<div className="search-empty-prompt">
-							<Search size={28} />
-							<p>输入关键词或筛选条件后即可快速检索团队论文库，检索行为不会影响个人本地库数据。</p>
-						</div>
-					)}
-				</section>
-			)}
-
-			{/* ========================================================================= */}
-			{/* WORKSPACE DUAL-COLUMN GRID: PERSONAL CONTRIBUTION vs SHARED REPOSITORY */}
-			{/* ========================================================================= */}
-			<div className="team-dual-workspace-grid">
-				{/* LEFT COLUMN: PERSONAL -> TEAM PROPOSAL (CONTRIBUTOR) */}
-				{contributor ? (
-					<section className="avant-panel personal-proposal-panel">
-						<div className="panel-header-editorial">
-							<div className="panel-title-block">
-								<span className="avant-eyebrow">PROPOSAL PIPELINE · 提案推送</span>
-								<h2>提交新论文提案</h2>
-								<p>将个人空间中的论文提案至团队库。私有笔记与标签会自动脱敏，只上传公共元数据与链接。</p>
-							</div>
-
-							<div className="namespace-and-submit-row">
-								<select
-									className="avant-select namespace-picker"
-									value={personalNamespace}
-									onChange={(e) => {
-										setPersonalNamespace(e.target.value);
-										setSelectedPersonal(new Set());
-										setBlobVersions([]);
-									}}
-								>
-									{personalNamespaces.map((ns) => (
-										<option key={ns} value={ns}>
-											个人空间: {ns}
-										</option>
-									))}
-								</select>
-								<button
-									className="avant-btn avant-btn-primary"
-									type="button"
-									disabled={!selectedPersonal.size || busy}
-									onClick={() =>
-										void prepare("/api/team/proposals/prepare", "/api/team/proposals/execute", {
-											paperIds: [...selectedPersonal],
-											personalNamespace,
-										})
-									}
-								>
-									<Send size={14} />
-									预览并提交 ({selectedPersonal.size})
-								</button>
-							</div>
-						</div>
-
-						{/* PDF ACCOMPANIMENT NOTICE (P2) */}
-						<div className="pdf-accompaniment-banner">
-							<Info size={16} />
-							<div>
-								<strong>PDF 不会自动随元数据上行</strong>
-								<span>
-									提案批准后，请在下方“PDF Blob 上传器”单独上传对应论文的本地 PDF，团队成员方可下载全文。
-								</span>
-							</div>
-						</div>
-
-						{/* PERSONAL PAPERS SELECTOR WITH PDF AWARENESS (P2) */}
-						<div className="personal-paper-checklist">
-							{personal.map((paper) => {
-								const isSelected = selectedPersonal.has(paper.id);
-								const pdfCount = personalPaperPdfs[paper.id];
-
-								return (
-									<label key={paper.id} className={`personal-paper-row ${isSelected ? "checked" : ""}`}>
-										<input
-											type="checkbox"
-											checked={isSelected}
-											onChange={(e) =>
-												setSelectedPersonal((prev) => {
-													const next = new Set(prev);
-													if (e.target.checked) next.add(paper.id);
-													else next.delete(paper.id);
-													return next;
-												})
-											}
-										/>
-										<div className="personal-paper-info">
-											<strong className="personal-title">{paper.title}</strong>
-											<div className="personal-meta-line">
-												<span>{paper.authors?.slice(0, 3).join(", ") || "作者未知"}</span>
-												{paper.year && <span> · {paper.year}</span>}
-												{pdfCount !== undefined && pdfCount > 0 ? (
-													<span className="pdf-status-pill has-pdf">
-														<FileText size={10} /> 含 {pdfCount} 个本地 PDF
-													</span>
-												) : (
-													<span className="pdf-status-pill no-pdf">无本地 PDF</span>
-												)}
-											</div>
-										</div>
-									</label>
-								);
-							})}
-							{!personal.length && <EmptyState title="个人空间暂无论文" text="请先在个人文献库导入论文。" />}
-						</div>
-					</section>
-				) : (
-					<section className="avant-panel">
-						<div className="panel-header-editorial">
-							<div className="panel-title-block">
-								<span className="avant-eyebrow">PERMISSION GUARD · 权限防护</span>
-								<h2>只读访问模式</h2>
-								<p>当前身份具有团队库读取权限，但不具备 contributor 提案权限。如需提交请联系管理员授权。</p>
-							</div>
-						</div>
-					</section>
-				)}
-
-				{/* RIGHT COLUMN: SHARED PAPERS REPOSITORY (READER & ALL) */}
-				<section className="avant-panel shared-papers-panel">
-					<div className="panel-header-editorial">
-						<div className="panel-title-block">
-							<span className="avant-eyebrow">SHARED REPOSITORY · 团队文献</span>
-							<h2>已共享团队论文</h2>
-							<p>经过审核并向全体成员开放的论文记录。支持批量拉取到本地个人空间。</p>
-						</div>
-
-						{canRead && sharedPapers.length > 0 && (
-							<div className="shared-pull-controls">
-								<label className="checkbox-wrap">
-									<input
-										type="checkbox"
-										checked={includePdf}
-										onChange={(e) => setIncludePdf(e.target.checked)}
-									/>
-									<span>含 PDF</span>
-								</label>
-								<button
-									className="avant-btn avant-btn-primary"
-									type="button"
-									disabled={!sharedPullSelection.size || busy}
-									onClick={() => pullPapers([...sharedPullSelection])}
-								>
-									<Download size={14} />
-									拉取到个人库 ({sharedPullSelection.size})
-								</button>
-							</div>
-						)}
-					</div>
-
-					<div className="shared-papers-list">
-						{canRead ? (
-							sharedPapers.length > 0 ? (
-								sharedPapers.map((paper: PaperRecord) => {
-									const isChecked = sharedPullSelection.has(paper.id);
-									return (
-										<article key={paper.id} className={`shared-paper-card ${isChecked ? "checked" : ""}`}>
-											<div className="shared-card-left">
-												<input
-													type="checkbox"
-													aria-label={`选择拉取论文 ${paper.title}`}
-													checked={isChecked}
-													onChange={(e) =>
-														setSharedPullSelection((prev) => {
-															const next = new Set(prev);
-															if (e.target.checked) next.add(paper.id);
-															else next.delete(paper.id);
-															return next;
-														})
-													}
-												/>
-												<div className="shared-paper-meta">
-													<strong className="shared-title">{paper.title}</strong>
-													<div className="shared-sub-line">
-														<span>{paper.authors?.slice(0, 3).join(", ") || "作者未知"}</span>
-														{paper.year && <span> · {paper.year}</span>}
-														{paper.venue && <span> · {paper.venue}</span>}
-													</div>
-												</div>
-											</div>
-											<StatusPill status={paper.curation?.teamReview?.status ?? "team-approved"} />
-										</article>
-									);
-								})
-							) : (
-								<div className="shared-empty-workflow">
-									<div className="workflow-hero">
-										<div className="workflow-hero-icon">
-											<BookOpen size={24} />
-										</div>
-										<h3>团队知识库尚无已收录文献</h3>
-										<p>团队知识库为所有科研人员共享的同行评议文献池。严格遵循三步流转闭环：</p>
-									</div>
-									<div className="workflow-steps-grid">
-										<div className="workflow-step-card">
-											<span className="step-badge">01</span>
-											<div className="step-body">
-												<strong>左侧发起文献提案</strong>
-												<small>在左侧列表勾选个人库中已精读、已验证的高价值文献提交入库提案。</small>
-											</div>
-										</div>
-										<div className="workflow-step-card">
-											<span className="step-badge">02</span>
-											<div className="step-body">
-												<strong>审核员比对背书</strong>
-												<small>具备评审席位的成员在上方待审队列核对学术元数据或修订差异并决定通过。</small>
-											</div>
-										</div>
-										<div className="workflow-step-card">
-											<span className="step-badge">03</span>
-											<div className="step-body">
-												<strong>全员检索与同步</strong>
-												<small>一旦通过，所有团队成员均可在此面板或上方搜索控制台一键拉取到本地。</small>
-											</div>
-										</div>
-									</div>
-								</div>
-							)
-						) : (
-							<EmptyState title="无读取权限" text="请联系团队管理员授予 reader 权限。" />
-						)}
-					</div>
-
-					{sharedCursor && (
-						<div className="pagination-center">
+					{/* 审核工作台分页（每页 10 条） */}
+					{(reviewPageIndex > 0 || reviewHasNext) && (
+						<div className="pagination-center collab-pager">
 							<button
 								className="avant-btn avant-btn-secondary"
 								type="button"
-								disabled={teamSearchLoading}
-								onClick={() => void loadMoreShared()}
+								disabled={reviewListLoading || reviewPageIndex === 0}
+								onClick={() => goToReviewPage(reviewPageIndex - 1)}
 							>
-								<RefreshCw size={13} className={teamSearchLoading ? "spin" : ""} />
-								加载更多团队论文
+								上一页
+							</button>
+							<span className="selected-count-tag">
+								第 {reviewPageIndex + 1} 页
+								{reviewTotal > 0 ? ` · 共 ${Math.ceil(reviewTotal / REVIEW_PAGE_SIZE)} 页` : ""}
+							</span>
+							<button
+								className="avant-btn avant-btn-secondary"
+								type="button"
+								disabled={reviewListLoading || !reviewHasNext}
+								onClick={() => goToReviewPage(reviewPageIndex + 1)}
+							>
+								下一页
 							</button>
 						</div>
 					)}
 				</section>
-			</div>
+			)}
+
+			{/* LEFT COLUMN: PERSONAL -> TEAM PROPOSAL (CONTRIBUTOR) */}
+			{contributor ? (
+				<section className="avant-panel personal-proposal-panel">
+					<div className="panel-header-editorial">
+						<div className="panel-title-block">
+							<span className="avant-eyebrow">PROPOSAL PIPELINE · 提案推送</span>
+							<h2>提交新论文提案</h2>
+							<p>将个人空间中的论文提案至团队库。私有笔记与标签会自动脱敏，只上传公共元数据与链接。</p>
+						</div>
+
+						<div style={{ marginBottom: "0.75rem" }}>
+							<p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--text-secondary, #5f5e5a)" }}>
+								请求归入分类（可选；只能选已存在的分类，审核者批准时生效）
+							</p>
+							{proposalTopics.length > 0 ? (
+								<div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+									{proposalTopics.map((topic) => {
+										const active = proposalTopicIds.has(topic.id);
+										return (
+											<button
+												key={topic.id}
+												type="button"
+												aria-pressed={active}
+												onClick={() =>
+													setProposalTopicIds((current) => {
+														const next = new Set(current);
+														if (next.has(topic.id)) next.delete(topic.id);
+														else next.add(topic.id);
+														return next;
+													})
+												}
+												style={{
+													display: "inline-flex",
+													alignItems: "center",
+													gap: 6,
+													padding: "4px 10px",
+													borderRadius: 999,
+													fontSize: 12,
+													cursor: "pointer",
+													border: `1px solid ${active ? "#0f6e56" : "var(--border-secondary, #b4b2a9)"}`,
+													background: active ? "#e1f5ee" : "transparent",
+													color: active ? "#0f6e56" : "var(--text-secondary, #5f5e5a)",
+												}}
+											>
+												{active ? <Check size={12} /> : <Layers size={12} />}
+												{topic.title}
+											</button>
+										);
+									})}
+								</div>
+							) : (
+								<p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary, #5f5e5a)" }}>
+									{proposalTopicsError
+										? `分类清单读取失败：${proposalTopicsError}`
+										: "团队还没有分类。分类由审核者在「团队知识与协作」的「专题集合」页签里创建，建好后这里就能选。"}
+								</p>
+							)}
+						</div>
+
+						<div className="namespace-and-submit-row">
+							<select
+								className="avant-select namespace-picker"
+								value={personalNamespace}
+								onChange={(e) => {
+									setPersonalNamespace(e.target.value);
+									setSelectedPersonal(new Set());
+									setBlobVersions([]);
+								}}
+							>
+								{personalNamespaces.map((ns) => (
+									<option key={ns} value={ns}>
+										个人空间: {ns}
+									</option>
+								))}
+							</select>
+							<button
+								className="avant-btn avant-btn-primary"
+								type="button"
+								disabled={!selectedPersonal.size || busy}
+								onClick={() =>
+									void prepare("/api/team/proposals/prepare", "/api/team/proposals/execute", {
+										paperIds: [...selectedPersonal],
+										personalNamespace,
+										topicIds: [...proposalTopicIds],
+									})
+								}
+							>
+								<Send size={14} />
+								预览并提交 ({selectedPersonal.size})
+							</button>
+						</div>
+					</div>
+
+					{/* PDF ACCOMPANIMENT NOTICE (P2) */}
+					<div className="pdf-accompaniment-banner">
+						<Info size={16} />
+						<div>
+							<strong>PDF 不会自动随元数据上行</strong>
+							<span>
+								提案批准后，请在下方“PDF Blob 上传器”单独上传对应论文的本地 PDF，团队成员方可下载全文。
+							</span>
+						</div>
+					</div>
+
+					{/* PERSONAL PAPERS SELECTOR WITH PDF AWARENESS (P2) */}
+					<div className="personal-paper-checklist">
+						{personal.map((paper) => {
+							const isSelected = selectedPersonal.has(paper.id);
+							const pdfCount = personalPaperPdfs[paper.id];
+
+							return (
+								<label key={paper.id} className={`personal-paper-row ${isSelected ? "checked" : ""}`}>
+									<input
+										type="checkbox"
+										checked={isSelected}
+										onChange={(e) =>
+											setSelectedPersonal((prev) => {
+												const next = new Set(prev);
+												if (e.target.checked) next.add(paper.id);
+												else next.delete(paper.id);
+												return next;
+											})
+										}
+									/>
+									<div className="personal-paper-info">
+										<strong className="personal-title">{paper.title}</strong>
+										<div className="personal-meta-line">
+											<span>{paper.authors?.slice(0, 3).join(", ") || "作者未知"}</span>
+											{paper.year && <span> · {paper.year}</span>}
+											{pdfCount !== undefined && pdfCount > 0 ? (
+												<span className="pdf-status-pill has-pdf">
+													<FileText size={10} /> 含 {pdfCount} 个本地 PDF
+												</span>
+											) : (
+												<span className="pdf-status-pill no-pdf">无本地 PDF</span>
+											)}
+										</div>
+									</div>
+								</label>
+							);
+						})}
+						{!personal.length && <EmptyState title="个人空间暂无论文" text="请先在个人文献库导入论文。" />}
+					</div>
+				</section>
+			) : (
+				<section className="avant-panel">
+					<div className="panel-header-editorial">
+						<div className="panel-title-block">
+							<span className="avant-eyebrow">PERMISSION GUARD · 权限防护</span>
+							<h2>只读访问模式</h2>
+							<p>当前身份具有团队库读取权限，但不具备 contributor 提案权限。如需提交请联系管理员授权。</p>
+						</div>
+					</div>
+				</section>
+			)}
 
 			{/* ========================================================================= */}
 			{/* MULTIMODAL KNOWLEDGE & ASSET PROPOSALS (BLOB / DERIVED / PAGES)          */}
@@ -2954,14 +2875,16 @@ export function TeamPage() {
 								<UploadCloud size={14} />
 								PDF 全文 Blob 上传
 							</button>
-							<button
-								type="button"
-								className={`asset-tab-btn ${assetTab === "derived" ? "active" : ""}`}
-								onClick={() => setAssetTab("derived")}
-							>
-								<Layers size={14} />
-								派生知识记录 ({personalDerived.length})
-							</button>
+							{showDerivedAndArtifactFeatures && (
+								<button
+									type="button"
+									className={`asset-tab-btn ${assetTab === "derived" ? "active" : ""}`}
+									onClick={() => setAssetTab("derived")}
+								>
+									<Layers size={14} />
+									派生知识记录 ({personalDerived.length})
+								</button>
+							)}
 							<button
 								type="button"
 								className={`asset-tab-btn ${assetTab === "pages" ? "active" : ""}`}
@@ -3057,7 +2980,7 @@ export function TeamPage() {
 							</div>
 						)}
 
-						{assetTab === "derived" && (
+						{showDerivedAndArtifactFeatures && assetTab === "derived" && (
 							<div className="derived-submission-wrapper">
 								<div className="sub-section-header">
 									<div className="sub-section-icon-box">
@@ -3318,127 +3241,6 @@ export function TeamPage() {
 				</section>
 			)}
 
-			{/* APPROVED KNOWLEDGE SNAPSHOTS */}
-			{canRead && (
-				<div className="team-knowledge-archive-grid">
-					<section className="avant-panel">
-						<div className="panel-header-editorial">
-							<div className="panel-title-block">
-								<span className="avant-eyebrow">APPROVED INTELLIGENCE · 已审核派生</span>
-								<h2>已批准团队派生记忆</h2>
-							</div>
-						</div>
-						<div className="knowledge-scroll-box">
-							{(overview.derived ?? []).filter((e: any) => e.review.status === "team-approved").length ? (
-								(overview.derived ?? [])
-									.filter((e: any) => e.review.status === "team-approved")
-									.slice(0, 40)
-									.map((e: any) => (
-										<div key={e.record.key} className="archive-entry-card">
-											<div className="archive-header">
-												<strong>{e.record.operation}</strong>
-												<button
-													type="button"
-													className="avant-btn avant-btn-sm avant-btn-secondary"
-													onClick={() => void openKnowledge({ resource: "derived", entry: e })}
-												>
-													阅读研究结果
-												</button>
-												<StatusPill status="team-approved" />
-											</div>
-											<code>{e.record.key}</code>
-											<small>
-												{e.record.paperId} · {e.record.createdBy || "匿名"} ·{" "}
-												{new Date(e.record.createdAt).toLocaleDateString()}
-											</small>
-										</div>
-									))
-							) : (
-								<p className="sub-empty-text">暂无已批准的派生记录。</p>
-							)}
-						</div>
-					</section>
-
-					<section className="avant-panel">
-						<div className="panel-header-editorial">
-							<div className="panel-title-block">
-								<span className="avant-eyebrow">APPROVED ARTIFACTS · 已审核资产</span>
-								<h2>已批准 Artifact 证据清单</h2>
-							</div>
-						</div>
-						<div className="knowledge-scroll-box">
-							{(overview.artifacts ?? []).filter((e: any) => e.review.status === "team-approved").length ? (
-								(overview.artifacts ?? [])
-									.filter((e: any) => e.review.status === "team-approved")
-									.slice(0, 30)
-									.map((e: any) => (
-										<div key={e.paperId} className="archive-entry-card">
-											<div className="archive-header">
-												<strong>{e.paperId}</strong>
-												<button
-													type="button"
-													className="avant-btn avant-btn-sm avant-btn-secondary"
-													onClick={() => void openKnowledge({ resource: "artifacts", entry: e })}
-												>
-													阅读材料清单
-												</button>
-												<StatusPill status="team-approved" />
-											</div>
-											<small>
-												PDF {e.manifest.pdfSha256?.slice(0, 12)} · {e.manifest.candidates?.length ?? 0}{" "}
-												candidates
-											</small>
-										</div>
-									))
-							) : (
-								<p className="sub-empty-text">暂无已批准的 Artifact Manifest。</p>
-							)}
-						</div>
-					</section>
-
-					<section className="avant-panel">
-						<div className="panel-header-editorial">
-							<div className="panel-title-block">
-								<span className="avant-eyebrow">APPROVED PAGES · 已审核知识页</span>
-								<h2>已批准知识页面</h2>
-							</div>
-						</div>
-						<div className="knowledge-scroll-box">
-							{(overview.pages ?? []).filter((e: any) => e.review.status === "team-approved").length ? (
-								(overview.pages ?? [])
-									.filter((e: any) => e.review.status === "team-approved")
-									.slice(0, 50)
-									.map((e: any) => (
-										<div key={e.snapshot.key} className="archive-entry-card">
-											<div className="archive-header">
-												<strong>{e.snapshot.title}</strong>
-												<button
-													type="button"
-													className="avant-btn avant-btn-sm avant-btn-secondary"
-													onClick={() => void openKnowledge({ resource: "pages", entry: e })}
-												>
-													阅读全文
-												</button>
-												<StatusPill status="team-approved" />
-											</div>
-											<small>
-												{e.snapshot.kind === "note" ? "调研笔记" : "Wiki 页面"} · 内容{" "}
-												{e.snapshot.contentHash.slice(0, 12)} ·{" "}
-												{e.snapshot.paperIds?.length
-													? `关联 ${e.snapshot.paperIds.length} 篇论文`
-													: "未关联论文"}
-												{e.snapshot.createdBy ? ` · 由 ${e.snapshot.createdBy} 提案` : ""}
-											</small>
-										</div>
-									))
-							) : (
-								<p className="sub-empty-text">暂无已批准的团队知识页面。</p>
-							)}
-						</div>
-					</section>
-				</div>
-			)}
-
 			{/* AUDIT LOG & MEMBER ADMINISTRATION */}
 			<div className="team-admin-audit-grid">
 				{/* AUDIT TRAIL */}
@@ -3481,50 +3283,159 @@ export function TeamPage() {
 							</div>
 						</div>
 
-						<div className="sub-section-header">
-							<FileStack size={15} />
-							<div>
-								<h4>备份与恢复演练</h4>
-								<small>在服务端临时沙箱中校验备份包完整性与统计，绝不覆盖当前团队库。</small>
+						<div className="restore-drill-section">
+							<div className="sub-section-header">
+								<div className="sub-section-icon-box">
+									<FileStack size={16} />
+								</div>
+								<div className="sub-section-titles">
+									<h4>备份与恢复演练</h4>
+									<small>在服务端临时沙箱中校验备份包完整性与统计，绝不覆盖当前团队库。</small>
+								</div>
 							</div>
-						</div>
 
-						<div className="restore-drill-bar" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-							<input
-								className="avant-input"
-								style={{ flex: "1", minWidth: "220px" }}
-								value={backupPath}
-								onChange={(e) => setBackupPath(e.target.value)}
-								placeholder="先创建备份，或粘贴服务端 backupPath…"
-							/>
-							<button
-								className="avant-btn avant-btn-secondary"
-								type="button"
-								disabled={!backupPath.trim() || busy}
-								onClick={() =>
-									void prepare("/api/team/restore-drill/prepare", "/api/team/restore-drill/execute", {
-										backupPath: backupPath.trim(),
-									})
-								}
-							>
-								<ShieldCheck size={14} />
-								预览恢复演练
-							</button>
-						</div>
+							<div className="restore-drill-bar">
+								<div className="restore-input-group">
+									<input
+										className="avant-input"
+										value={backupPath}
+										onChange={(e) => setBackupPath(e.target.value)}
+										placeholder="先创建备份，或粘贴服务端 backupPath…"
+									/>
+									{backupPath && (
+										<button
+											type="button"
+											className="restore-clear-btn"
+											onClick={() => setBackupPath("")}
+											title="清空输入"
+											aria-label="清空备份路径"
+										>
+											<X size={14} />
+										</button>
+									)}
+								</div>
+								<button
+									className="avant-btn avant-btn-secondary"
+									type="button"
+									disabled={!backupPath.trim() || busy}
+									onClick={() =>
+										void prepare("/api/team/restore-drill/prepare", "/api/team/restore-drill/execute", {
+											backupPath: backupPath.trim(),
+										})
+									}
+								>
+									<ShieldCheck size={14} />
+									预览恢复演练
+								</button>
+							</div>
 
-						<p>
-							附件存储：{stats.blobCount ?? 0} 个文件 · {((stats.blobBytes ?? 0) / 1024 / 1024).toFixed(1)} MiB
-						</p>
-						{Object.entries(overview.maintenance ?? {}).map(([operation, value]) => {
-							const result = value as { status: string; at: string; backupPath?: string; message?: string };
-							return (
-								<p key={operation} role={result.status === "failed" ? "alert" : undefined}>
-									{operation === "backup" ? "最近备份" : "最近恢复演练"}：
-									{result.status === "succeeded" ? "成功" : "失败"} · {new Date(result.at).toLocaleString()}{" "}
-									{result.message} {result.backupPath}
-								</p>
-							);
-						})}
+							<div className="maintenance-telemetry-strip">
+								<div className="maintenance-storage-badge">
+									<Database size={13} className="badge-icon" />
+									<span>附件存储池</span>
+									<span className="badge-sep">/</span>
+									<strong>{stats.blobCount ?? 0} 个文件</strong>
+									<span className="badge-sep">·</span>
+									<span>{((stats.blobBytes ?? 0) / 1024 / 1024).toFixed(1)} MiB</span>
+								</div>
+							</div>
+
+							{overview.maintenance && Object.keys(overview.maintenance).length > 0 && (
+								<div className="maintenance-records-block">
+									<div className="maintenance-records-header">
+										<span>
+											<Activity size={12} />
+											最近运维与演练记录
+										</span>
+									</div>
+									{Object.entries(overview.maintenance).map(([operation, value]) => {
+										const result = value as {
+											status: string;
+											at: string;
+											backupPath?: string;
+											message?: string;
+										};
+										const isBackup = operation === "backup";
+										const isSuccess = result.status === "succeeded";
+										return (
+											<div
+												key={operation}
+												className={`maintenance-record-card ${!isSuccess ? "has-error" : ""}`}
+												role={!isSuccess ? "alert" : undefined}
+											>
+												<div className="record-header-row">
+													<div className="record-main-info">
+														<div className="record-icon-badge">
+															{isBackup ? <Database size={13} /> : <RotateCcw size={13} />}
+														</div>
+														<span className="record-name">
+															{isBackup
+																? "最近备份"
+																: operation === "restore_drill"
+																	? "最近恢复演练"
+																	: operation}
+														</span>
+														<span className={`record-status-pill ${isSuccess ? "succeeded" : "failed"}`}>
+															{isSuccess ? (
+																<>
+																	<CheckCircle2 size={11} />
+																	<span>成功</span>
+																</>
+															) : (
+																<>
+																	<AlertCircle size={11} />
+																	<span>失败</span>
+																</>
+															)}
+														</span>
+													</div>
+													<div className="record-time-meta">
+														<Clock size={11} />
+														<time dateTime={result.at}>{new Date(result.at).toLocaleString()}</time>
+													</div>
+												</div>
+
+												{result.message && (
+													<div className="record-error-message">
+														<Info size={13} />
+														<span>{result.message}</span>
+													</div>
+												)}
+
+												{result.backupPath && (
+													<div className="record-path-box">
+														<span className="path-prefix">路径</span>
+														<code className="record-path-code" title={result.backupPath}>
+															{result.backupPath}
+														</code>
+														<div className="record-path-actions">
+															<button
+																type="button"
+																className="avant-btn avant-btn-xs avant-btn-secondary"
+																title="将此路径填入演练输入框"
+																onClick={() => setBackupPath(result.backupPath!)}
+															>
+																<ArrowUpRight size={11} />
+																<span>填入演练</span>
+															</button>
+															<button
+																type="button"
+																className="avant-btn avant-btn-xs avant-btn-secondary"
+																title="复制完整路径"
+																onClick={() => copyText(result.backupPath!, "备份路径已复制")}
+															>
+																<Copy size={11} />
+																<span>复制</span>
+															</button>
+														</div>
+													</div>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</div>
 						<TeamMembersPanel
 							identities={overview.identities ?? []}
 							selfId={overview.identity?.id}

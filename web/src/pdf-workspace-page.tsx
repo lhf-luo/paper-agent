@@ -1,10 +1,19 @@
 import { ArrowUpRight, Clock, FileText, Folder } from "lucide-react";
-import { useWorkspace } from "./workspace-context";
-import { useRouterContext } from "./router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, jsonBody } from "./api";
-import { ConsentCard, confirmOperation, JobProgress, PageHeading, PdfViewer, StatusPill, useJob } from "./components";
+import {
+	AccessibleModal,
+	ConsentCard,
+	confirmOperation,
+	JobProgress,
+	PageHeading,
+	PdfViewer,
+	StatusPill,
+	useJob,
+} from "./components";
+import { useRouterContext } from "./router";
 import type { BackgroundJob, ConfirmationGrant, PaperAsset, PaperRecord, PreparedOperation } from "./types";
+import { useWorkspace } from "./workspace-context";
 
 export interface PdfWorkspacePageProps {
 	onTask: (job: BackgroundJob) => void;
@@ -288,54 +297,60 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 				title="PDF 与 Artifact 工作台"
 				description="输入本地 PDF 路径，建立图表、正文 mention、section 和公开 artifact 的可追溯关联。"
 			/>
-			{lastTask && (lastTask.type.includes("pdf") || lastTask.type.includes("mineru") || lastTask.type.includes("translate") || lastTask.type.includes("import")) && (
-				<div className="task-dock-banner">
-					<div className="task-dock-info">
-						<Clock size={14} />
-						<span>当前关联后台任务：<strong>{lastTask.type}</strong> ({lastTask.status})</span>
+			{lastTask &&
+				(lastTask.type.includes("pdf") ||
+					lastTask.type.includes("mineru") ||
+					lastTask.type.includes("translate") ||
+					lastTask.type.includes("import")) && (
+					<div className="task-dock-banner">
+						<div className="task-dock-info">
+							<Clock size={14} />
+							<span>
+								当前关联后台任务：<strong>{lastTask.type}</strong> ({lastTask.status})
+							</span>
+						</div>
+						<button type="button" className="button secondary sm" onClick={() => navigate("tasks")}>
+							查看任务中心详情 <ArrowUpRight size={12} style={{ marginLeft: 4 }} />
+						</button>
 					</div>
-					<button type="button" className="button secondary sm" onClick={() => navigate("tasks")}>
-						查看任务中心详情 <ArrowUpRight size={12} style={{ marginLeft: 4 }} />
-					</button>
-				</div>
-			)}
+				)}
 			<section className="path-workbench">
 				<label>
 					<span>本地 PDF 路径（可直接输入，或从个人库选择论文）</span>
 					<div className="pdf-combobox" ref={pdfPickerRef}>
-					<input
-						value={path}
-						onChange={(event) => setPath(event.target.value)}
-						onFocus={() => setPdfPickerOpen(true)}
-						placeholder="输入路径，或点击选择已入库论文…"
-						role="combobox"
-						aria-expanded={pdfPickerOpen}
-						aria-controls="pdf-combobox-options"
-						aria-autocomplete="list"
-					/>
-					{pdfPickerOpen && availablePdfs.length > 0 && (
-						<ul className="pdf-combobox-list" id="pdf-combobox-options" aria-label="可选择的论文 PDF">
-							{availablePdfs.map((pdf) => (
-								<li key={pdf.paperId}>
-									<button
-										type="button"
-										className="pdf-combobox-option"
-										title={pdf.title}
-										onClick={() => {
-											setPath(pdf.hasPdf ? pdf.blobPath : "");
-											setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
-											setPdfPickerOpen(false);
-										}}
-									>
-										<span className="pdf-combobox-title">{pdf.title}</span>
-										<span className="pdf-combobox-meta">
-											{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
-										</span>
-									</button>
-								</li>
-							))}
-						</ul>
-					)}
+						<input
+							value={path}
+							onChange={(event) => setPath(event.target.value)}
+							onFocus={() => setPdfPickerOpen(true)}
+							placeholder="输入路径，或点击选择已入库论文…"
+							role="combobox"
+							aria-expanded={pdfPickerOpen}
+							aria-controls="pdf-combobox-options"
+							aria-autocomplete="list"
+						/>
+						{pdfPickerOpen && availablePdfs.length > 0 && (
+							<ul className="pdf-combobox-list" id="pdf-combobox-options" aria-label="可选择的论文 PDF">
+								{availablePdfs.map((pdf) => (
+									<li key={pdf.paperId}>
+										<button
+											type="button"
+											className="pdf-combobox-option"
+											title={pdf.title}
+											onClick={() => {
+												setPath(pdf.hasPdf ? pdf.blobPath : "");
+												setError(pdf.hasPdf ? "" : "该论文尚未下载 PDF，请先到个人库下载后再分析。");
+												setPdfPickerOpen(false);
+											}}
+										>
+											<span className="pdf-combobox-title">{pdf.title}</span>
+											<span className="pdf-combobox-meta">
+												{pdf.hasPdf ? "已下载" : "未下载PDF"} · {pdf.paperId}
+											</span>
+										</button>
+									</li>
+								))}
+							</ul>
+						)}
 					</div>
 					{path && <small className="path-resolved-hint">{resolvePdfHint(path)}</small>}
 				</label>
@@ -362,28 +377,52 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 			{message && <div className="success-banner">{message}</div>}
 			<JobProgress job={job} />
 			{pending && (
-				<ConsentCard
-					operation={pending}
-					busy={busy}
-					onCancel={() => setPending(undefined)}
-					onConfirm={executeAcquire}
-				/>
+				<AccessibleModal
+					title="确认获取 PDF"
+					onClose={() => {
+						if (!busy) setPending(undefined);
+					}}
+					maxWidth={620}
+				>
+					<ConsentCard
+						operation={pending}
+						busy={busy}
+						onCancel={() => setPending(undefined)}
+						onConfirm={executeAcquire}
+					/>
+				</AccessibleModal>
 			)}
 			{correctionPending && (
-				<ConsentCard
-					operation={correctionPending}
-					busy={busy}
-					onCancel={() => setCorrectionPending(undefined)}
-					onConfirm={executeCorrection}
-				/>
+				<AccessibleModal
+					title="确认保存 PDF 标注修正"
+					onClose={() => {
+						if (!busy) setCorrectionPending(undefined);
+					}}
+					maxWidth={620}
+				>
+					<ConsentCard
+						operation={correctionPending}
+						busy={busy}
+						onCancel={() => setCorrectionPending(undefined)}
+						onConfirm={executeCorrection}
+					/>
+				</AccessibleModal>
 			)}
 			{teamPending && (
-				<ConsentCard
-					operation={teamPending}
-					busy={busy}
-					onCancel={() => setTeamPending(undefined)}
-					onConfirm={executeTeamManifest}
-				/>
+				<AccessibleModal
+					title="确认团队材料提交"
+					onClose={() => {
+						if (!busy) setTeamPending(undefined);
+					}}
+					maxWidth={640}
+				>
+					<ConsentCard
+						operation={teamPending}
+						busy={busy}
+						onCancel={() => setTeamPending(undefined)}
+						onConfirm={executeTeamManifest}
+					/>
+				</AccessibleModal>
 			)}
 			{path && mode === "analysis" && job?.status === "succeeded" && (
 				<div className="reader-grid">

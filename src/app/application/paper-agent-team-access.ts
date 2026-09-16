@@ -228,6 +228,7 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 		types?: string[];
 		statuses?: SharedReviewStatus[];
 		openAccess?: boolean;
+		topicIds?: string[];
 		limit?: number;
 		cursor?: string;
 	}) {
@@ -238,6 +239,12 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 	async getTeamPaper(paperId: string): Promise<PaperRecord> {
 		const { client, namespace } = await this.configuredTeam();
 		return await client.getPaper(namespace, paperId);
+	}
+
+	/** Paged pending-review papers for the Web review workbench. */
+	async listPendingTeamPapers(cursor?: string, limit = 10) {
+		const { client, namespace } = await this.configuredTeam();
+		return client.pendingPapers(namespace, cursor, { limit });
 	}
 
 	async readTeamBlob(sha256: string) {

@@ -2,7 +2,16 @@ import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, apiBytes, jsonBody } from "./api";
-import { ConsentCard, confirmOperation, EmptyState, formatFileSize, LoadingBlock, PaperCard, SkeletonList } from "./components";
+import {
+	AccessibleModal,
+	ConsentCard,
+	confirmOperation,
+	EmptyState,
+	formatFileSize,
+	LoadingBlock,
+	PaperCard,
+	SkeletonList,
+} from "./components";
 import {
 	requiresWebOperationConfirmation,
 	useAutomaticOperationConfirmation,
@@ -10,6 +19,7 @@ import {
 } from "./confirmation-policy";
 import { CollectionSidebar } from "./library-collections";
 import { MineruControl } from "./mineru-control";
+import { type AutomatedResearchLaunchInput, ResearchLauncher } from "./research-launcher";
 import type {
 	BackgroundJob,
 	CollectionMembershipIndex,
@@ -83,11 +93,13 @@ export function LibraryPage({
 	onTask,
 	toolbarTarget,
 	onOpenResearchNote,
+	onAgentSession,
 }: {
 	onOpenReader: (state: ReaderState) => void;
 	onTask: (job: BackgroundJob) => void;
 	toolbarTarget: HTMLDivElement | null;
 	onOpenResearchNote: (target: ResearchNoteNavigation) => void;
+	onAgentSession: (sessionId: string) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
 	const [query, setQuery] = useState("");
@@ -102,7 +114,6 @@ export function LibraryPage({
 	const [exportPayload, setExportPayload] = useState<Record<string, unknown>>();
 	const [removalPending, setRemovalPending] = useState<PreparedOperation>();
 	const [removalPayload, setRemovalPayload] = useState<Record<string, unknown>>();
-	const [removalCardCollapsed, setRemovalCardCollapsed] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
@@ -278,9 +289,6 @@ export function LibraryPage({
 	useEffect(() => {
 		if (!selected.size) setActiveLibraryTool(undefined);
 	}, [selected.size]);
-	useEffect(() => {
-		if (!removalPending) setRemovalCardCollapsed(false);
-	}, [removalPending]);
 	useEffect(() => {
 		if (!activeLibraryTool || annotationPending || exportPending) return;
 		const timer = window.setTimeout(() => {
@@ -546,12 +554,12 @@ export function LibraryPage({
 			);
 		}
 	}, [namespace]);
-	const prepareDownload = async () => {
+	const prepareDownload = async (paperIds: string[]) => {
 		setActiveLibraryTool(undefined);
 		setBusy(true);
 		setError("");
 		try {
-			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds: [...selected], namespace })));
+			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds, namespace })));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -575,6 +583,15 @@ export function LibraryPage({
 		} finally {
 			setBusy(false);
 		}
+	};
+	const prepareDownloadForCurrentPaper = async () => {
+		if (!details?.paper?.id) return;
+		setSelected(new Set([details.paper.id]));
+		await prepareDownload([details.paper.id]);
+	};
+	const startAutomatedResearch = async (input: AutomatedResearchLaunchInput) => {
+		const response = await api<{ session: { id: string } }>("/api/agent/research/start", jsonBody(input));
+		onAgentSession(response.session.id);
 	};
 	const prepareAnnotation = async () => {
 		if (!selected.size) return;
@@ -1044,7 +1061,7 @@ export function LibraryPage({
 					className="button primary"
 					type="button"
 					disabled={!selected.size || libraryActionLocked}
-					onClick={() => void prepareDownload()}
+					onClick={() => void prepareDownload([...selected])}
 				>
 					下载所选 PDF
 				</button>
@@ -1481,19 +1498,49 @@ export function LibraryPage({
 						)}
 					</section>
 				)}
-				{annotationPending ? (
-					<ConsentCard
-						operation={annotationPending}
-						busy={busy}
-						onCancel={() => {
-							setAnnotationPending(undefined);
-							setAnnotationPayload(undefined);
-							setActiveLibraryTool("curation");
+				{annotationPending && (
+					<AccessibleModal
+						title="确认更新文献标签与注释"
+						onClose={() => {
+							if (!busy) {
+								setAnnotationPending(undefined);
+								setAnnotationPayload(undefined);
+								setActiveLibraryTool("curation");
+							}
 						}}
-						onConfirm={executeAnnotation}
-					/>
-				) : exportPending ? (
-					<>
+						maxWidth={640}
+					>
+						<ConsentCard
+							operation={annotationPending}
+							busy={busy}
+							onCancel={() => {
+								setAnnotationPending(undefined);
+								setAnnotationPayload(undefined);
+								setActiveLibraryTool("curation");
+							}}
+							onConfirm={executeAnnotation}
+						/>
+					</AccessibleModal>
+				)}
+				{exportPending && (
+					<AccessibleModal
+						title="确认导出文献"
+						onClose={() => {
+							if (!busy) {
+								if (zoteroExportPrepared) {
+									void api(
+										`/api/zotero/exports/${encodeURIComponent(zoteroExportPrepared.operation.operationId)}`,
+										{ method: "DELETE" },
+									).catch(() => undefined);
+								}
+								setExportPending(undefined);
+								setExportPayload(undefined);
+								setZoteroExportPrepared(undefined);
+								setActiveLibraryTool("export");
+							}
+						}}
+						maxWidth={720}
+					>
 						{zoteroExportPrepared && (
 							<ul className="library-import-list" aria-label="Zotero 导出预览">
 								{zoteroExportPrepared.items.map((item) => (
@@ -1537,8 +1584,9 @@ export function LibraryPage({
 							}}
 							onConfirm={executeExport}
 						/>
-					</>
-				) : activeLibraryTool === "curation" ? (
+					</AccessibleModal>
+				)}
+				{activeLibraryTool === "curation" ? (
 					<section
 						id="library-curation-tool"
 						ref={inlineToolRef}
@@ -1696,15 +1744,32 @@ export function LibraryPage({
 					</section>
 				) : null}
 				{pending && (
-					<ConsentCard
-						operation={pending}
-						busy={busy}
-						onCancel={() => setPending(undefined)}
-						onConfirm={executeDownload}
-					/>
+					<AccessibleModal
+						title="确认下载 PDF"
+						onClose={() => {
+							if (!busy) setPending(undefined);
+						}}
+						maxWidth={620}
+					>
+						<ConsentCard
+							operation={pending}
+							busy={busy}
+							onCancel={() => setPending(undefined)}
+							onConfirm={executeDownload}
+						/>
+					</AccessibleModal>
 				)}
 				{removalPending && (
-					<div className={`library-removal-consent${removalCardCollapsed ? " is-collapsed" : ""}`}>
+					<AccessibleModal
+						title="确认删除文献"
+						onClose={() => {
+							if (!busy) {
+								setRemovalPending(undefined);
+								setRemovalPayload(undefined);
+							}
+						}}
+						maxWidth={620}
+					>
 						<ConsentCard
 							operation={removalPending}
 							busy={busy}
@@ -1714,17 +1779,10 @@ export function LibraryPage({
 							}}
 							onConfirm={executePaperRemoval}
 						/>
-					</div>
+					</AccessibleModal>
 				)}
 				<div className="library-layout">
-					<div
-						className="library-paper-pane"
-						onScroll={(event) => {
-							if (!removalPending) return;
-							const collapsed = event.currentTarget.scrollTop > 8;
-							setRemovalCardCollapsed((current) => (current === collapsed ? current : collapsed));
-						}}
-					>
+					<div className="library-paper-pane">
 						{loading ? (
 							<SkeletonList count={4} />
 						) : papers.length ? (
@@ -1777,7 +1835,7 @@ export function LibraryPage({
 								tips={[
 									"前往「检索与收集」页面按关键词、DOI 或 arXiv ID 搜索收录",
 									"点击上方「导入」按钮，批量解析本地 PDF 论文或导入 Zotero 库",
-									"在「Agent 对话」中向智能研究员描述您的科研选题与综述目标"
+									"在「Agent 对话」中向智能研究员描述您的科研选题与综述目标",
 								]}
 							/>
 						)}
@@ -1814,6 +1872,15 @@ export function LibraryPage({
 										compact
 									/>
 								</div>
+								<ResearchLauncher
+									paperId={details.paper.id}
+									paperTitle={details.paper.title}
+									versions={details.versions ?? []}
+									namespace={namespace}
+									busy={busy}
+									onPreparePdf={prepareDownloadForCurrentPaper}
+									onStart={startAutomatedResearch}
+								/>
 								<h3>PDF 版本</h3>
 								{details.versions.length ? (
 									details.versions.map((version: any) => (

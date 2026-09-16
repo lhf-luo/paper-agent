@@ -1,6 +1,18 @@
 export type WebAgentMode = "once" | "persistent";
 export type WebAgentSessionStatus = "idle" | "running" | "stopping" | "error";
 export type WebAgentCredentialSource = "memory" | "config" | "environment" | "none";
+export type WebAgentThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type WebAgentPermissionMode = "ask" | "auto";
+
+export const WEB_AGENT_THINKING_LEVELS: readonly WebAgentThinkingLevel[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+];
 
 export interface WebAgentSessionContext {
 	kind: "paper";
@@ -89,6 +101,8 @@ export interface WebAgentSessionSummary {
 	updatedAt: string;
 	error?: string;
 	pendingUIRequests: number;
+	thinkingLevel?: WebAgentThinkingLevel;
+	permissionMode: WebAgentPermissionMode;
 }
 
 export interface WebAgentSessionSnapshot extends WebAgentSessionSummary {
@@ -146,8 +160,17 @@ export interface WebAgentServiceApi {
 		mode: WebAgentMode;
 		title?: string;
 		context?: WebAgentSessionContext;
+		thinkingLevel?: WebAgentThinkingLevel;
+		permissionMode?: WebAgentPermissionMode;
 	}): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	renameSession(id: string, title: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	updateSessionSettings(
+		id: string,
+		input: {
+			thinkingLevel?: WebAgentThinkingLevel;
+			permissionMode?: WebAgentPermissionMode;
+		},
+	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	getSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	deleteSession(id: string): void | Promise<void>;
 	dismissError?(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;

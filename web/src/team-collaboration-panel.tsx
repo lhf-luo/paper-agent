@@ -1,11 +1,19 @@
 import {
 	ArrowRight,
+	ArrowUpRight,
 	Bell,
 	BookOpen,
+	Building,
+	Calendar,
 	Check,
 	CheckCheck,
+	ChevronDown,
+	ChevronUp,
 	ClipboardCheck,
+	Clock,
+	Copy,
 	Download,
+	ExternalLink,
 	Eye,
 	FileText,
 	FolderOpen,
@@ -16,17 +24,22 @@ import {
 	Pencil,
 	Plus,
 	RefreshCw,
+	RotateCcw,
 	Save,
 	Search,
 	Send,
+	ShieldCheck,
+	SlidersHorizontal,
 	Trash2,
 	Undo2,
+	Unlock,
 	UploadCloud,
 	UserCheck,
+	Users,
 	X,
 	XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	TeamActor,
 	TeamContentRef,
@@ -40,8 +53,9 @@ import type {
 	TeamTopic,
 } from "../../src/team/domain/team-corpus-types";
 import { api, jsonBody } from "./api";
-import { AccessibleModal, ConsentCard, confirmOperation, EmptyState } from "./components";
-import { TeamOperationPreview, TeamSnapshotBody } from "./team-operation-preview";
+import { AccessibleModal, confirmOperation, EmptyState, StatusPill } from "./components";
+import { showDerivedAndArtifactFeatures } from "./team-feature-flags";
+import { TeamOperationModal, TeamSnapshotBody } from "./team-operation-preview";
 import type { PaperRecord, PreparedOperation } from "./types";
 import "./team-collaboration-panel.css";
 
@@ -69,6 +83,7 @@ export function TeamCollaborationPanel({
 	personalNamespace,
 	onChanged,
 	autoSync = true,
+	onPreviewPaper,
 }: {
 	canRead: boolean;
 	canContribute: boolean;
@@ -76,9 +91,12 @@ export function TeamCollaborationPanel({
 	personalNamespace: string;
 	onChanged: () => void;
 	autoSync?: boolean;
+	/** 打开团队页的论文详情弹窗（合并检索中心后由论文卡片调用）。 */
+	onPreviewPaper?: (paper: PaperRecord) => void;
 }) {
 	const [tab, setTab] = useState<Tab>(canRead || canReview ? "published" : "mine");
-	const [kind, setKind] = useState<TeamReviewResource>("pages");
+	// 默认展示论文检索（原检索控制台/已共享论文面板合并至此）。
+	const [kind, setKind] = useState<TeamReviewResource>("papers");
 	const [query, setQuery] = useState("");
 	const [search, setSearch] = useState("");
 	const [topicId, setTopicId] = useState("");
@@ -88,7 +106,6 @@ export function TeamCollaborationPanel({
 	const [topics, setTopics] = useState<TeamTopic[]>([]);
 	const [notifications, setNotifications] = useState<TeamNotification[]>([]);
 	const [unread, setUnread] = useState(0);
-	const [cursor, setCursor] = useState<string>();
 	const [total, setTotal] = useState(0);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [reason, setReason] = useState("");
@@ -128,53 +145,158 @@ export function TeamCollaborationPanel({
 		>();
 	const [artifactCursor, setArtifactCursor] = useState<string>();
 
+	// ---- 合并检索中心：论文结构化检索（原 team-page 检索控制台能力）----
+	const [showPaperFilters, setShowPaperFilters] = useState(false);
+	const [paperFilters, setPaperFilters] = useState<{
+		author: string;
+		venue: string;
+		yearFrom: string;
+		yearTo: string;
+		type: string;
+		openAccess: "all" | "true" | "false";
+		status: string;
+		/** 团队共享分类（TeamTopic）id；空串表示不按分类筛选。 */
+		topicId: string;
+	}>({ author: "", venue: "", yearFrom: "", yearTo: "", type: "", openAccess: "all", status: "", topicId: "" });
+	// load 是 useCallback 缓存的，过滤器经 ref 读取，避免输入时频繁触发请求；点「搜索/刷新」后生效。
+	const paperFiltersRef = useRef(paperFilters);
+	paperFiltersRef.current = paperFilters;
+	const [paperHits, setPaperHits] = useState<PaperRecord[]>([]);
+	const paperHitsRef = useRef<PaperRecord[]>([]);
+	const [pullIncludePdf, setPullIncludePdf] = useState(true);
+	const [expandedAbstracts, setExpandedAbstracts] = useState<Set<string>>(new Set());
+	const toggleAbstract = (id: string) =>
+		setExpandedAbstracts((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	const resetPaperFilters = () =>
+		setPaperFilters({
+			author: "",
+			venue: "",
+			yearFrom: "",
+			yearTo: "",
+			type: "",
+			openAccess: "all",
+			status: "",
+			topicId: "",
+		});
+
+	// 分类筛选需要分类清单，而清单原先只在「专题集合」页签加载；打开筛选抽屉时补一次。
+	useEffect(() => {
+		if (!showPaperFilters || (!canRead && !canReview)) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const result = await api<TeamListPage<TeamTopic>>("/api/team/topics?limit=200");
+				if (!cancelled) setTopics(result.entries);
+			} catch {
+				// 分类清单取不到时筛选退化为「全部分类」，不影响论文检索本身。
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [showPaperFilters, canRead, canReview]);
+
+	// ---- 分页状态：游标栈记录每一页的取数位置，页码翻页代替"加载更多"追加 ----
+	const PAGE_SIZE = 10;
+	const [pageIndex, setPageIndex] = useState(0);
+	const pageIndexRef = useRef(0);
+	const pageCursorsRef = useRef<(string | undefined)[]>([undefined]);
+	const [hasNextPage, setHasNextPage] = useState(false);
+
 	const load = useCallback(
-		async (next?: string) => {
+		async (opts?: { cursor?: string; index?: number; filters?: typeof paperFilters }) => {
+			const index = opts?.index ?? pageIndexRef.current;
+			const cursor = opts?.cursor ?? pageCursorsRef.current[index];
 			setLoading(true);
 			setError("");
 			try {
-				const params = new URLSearchParams({ limit: "25", ...(next ? { cursor: next } : {}) });
+				const params = new URLSearchParams({ limit: String(PAGE_SIZE), ...(cursor ? { cursor } : {}) });
 				let page: TeamListPage<unknown>;
-				if (tab === "published" || tab === "review") {
+				if (tab === "published" && kind === "papers" && !topicId) {
+					// 合并检索中心：论文走结构化检索（作者/会议/年份/类型/OA/审核状态 + 游标分页）。
+					if (search) params.set("q", search);
+					const filters = opts?.filters ?? paperFiltersRef.current;
+					if (filters.author.trim()) params.set("author", filters.author.trim());
+					if (filters.venue.trim()) params.set("venue", filters.venue.trim());
+					if (filters.yearFrom.trim()) params.set("yearFrom", filters.yearFrom.trim());
+					if (filters.yearTo.trim()) params.set("yearTo", filters.yearTo.trim());
+					if (filters.type) params.set("type", filters.type);
+					if (filters.openAccess !== "all") params.set("openAccess", filters.openAccess);
+					if (canReview && filters.status) params.set("status", filters.status);
+					// 分类筛选下推到服务端检索，避免客户端过滤与游标分页互相矛盾。
+					if (filters.topicId) params.set("topic", filters.topicId);
+					const result = await api<{ hits: Array<{ record: PaperRecord }>; nextCursor?: string }>(
+						`/api/team/search?${params.toString()}`,
+					);
+					const hits = result.hits.map((hit) => hit.record);
+					paperHitsRef.current = hits;
+					setPaperHits(hits);
+					// 检索接口没有全量 total，仅以"已见条数"展示。
+					page = {
+						nextCursor: result.nextCursor,
+						total: (index * PAGE_SIZE + hits.length) as number,
+					} as TeamListPage<unknown>;
+				} else if (tab === "published" || tab === "review") {
 					params.set("resource", kind);
 					if (search) params.set("q", search);
 					if (tab === "review") params.set("pending", "true");
 					if (topicId && tab === "published") params.set("topicId", topicId);
 					const result = await api<TeamListPage<TeamContentSummary>>(`/api/team/content?${params}`);
-					setContent((previous) => (next ? [...previous, ...result.entries] : result.entries));
+					setContent(result.entries);
 					page = result;
 				} else if (tab === "mine") {
 					params.set("mine", "true");
 					if (status) params.set("status", status);
 					const result = await api<TeamListPage<TeamSubmission>>(`/api/team/contributions?${params}`);
-					setSubmissions((previous) => (next ? [...previous, ...result.entries] : result.entries));
+					setSubmissions(result.entries);
 					page = result;
 				} else if (tab === "topics") {
 					const result = await api<TeamListPage<TeamTopic>>(`/api/team/topics?${params}`);
-					setTopics((previous) => (next ? [...previous, ...result.entries] : result.entries));
+					setTopics(result.entries);
 					page = result;
 				} else {
 					const result = await api<TeamListPage<TeamNotification> & { unread: number }>(
 						`/api/team/notifications?${params}`,
 					);
-					setNotifications((previous) => (next ? [...previous, ...result.entries] : result.entries));
+					setNotifications(result.entries);
 					setUnread(result.unread);
 					page = result;
 				}
-				setCursor(page.nextCursor);
+				// 记录下一页游标，并截断回退/换页后失效的前向游标。
+				pageCursorsRef.current[index + 1] = page.nextCursor;
+				pageCursorsRef.current.length = index + 2;
+				setHasNextPage(Boolean(page.nextCursor));
 				setTotal(page.total);
-				if (!next) setSelected(new Set());
+				setSelected(new Set());
 			} catch (failure) {
 				setError(failure instanceof Error ? failure.message : String(failure));
 			} finally {
 				setLoading(false);
 			}
 		},
-		[tab, kind, search, topicId, status],
+		[tab, kind, search, topicId, status, canReview],
 	);
 	useEffect(() => {
-		void load();
+		// 筛选/类型/关键词变化：回到第 1 页重新加载。
+		pageIndexRef.current = 0;
+		setPageIndex(0);
+		pageCursorsRef.current = [undefined];
+		setHasNextPage(false);
+		void load({ cursor: undefined, index: 0 });
 	}, [load]);
+	const goToPage = (target: number) => {
+		if (target < 0 || target === pageIndexRef.current) return;
+		const cursor = pageCursorsRef.current[target];
+		if (target > 0 && !cursor) return;
+		pageIndexRef.current = target;
+		setPageIndex(target);
+		void load({ cursor, index: target });
+	};
 	useEffect(() => {
 		if (!autoSync) return;
 		const timer = window.setInterval(() => {
@@ -184,13 +306,12 @@ export function TeamCollaborationPanel({
 				!active &&
 				!discussion &&
 				!editingTopic &&
-				!cursor &&
 				!selected.size
 			)
 				void load();
 		}, 30_000);
 		return () => window.clearInterval(timer);
-	}, [autoSync, load, pending, active, discussion, editingTopic, cursor, selected.size]);
+	}, [autoSync, load, pending, active, discussion, editingTopic, selected.size]);
 
 	const prepare = async (path: string, payload: Record<string, unknown>) => {
 		setError("");
@@ -299,6 +420,20 @@ export function TeamCollaborationPanel({
 		}
 	};
 	const selectedContent = content.filter((entry) => selected.has(refKey(entry)));
+	// 论文检索卡片的勾选存在 selected 里（键 papers:<id>），与内容行的勾选合并成可操作条目。
+	const selectedEntries: Array<TeamContentRef> = [
+		...selectedContent.map(({ resource, id }) => ({ resource, id })),
+		...[...selected]
+			.filter((key) => key.startsWith("papers:"))
+			.map((key) => ({ resource: "papers" as const, id: key.slice("papers:".length) })),
+	];
+	// 派生记录与材料清单暂时整体隐藏：我的提案列表与专题候选不再展示这两类。
+	const visibleSubmissions = showDerivedAndArtifactFeatures
+		? submissions
+		: submissions.filter((entry) => entry.resource !== "derived" && entry.resource !== "artifacts");
+	const visibleTopicChoices = showDerivedAndArtifactFeatures
+		? topicChoices
+		: topicChoices.filter((entry) => entry.resource !== "derived" && entry.resource !== "artifacts");
 	const activePaperIds =
 		!active || active.resource === "papers"
 			? []
@@ -388,7 +523,7 @@ export function TeamCollaborationPanel({
 				</output>
 			)}
 			<div className="team-collaboration-toolbar">
-				{canContribute && (
+				{canContribute && showDerivedAndArtifactFeatures && (
 					<button
 						type="button"
 						className="avant-btn avant-btn-secondary"
@@ -410,11 +545,16 @@ export function TeamCollaborationPanel({
 								value={kind}
 								onChange={(event) => setKind(event.target.value as TeamReviewResource)}
 							>
-								{Object.entries(names).map(([value, label]) => (
-									<option key={value} value={value}>
-										{label}
-									</option>
-								))}
+								{Object.entries(names)
+									.filter(
+										([value]) =>
+											showDerivedAndArtifactFeatures || (value !== "derived" && value !== "artifacts"),
+									)
+									.map(([value, label]) => (
+										<option key={value} value={value}>
+											{label}
+										</option>
+									))}
 							</select>
 						</label>
 						<form
@@ -425,13 +565,15 @@ export function TeamCollaborationPanel({
 						>
 							<label className="collab-field">
 								<span>
-									<Search size={12} /> 全文关键词
+									<Search size={12} /> {kind === "papers" ? "论文关键词" : "全文关键词"}
 								</span>
 								<input
 									className="avant-input"
 									value={query}
 									onChange={(event) => setQuery(event.target.value)}
-									placeholder="标题、正文或证据关键词"
+									placeholder={
+										kind === "papers" ? "输入论文标题、摘要、作者或 DOI 关键词…" : "标题、正文或证据关键词"
+									}
 								/>
 							</label>
 							<button type="submit" className="avant-btn avant-btn-primary" disabled={loading}>
@@ -439,10 +581,35 @@ export function TeamCollaborationPanel({
 								搜索
 							</button>
 						</form>
+						{tab === "published" && kind === "papers" && !topicId && (
+							<button
+								type="button"
+								className={`avant-btn avant-btn-secondary ${showPaperFilters ? "active" : ""}`}
+								onClick={() => setShowPaperFilters(!showPaperFilters)}
+							>
+								<SlidersHorizontal size={14} />
+								高级过滤器
+							</button>
+						)}
 						{topicId && (
 							<button type="button" className="avant-btn avant-btn-subtle" onClick={() => setTopicId("")}>
 								<X size={14} />
 								清除专题筛选
+							</button>
+						)}
+						{tab === "published" && kind === "papers" && !topicId && paperFilters.topicId && (
+							<button
+								type="button"
+								className="avant-btn avant-btn-subtle"
+								onClick={() => {
+									// 显式传入清空后的筛选条件，避免 ref 尚未刷新就重新检索。
+									const next = { ...paperFilters, topicId: "" };
+									setPaperFilters(next);
+									void load({ filters: next });
+								}}
+							>
+								<X size={14} />
+								分类：{topics.find((topic) => topic.id === paperFilters.topicId)?.title ?? "已选分类"}
 							</button>
 						)}
 					</>
@@ -472,9 +639,134 @@ export function TeamCollaborationPanel({
 					刷新列表
 				</button>
 				<span className="collab-total-tag">
-					{total} 条{tab === "notifications" ? ` · ${unread} 条未读` : ""}
+					{tab === "published" && kind === "papers" && !topicId
+						? `已浏览 ${total} 条`
+						: `${total} 条${tab === "notifications" ? ` · ${unread} 条未读` : ""}`}
 				</span>
 			</div>
+			{tab === "published" && kind === "papers" && !topicId && showPaperFilters && (
+				<div className="advanced-filters-drawer">
+					<label className="filter-field">
+						<span>
+							<Users size={12} /> 作者 (Author)
+						</span>
+						<input
+							className="avant-input"
+							value={paperFilters.author}
+							onChange={(event) => setPaperFilters({ ...paperFilters, author: event.target.value })}
+							placeholder="例如：Vaswani, Hinton"
+						/>
+					</label>
+					<label className="filter-field">
+						<span>
+							<Building size={12} /> 会议 / 期刊 (Venue)
+						</span>
+						<input
+							className="avant-input"
+							value={paperFilters.venue}
+							onChange={(event) => setPaperFilters({ ...paperFilters, venue: event.target.value })}
+							placeholder="例如：NeurIPS, ICML, CVPR"
+						/>
+					</label>
+					<label className="filter-field">
+						<span>
+							<Calendar size={12} /> 起始年份
+						</span>
+						<input
+							type="number"
+							className="avant-input"
+							value={paperFilters.yearFrom}
+							onChange={(event) => setPaperFilters({ ...paperFilters, yearFrom: event.target.value })}
+							placeholder="例如：2020"
+						/>
+					</label>
+					<label className="filter-field">
+						<span>
+							<Calendar size={12} /> 结束年份
+						</span>
+						<input
+							type="number"
+							className="avant-input"
+							value={paperFilters.yearTo}
+							onChange={(event) => setPaperFilters({ ...paperFilters, yearTo: event.target.value })}
+							placeholder="例如：2026"
+						/>
+					</label>
+					<label className="filter-field">
+						<span>
+							<BookOpen size={12} /> 文献类型
+						</span>
+						<select
+							className="avant-select"
+							value={paperFilters.type}
+							onChange={(event) => setPaperFilters({ ...paperFilters, type: event.target.value })}
+						>
+							<option value="">全部类型</option>
+							<option value="journal-article">期刊论文 (Journal)</option>
+							<option value="proceedings-article">会议论文 (Conference)</option>
+							<option value="preprint">预印本 (Preprint)</option>
+							<option value="book">著作 / 章节</option>
+						</select>
+					</label>
+					<label className="filter-field">
+						<span>
+							<Unlock size={12} /> 开放获取 (OpenAccess)
+						</span>
+						<select
+							className="avant-select"
+							value={paperFilters.openAccess}
+							onChange={(event) =>
+								setPaperFilters({ ...paperFilters, openAccess: event.target.value as "all" | "true" | "false" })
+							}
+						>
+							<option value="all">全部（含闭源）</option>
+							<option value="true">仅开放获取 (OA Only)</option>
+							<option value="false">仅限制访问 (Non-OA)</option>
+						</select>
+					</label>
+					<label className="filter-field">
+						<span>
+							<FolderOpen size={12} /> 分类 (Category)
+							{topics.length === 0 && <em style={{ marginLeft: 6, fontStyle: "normal", opacity: 0.7 }}>（暂无分类）</em>}
+						</span>
+						<select
+							className="avant-select"
+							value={paperFilters.topicId}
+							onChange={(event) => setPaperFilters({ ...paperFilters, topicId: event.target.value })}
+						>
+							<option value="">全部分类</option>
+							{topics.map((topic) => (
+								<option key={topic.id} value={topic.id}>
+									{topic.title}
+								</option>
+							))}
+						</select>
+					</label>
+					{canReview && (
+						<label className="filter-field">
+							<span>
+								<ShieldCheck size={12} /> 审核状态 (Review Status)
+							</span>
+							<select
+								className="avant-select"
+								value={paperFilters.status}
+								onChange={(event) => setPaperFilters({ ...paperFilters, status: event.target.value })}
+							>
+								<option value="">默认（仅已批准）</option>
+								<option value="team-approved">已批准 (Approved)</option>
+								<option value="team-proposed">待审核 (Proposed)</option>
+								<option value="team-rejected">已拒绝 (Rejected)</option>
+							</select>
+						</label>
+					)}
+					<div className="filter-field filter-reset-wrap">
+						<button type="button" className="avant-btn avant-btn-secondary" onClick={resetPaperFilters}>
+							<RotateCcw size={13} />
+							重置筛选条件
+						</button>
+					</div>
+				</div>
+			)}
 			{tab === "review" && (
 				<div className="team-collaboration-toolbar">
 					<label className="collab-field">
@@ -513,26 +805,296 @@ export function TeamCollaborationPanel({
 					<button
 						type="button"
 						className="avant-btn avant-btn-primary"
-						disabled={!selectedContent.length || busy}
+						disabled={!selectedEntries.length || busy}
 						onClick={() =>
 							void prepare(
-								kind === "papers" ? "/api/team/pull" : "/api/team/knowledge-pull",
-								kind === "papers"
-									? { paperIds: selectedContent.map((entry) => entry.id), personalNamespace, includePdf: true }
+								kind === "papers" && !topicId ? "/api/team/pull" : "/api/team/knowledge-pull",
+								kind === "papers" && !topicId
+									? {
+											paperIds: selectedEntries.map((entry) => entry.id),
+											personalNamespace,
+											includePdf: pullIncludePdf,
+										}
 									: {
-											entries: selectedContent.map(({ resource, id }) => ({ resource, id })),
+											entries: selectedEntries.map(({ resource, id }) => ({ resource, id })),
 											personalNamespace,
 										},
 							)
 						}
 					>
 						<Download size={14} />
-						{kind === "papers" ? "拉取所选论文与 PDF" : "将所选快照保存为个人笔记"}
+						{kind === "papers" && !topicId ? "拉取所选论文" : "将所选快照保存为个人笔记"} (
+						{selectedEntries.length})
 					</button>
+					{kind === "papers" && !topicId && (
+						<label className="checkbox-wrap">
+							<input
+								type="checkbox"
+								checked={pullIncludePdf}
+								onChange={(event) => setPullIncludePdf(event.target.checked)}
+							/>
+							<span>同步拉取 PDF 到本地</span>
+						</label>
+					)}
 					<span className="collab-total-tag">目标个人空间：{personalNamespace}</span>
 				</div>
 			)}
-			{(tab === "published" || tab === "review") && (
+			{(tab === "published" || tab === "review") && tab === "published" && kind === "papers" && !topicId && (
+				<div className="team-collaboration-list">
+					{paperHits.length > 0 && (
+						<div className="results-action-bar">
+							<div className="selection-toolbar-left">
+								<label className="checkbox-wrap">
+									<input
+										type="checkbox"
+										checked={paperHits.every((paper) => selected.has(`papers:${paper.id}`))}
+										onChange={(event) =>
+											setSelected(
+												event.target.checked
+													? new Set([...selected, ...paperHits.map((paper) => `papers:${paper.id}`)])
+													: new Set(
+															[...selected].filter(
+																(key) =>
+																	!key.startsWith("papers:") ||
+																	!paperHits.some((paper) => `papers:${paper.id}` === key),
+															),
+														),
+											)
+										}
+									/>
+									<span>全选检索结果</span>
+								</label>
+								<span className="selected-count-tag">
+									已选 {paperHits.filter((paper) => selected.has(`papers:${paper.id}`)).length} 篇
+								</span>
+							</div>
+						</div>
+					)}
+					{paperHits.map((paper) => {
+						const selectKey = `papers:${paper.id}`;
+						const isAbstractExpanded = expandedAbstracts.has(paper.id);
+						return (
+							<article
+								key={paper.id}
+								className={`shared-paper-card ${selected.has(selectKey) ? "checked" : ""}`}
+							>
+								<div className="shared-card-header">
+									<div className="card-select-and-badges">
+										<input
+											type="checkbox"
+											aria-label={`选择拉取论文 ${paper.title}`}
+											checked={selected.has(selectKey)}
+											onChange={(event) =>
+												setSelected((previous) => {
+													const next = new Set(previous);
+													if (event.target.checked) next.add(selectKey);
+													else next.delete(selectKey);
+													return next;
+												})
+											}
+										/>
+										<StatusPill status={paper.curation?.teamReview?.status ?? "team-approved"} />
+										{paper.venueRank && (
+											<span className={`ccf-badge ccf-${paper.venueRank.toLowerCase()}`}>
+												CCF-{paper.venueRank}
+											</span>
+										)}
+										{paper.publicationType && (
+											<span className="avant-badge avant-badge-type">{paper.publicationType}</span>
+										)}
+										{paper.year && (
+											<span className="avant-badge avant-badge-year">
+												<Calendar size={11} />
+												{paper.year}
+											</span>
+										)}
+										{paper.citationCount != null && (
+											<span className="avant-badge avant-badge-cite">引用: {paper.citationCount}</span>
+										)}
+									</div>
+									{paper.curation?.teamReview?.proposedBy && (
+										<div className="card-proposer-meta">
+											<Users size={12} />
+											<span>{paper.curation.teamReview.proposedBy}</span>
+											{paper.curation.teamReview.proposedAt && (
+												<>
+													<Clock size={12} />
+													<span>
+														{new Date(paper.curation.teamReview.proposedAt).toLocaleDateString()}
+													</span>
+												</>
+											)}
+										</div>
+									)}
+								</div>
+
+								<div className="card-headline">
+									<h3 className="paper-title">
+										<button
+											type="button"
+											className="title-link-button"
+											onClick={() => onPreviewPaper?.(paper)}
+											title="点击查看文献详情"
+										>
+											{paper.title}
+										</button>
+									</h3>
+									{paper.venue && (
+										<span className="paper-venue">
+											<Building size={13} />
+											{paper.venue}
+										</span>
+									)}
+								</div>
+
+								{paper.authors?.length > 0 && (
+									<div className="card-authors-row">
+										{paper.authors.slice(0, 8).map((author) => (
+											<span key={author} className="author-pill">
+												{author}
+											</span>
+										))}
+										{paper.authors.length > 8 && (
+											<span className="author-pill more">+{paper.authors.length - 8} 位作者</span>
+										)}
+									</div>
+								)}
+
+								{paper.abstract && (
+									<div className={`paper-abstract-container ${isAbstractExpanded ? "expanded" : "collapsed"}`}>
+										<p className="abstract-text">{paper.abstract}</p>
+										<button
+											type="button"
+											className="abstract-toggle-btn"
+											onClick={() => toggleAbstract(paper.id)}
+										>
+											{isAbstractExpanded ? (
+												<>
+													<ChevronUp size={12} /> 收起摘要
+												</>
+											) : (
+												<>
+													<ChevronDown size={12} /> 展开完整摘要
+												</>
+											)}
+										</button>
+									</div>
+								)}
+
+								<div className="card-identifiers-bar">
+									{paper.identifiers?.doi && (
+										<a
+											href={`https://doi.org/${encodeURIComponent(paper.identifiers.doi)}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="identifier-link"
+										>
+											<code>DOI: {paper.identifiers.doi}</code>
+											<ExternalLink size={11} />
+										</a>
+									)}
+									{paper.identifiers?.arxivId && (
+										<a
+											href={`https://arxiv.org/abs/${encodeURIComponent(paper.identifiers.arxivId)}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="identifier-link"
+										>
+											<code>arXiv: {paper.identifiers.arxivId}</code>
+											<ExternalLink size={11} />
+										</a>
+									)}
+									{paper.identifiers?.openAlexId && (
+										<button
+											type="button"
+											className="identifier-copy-btn"
+											onClick={() => {
+												void navigator.clipboard.writeText(paper.identifiers!.openAlexId!);
+												setMessage("已复制 OpenAlex ID。");
+											}}
+										>
+											<code>OA: {paper.identifiers.openAlexId}</code>
+											<Copy size={11} />
+										</button>
+									)}
+									{paper.identifiers?.semanticScholarId && (
+										<button
+											type="button"
+											className="identifier-copy-btn"
+											onClick={() => {
+												void navigator.clipboard.writeText(paper.identifiers!.semanticScholarId!);
+												setMessage("已复制 Semantic Scholar ID。");
+											}}
+										>
+											<code>S2: {paper.identifiers.semanticScholarId.slice(0, 10)}…</code>
+											<Copy size={11} />
+										</button>
+									)}
+								</div>
+
+								{paper.curation?.tags?.length ? (
+									<div className="card-tags-row">
+										{paper.curation.tags.map((tag) => (
+											<span key={tag} className="avant-badge avant-badge-tag">
+												#{tag}
+											</span>
+										))}
+									</div>
+								) : null}
+
+								<div className="shared-card-actions-bar">
+									<div className="shared-actions-left">
+										{paper.links
+											?.filter((link) => link.kind === "pdf")
+											.map((link) => (
+												<a
+													key={`${link.kind}-${link.url}`}
+													href={link.url}
+													target="_blank"
+													rel="noopener noreferrer"
+													className="resource-chip pdf"
+												>
+													<FileText size={11} />
+													<span>PDF {link.openAccess ? "(OA)" : ""}</span>
+													<ArrowUpRight size={11} />
+												</a>
+											))}
+									</div>
+									<div className="shared-actions-right">
+										<button
+											type="button"
+											className="avant-btn avant-btn-secondary"
+											onClick={() => onPreviewPaper?.(paper)}
+										>
+											<Eye size={13} />
+											查看详情
+										</button>
+										<button
+											type="button"
+											className="avant-btn avant-btn-primary"
+											disabled={busy}
+											onClick={() =>
+												void prepare("/api/team/pull", {
+													paperIds: [paper.id],
+													personalNamespace,
+													includePdf: pullIncludePdf,
+												})
+											}
+										>
+											<Download size={13} />
+											拉取到个人库
+										</button>
+									</div>
+								</div>
+							</article>
+						);
+					})}
+					{!loading && !paperHits.length && (
+						<EmptyState title="暂无匹配的团队论文" text="调整关键词或高级过滤器后重新检索。" />
+					)}
+				</div>
+			)}
+			{(tab === "published" || tab === "review") && !(tab === "published" && kind === "papers" && !topicId) && (
 				<div className="team-collaboration-list">
 					{content.map((entry) => {
 						const statusTag = entry.review.revision ? (
@@ -615,7 +1177,7 @@ export function TeamCollaborationPanel({
 			)}
 			{tab === "mine" && (
 				<div className="team-collaboration-list">
-					{submissions.map((entry) => {
+					{visibleSubmissions.map((entry) => {
 						const outcomeTag =
 							entry.status === "approved" ? (
 								<span className="collab-status-tag published">{outcomes[entry.status]}</span>
@@ -677,7 +1239,7 @@ export function TeamCollaborationPanel({
 							</article>
 						);
 					})}
-					{!loading && !submissions.length && (
+					{!loading && !visibleSubmissions.length && (
 						<EmptyState title="还没有此状态的提案" text="在下方选择个人论文、笔记或材料，提交后可在这里跟踪。" />
 					)}
 				</div>
@@ -797,16 +1359,26 @@ export function TeamCollaborationPanel({
 					</div>
 				</>
 			)}
-			{cursor && (
-				<div className="collab-load-more-wrap">
+			{(pageIndex > 0 || hasNextPage) && (
+				<div className="collab-load-more-wrap collab-pager">
 					<button
 						type="button"
 						className="avant-btn avant-btn-secondary"
-						disabled={loading}
-						onClick={() => void load(cursor)}
+						disabled={loading || pageIndex === 0}
+						onClick={() => goToPage(pageIndex - 1)}
 					>
-						<RefreshCw size={13} className={loading ? "spin" : ""} />
-						{loading ? "加载中…" : "加载更多"}
+						上一页
+					</button>
+					<span className="collab-total-tag">
+						第 {pageIndex + 1} 页{total > 0 ? ` · 共 ${Math.ceil(total / PAGE_SIZE)} 页` : ""}
+					</span>
+					<button
+						type="button"
+						className="avant-btn avant-btn-secondary"
+						disabled={loading || !hasNextPage}
+						onClick={() => goToPage(pageIndex + 1)}
+					>
+						下一页
 					</button>
 				</div>
 			)}
@@ -1050,7 +1622,7 @@ export function TeamCollaborationPanel({
 					</label>
 					<p>选择已发布内容（已选 {editingTopic.entries.length} 条）</p>
 					<div className="team-topic-choices">
-						{topicChoices.map((entry) => (
+						{visibleTopicChoices.map((entry) => (
 							<label key={refKey(entry)}>
 								<input
 									type="checkbox"
@@ -1101,22 +1673,13 @@ export function TeamCollaborationPanel({
 				</AccessibleModal>
 			)}
 			{pending && (
-				<AccessibleModal
-					title="确认团队操作"
-					onClose={() => {
-						if (!busy) setPending(undefined);
-					}}
-					maxWidth={1100}
-					className="team-content-dialog"
-				>
-					<TeamOperationPreview key={pending.operation.operationId} operation={pending.operation} />
-					<ConsentCard
-						operation={pending.operation}
-						busy={busy}
-						onCancel={() => setPending(undefined)}
-						onConfirm={execute}
-					/>
-				</AccessibleModal>
+				<TeamOperationModal
+					key={pending.operation.operationId}
+					operation={pending.operation}
+					busy={busy}
+					onCancel={() => setPending(undefined)}
+					onConfirm={execute}
+				/>
 			)}
 			{artifactSources && (
 				<AccessibleModal title="提交个人材料清单" onClose={() => setArtifactSources(undefined)} maxWidth={900}>

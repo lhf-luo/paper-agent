@@ -25,8 +25,10 @@ import {
 	WebAgentServiceError,
 	type WebAgentSessionContext,
 	type WebAgentSessionStatus,
+	type WebAgentThinkingLevel,
 	type WebAgentToolView,
 	type WebAgentUIRequestView,
+	WEB_AGENT_THINKING_LEVELS,
 } from "../domain/web-agent-contracts.ts";
 
 export type {
@@ -94,6 +96,18 @@ export interface ManagedWebAgentSession {
 	activeAssistantMessageId?: string;
 	toolMessageAnchors: Map<string, string>;
 	abortRequested: boolean;
+	thinkingLevel?: WebAgentThinkingLevel;
+	permissionMode: "ask" | "auto";
+}
+
+export function normalizeThinkingLevel(value: unknown): WebAgentThinkingLevel | undefined {
+	return typeof value === "string" && (WEB_AGENT_THINKING_LEVELS as readonly string[]).includes(value)
+		? (value as WebAgentThinkingLevel)
+		: undefined;
+}
+
+export function normalizePermissionMode(value: unknown): "ask" | "auto" | undefined {
+	return value === "ask" || value === "auto" ? value : undefined;
 }
 
 export interface WebAgentServiceOptions {
