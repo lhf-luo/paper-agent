@@ -99,7 +99,7 @@ export function LibraryPage({
 	onTask: (job: BackgroundJob) => void;
 	toolbarTarget: HTMLDivElement | null;
 	onOpenResearchNote: (target: ResearchNoteNavigation) => void;
-	onAgentSession: (sessionId: string) => void;
+	onAgentSession: (sessionId: string, draft?: string) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
 	const [query, setQuery] = useState("");
@@ -114,6 +114,8 @@ export function LibraryPage({
 	const [exportPayload, setExportPayload] = useState<Record<string, unknown>>();
 	const [removalPending, setRemovalPending] = useState<PreparedOperation>();
 	const [removalPayload, setRemovalPayload] = useState<Record<string, unknown>>();
+	const [titleRepairPending, setTitleRepairPending] = useState<PreparedOperation>();
+	const [titleRepairPayload, setTitleRepairPayload] = useState<Record<string, unknown>>();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
@@ -590,8 +592,14 @@ export function LibraryPage({
 		await prepareDownload([details.paper.id]);
 	};
 	const startAutomatedResearch = async (input: AutomatedResearchLaunchInput) => {
-		const response = await api<{ session: { id: string } }>("/api/agent/research/start", jsonBody(input));
-		onAgentSession(response.session.id);
+		const response = await api<{
+			session: { id: string };
+			draft: string;
+			reusedExistingSession: boolean;
+		}>("/api/agent/research/start", jsonBody(input));
+		// 研究指令只填入输入框作为待发送草稿，由用户确认后手动发送。
+		onAgentSession(response.session.id, response.draft);
+		if (response.reusedExistingSession) setMessage("已把研究任务填入该论文最近会话的输入框，请确认后发送。");
 	};
 	const prepareAnnotation = async () => {
 		if (!selected.size) return;
@@ -646,8 +654,52 @@ export function LibraryPage({
 			setBusy(false);
 		}
 	};
+	const prepareTitleRepair = async () => {
+		setBusy(true);
+		setError("");
+		setMessage("");
+		try {
+			const payload: Record<string, unknown> = {
+				namespace,
+				...(selected.size ? { paperIds: [...selected] } : {}),
+			};
+			const prepared = await api<{ prepared: PreparedOperation | null }>(
+				"/api/library/titles/prepare",
+				jsonBody(payload),
+			);
+			if (!prepared.prepared) {
+				setMessage(selected.size ? "所选论文标题已经干净，无需清洗。" : "个人库中的论文标题已经干净，无需清洗。");
+				return;
+			}
+			setTitleRepairPayload(payload);
+			setTitleRepairPending(prepared.prepared);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
+	const executeTitleRepair = async () => {
+		if (!titleRepairPending || !titleRepairPayload) return;
+		setBusy(true);
+		setError("");
+		try {
+			const grant = (await confirmOperation(titleRepairPending)) as ConfirmationGrant;
+			const result = await api<{ repaired: number }>(
+				"/api/library/titles/execute",
+				jsonBody({ ...titleRepairPayload, grant }),
+			);
+			setMessage(`已清洗 ${result.repaired} 篇论文的标题与摘要。`);
+			setTitleRepairPending(undefined);
+			setTitleRepairPayload(undefined);
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	};
 	const prepareExport = async () => {
-		if (!selected.size) return;
 		setBusy(true);
 		setError("");
 		setMessage("");
@@ -1075,6 +1127,15 @@ export function LibraryPage({
 					onClick={() => setActiveLibraryTool((current) => (current === "curation" ? undefined : "curation"))}
 				>
 					批量整理
+				</button>
+				<button
+					className="button secondary"
+					type="button"
+					disabled={busy || libraryActionLocked}
+					title="清洗已保存论文标题与摘要中的 HTML 标签、LaTeX 公式、出版商标记等杂质"
+					onClick={() => void prepareTitleRepair()}
+				>
+					清洗标题
 				</button>
 				<button
 					ref={exportButtonRef}
@@ -1756,6 +1817,28 @@ export function LibraryPage({
 							busy={busy}
 							onCancel={() => setPending(undefined)}
 							onConfirm={executeDownload}
+						/>
+					</AccessibleModal>
+				)}
+				{titleRepairPending && (
+					<AccessibleModal
+						title="确认清洗标题"
+						onClose={() => {
+							if (!busy) {
+								setTitleRepairPending(undefined);
+								setTitleRepairPayload(undefined);
+							}
+						}}
+						maxWidth={620}
+					>
+						<ConsentCard
+							operation={titleRepairPending}
+							busy={busy}
+							onCancel={() => {
+								setTitleRepairPending(undefined);
+								setTitleRepairPayload(undefined);
+							}}
+							onConfirm={executeTitleRepair}
 						/>
 					</AccessibleModal>
 				)}

@@ -106,6 +106,30 @@ export async function apiEventStream(
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
+	const dispatchBlock = async (block: string) => {
+		let event = "message";
+		let id: string | undefined;
+		const data: string[] = [];
+		for (const line of block.split("\n")) {
+			if (!line || line.startsWith(":")) continue;
+			const colon = line.indexOf(":");
+			const field = colon >= 0 ? line.slice(0, colon) : line;
+			const entry = colon >= 0 ? line.slice(colon + 1).replace(/^ /, "") : "";
+			if (field === "event") event = entry;
+			else if (field === "id") id = entry;
+			else if (field === "data") data.push(entry);
+		}
+		// An event with no `data:` line carries nothing to deliver.
+		if (!data.length) return;
+		const raw = data.join("\n");
+		let parsed: unknown = raw;
+		try {
+			parsed = JSON.parse(raw) as unknown;
+		} catch {
+			// Non-JSON data remains available as text.
+		}
+		await onEvent({ event, id, data: parsed });
+	};
 	while (true) {
 		const { value, done } = await reader.read();
 		buffer += decoder.decode(value, { stream: !done });
@@ -114,32 +138,14 @@ export async function apiEventStream(
 		while (boundary >= 0) {
 			const block = buffer.slice(0, boundary);
 			buffer = buffer.slice(boundary + 2);
-			let event = "message";
-			let id: string | undefined;
-			const data: string[] = [];
-			for (const line of block.split("\n")) {
-				if (!line || line.startsWith(":")) continue;
-				const colon = line.indexOf(":");
-				const field = colon >= 0 ? line.slice(0, colon) : line;
-				const entry = colon >= 0 ? line.slice(colon + 1).replace(/^ /, "") : "";
-				if (field === "event") event = entry;
-				else if (field === "id") id = entry;
-				else if (field === "data") data.push(entry);
-			}
-			if (data.length) {
-				const raw = data.join("\n");
-				let parsed: unknown = raw;
-				try {
-					parsed = JSON.parse(raw) as unknown;
-				} catch {
-					// Non-JSON data remains available as text.
-				}
-				await onEvent({ event, id, data: parsed });
-			}
+			await dispatchBlock(block);
 			boundary = buffer.indexOf("\n\n");
 		}
 		if (done) break;
 	}
+	// A proxy that closes the stream without a trailing blank line would otherwise
+	// silently drop the last event (a final thinking/message delta or the snapshot).
+	if (buffer.trim()) await dispatchBlock(buffer);
 }
 
 export function jsonBody(value: unknown, method: "POST" | "PATCH" = "POST"): RequestInit {

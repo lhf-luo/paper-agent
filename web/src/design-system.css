@@ -223,6 +223,13 @@
 	transition: background-color 220ms ease, border-color 220ms ease, color 180ms ease, box-shadow 220ms ease;
 }
 
+/* Author `display` declarations outrank the UA stylesheet's `[hidden] { display: none }`,
+   so an element that sets `display: flex` stays laid out while `hidden`. Keep the
+   attribute authoritative so `hidden` reliably hides. */
+[hidden] {
+	display: none !important;
+}
+
 .frosted-glass {
 	backdrop-filter: blur(18px);
 	-webkit-backdrop-filter: blur(18px);
