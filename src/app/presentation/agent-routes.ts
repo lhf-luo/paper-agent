@@ -91,15 +91,12 @@ export async function handleAgentResearchLaunch(
 	}
 	// 思考强度：请求可显式指定；否则按研究深度给默认（quick→low、methods→medium、full/reproduce→high）。
 	const thinkingLevel = normalizeThinkingLevel(body.thinkingLevel) ?? automatedResearchThinkingLevel(depth);
-	// 复用已有会话，避免每次自动研究都新建会话；只有确实没有可用会话时才新建。
-	// 优先同一篇论文关联的会话，其次才回退到该个人库内最近的其它会话。
-	// listSessions 按 updatedAt 倒序，因此每条候选中第一条即为最近一次。
+	// 只复用与当前 namespace + paperId 精确关联的会话，绝不把其它论文的上下文带入本次研究。
+	// listSessions 按 updatedAt 倒序，因此第一条可用候选就是这篇论文最近一次会话。
 	// 不自动发送：研究指令只作为待发送草稿返回，由用户确认后手动发送。
-	const usableSessions = (await Promise.resolve(agentService.listSessions({ scope: "personal", namespace }))).filter(
-		(candidate) => candidate.status !== "running" && candidate.status !== "stopping",
-	);
-	const reusableSession =
-		usableSessions.find((candidate) => candidate.context?.paperId === paperId) ?? usableSessions[0];
+	const reusableSession = (
+		await Promise.resolve(agentService.listSessions({ scope: "paper", namespace, paperId }))
+	).find((candidate) => candidate.status !== "running" && candidate.status !== "stopping");
 	let session: Awaited<ReturnType<WebAgentServiceApi["createSession"]>>;
 	if (reusableSession) {
 		session = await agentService.getSession(reusableSession.id);
