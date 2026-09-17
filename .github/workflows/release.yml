@@ -79,7 +79,7 @@ jobs:
           stage="dist/${archive_root}"
           rm -rf "$stage"
           mkdir -p "$stage/dist"
-          cp -R .github deployment docs scripts skills src test web "$stage/"
+          cp -R .github data deployment docs scripts skills src test web "$stage/"
           mkdir -p "$stage/eval-data/artifacts"
           cp -R eval-data/annotations "$stage/eval-data/"
           cp -R eval-data/artifacts/annotations "$stage/eval-data/artifacts/"

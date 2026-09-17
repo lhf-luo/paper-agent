@@ -131,7 +131,7 @@ export function passesFilters(record: PaperRecord, filters: SearchFilters | unde
 			!filters.types.some((type) => record.publicationType?.toLowerCase().includes(type.toLowerCase())))
 	)
 		return false;
-	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true || link.kind === "pdf"))
+	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true))
 		return false;
 	return true;
 }

@@ -49,4 +49,11 @@ describe("runtime resource paths", () => {
 	it("loads CCF data after the literature module move", () => {
 		expect(lookupCcfLevel("OSDI")).toBe("A");
 	});
+	it("includes CCF data in npm and release artifacts", async () => {
+		const packageJson = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as { files: string[] };
+		expect(packageJson.files).toContain("data");
+		const releaseWorkflow = await readFile(resolve(process.cwd(), ".github", "workflows", "release.yml"), "utf8");
+		expect(releaseWorkflow).toContain("cp -R .github data deployment");
+	});
+
 });

@@ -67,6 +67,7 @@ export interface LiteratureProviderDefinition {
 	capabilities: readonly LiteratureProviderCapability[];
 	requiresEnvironmentVariable?: string;
 	searchConstraints?: LiteratureProviderSearchConstraints;
+	searchLimits?: { supportsPagination: boolean; maxPageSize?: number };
 	search(options: ProviderSearchOptions): Promise<ProviderPage>;
 	lookupByDoi?: (doi: string, options: ProviderDoiLookupOptions) => Promise<PaperRecord | undefined>;
 }
@@ -153,6 +154,7 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		label: "Exa",
 		description: "Neural web and academic search via Exa MCP (no API key)",
 		capabilities: ["keyword-search"],
+		searchLimits: { supportsPagination: false, maxPageSize: 10 },
 		search: searchExaPage,
 	},
 	{
@@ -160,6 +162,7 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		label: "USENIX",
 		description: "Official USENIX conference papers and open-access PDFs",
 		capabilities: ["keyword-search", "open-access"],
+		searchLimits: { supportsPagination: true, maxPageSize: 10 },
 		search: searchUsenixPage,
 	},
 ] as const;

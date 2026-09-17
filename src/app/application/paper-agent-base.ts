@@ -224,6 +224,7 @@ export abstract class PaperAgentApplicationBase {
 			description: definition.description,
 			capabilities: definition.capabilities,
 			searchConstraints: definition.searchConstraints,
+			searchLimits: definition.searchLimits,
 			requiresEnvironmentVariable: definition.requiresEnvironmentVariable,
 			credentialsAvailable: definition.requiresEnvironmentVariable
 				? Boolean(
