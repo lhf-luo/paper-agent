@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, jsonBody } from "./api";
 import { AccessibleModal, ConsentCard, confirmOperation, LoadingBlock, PageHeading, StatusPill } from "./components";
+import { ModelProvidersPanel } from "./model-providers-panel";
 import type {
 	ConfirmationGrant,
 	PaperAgentConfigView,
@@ -81,11 +82,16 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 		});
 	};
 
-	const serializable = () => {
-		if (!config) return undefined;
-		const next: any = structuredClone(config);
+	/**
+	 * 设置页保存的是整份配置，因此这里必须只剔除服务端派生的只读字段
+	 * （`path` 和 `credentialsAvailable`）；缺少模型元数据会让服务端校验层
+	 * 用默认值补齐，从而静默重置上下文窗口与 token 上限。
+	 */
+	const serializable = (source: PaperAgentConfigView) => {
+		const next: any = structuredClone(source);
 		delete next.path;
 		if (next.model) delete next.model.credentialsAvailable;
+		for (const model of next.models ?? []) delete model.credentialsAvailable;
 		return next;
 	};
 
@@ -119,16 +125,49 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 		}
 	};
 
+	/** 计算候选配置并准备写操作；保存按钮走这条路径。 */
 	const prepareSave = async () => {
-		const candidate = serializable();
-		if (!candidate) return;
 		setError("");
 		setMessage("");
 		try {
+			const candidate = serializable(config!);
 			setPendingConfig(candidate);
 			setPending(await api<PreparedOperation>("/api/config/prepare", jsonBody({ config: candidate })));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
+		}
+	};
+
+	/**
+	 * 模型与供应商面板的编辑需要立即落盘：界面显示的模型列表和磁盘上的配置必须
+	 * 一致，否则用户以为已经切换了模型，实际下次对话还是旧模型。这里接收一个
+	 * 变更函数而不是依赖 `config` 状态，避免 React 状态更新尚未生效的竞态。
+	 */
+	const saveNow = async (recipe: (next: PaperAgentConfigView) => void) => {
+		setError("");
+		setMessage("");
+		const next = structuredClone(config!);
+		recipe(next);
+		const candidate = serializable(next);
+		try {
+			const prepared = await api<PreparedOperation>("/api/config/prepare", jsonBody({ config: candidate }));
+			const grant = (await confirmOperation(prepared)) as ConfirmationGrant;
+			const result = await api<{ restartRequired: boolean }>(
+				"/api/config/execute",
+				jsonBody({ config: candidate, grant }),
+			);
+			setConfig(next);
+			setDirty(false);
+			setMessage(
+				result.restartRequired
+					? "已保存。存储路径或模型列表有变化，请重启 Paper Agent 使其生效。"
+					: "已保存并立即生效。",
+			);
+			await load();
+			await onConfigurationSaved();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+			throw reason;
 		}
 	};
 
@@ -221,6 +260,12 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 				</AccessibleModal>
 			)}
 			<div className="settings-form">
+				<ModelProvidersPanel
+					config={config}
+					saveNow={saveNow}
+					onSaved={load}
+					busy={busy}
+				/>
 				<section className="panel form-panel">
 					<span className="eyebrow">LOCAL WORKSPACE · 界面与存储</span>
 					<h2>界面与存储</h2>

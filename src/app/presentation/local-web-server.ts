@@ -4,11 +4,13 @@ import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { type WebAgentServiceApi, WebAgentServiceError } from "../../agent/application/web-agent-service.ts";
+import type { ModelApiKind } from "../../config/application/config-service.ts";
 import { handleMineruRoutes } from "../../extensions/mineru/presentation/mineru-routes.ts";
 import { handlePdfTranslationRoutes } from "../../extensions/pdf-translation/presentation/pdf-translation-routes.ts";
 import { handleZoteroRoutes } from "../../extensions/zotero/presentation/zotero-routes.ts";
 import type {
 	ArtifactAcquisitionPreparationInput,
+	ModelDiscoveryRequestInput,
 	PaperAgentApplication,
 	PdfAssetCorrectionInput,
 	PdfDownloadPreparationInput,
@@ -48,6 +50,32 @@ const mimeTypes: Record<string, string> = {
 	".svg": "image/svg+xml",
 	".woff2": "font/woff2",
 };
+
+const MODEL_API_KINDS: readonly ModelApiKind[] = [
+	"openai-completions",
+	"openai-responses",
+	"anthropic-messages",
+	"google-generative-ai",
+];
+
+/** 校验"添加供应商"的发现请求；密钥只用于这一次上游调用，不进入配置。 */
+function modelDiscoveryInput(body: Record<string, unknown>): ModelDiscoveryRequestInput {
+	const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
+	if (!baseUrl) throw new ApiError(400, "baseUrl is required");
+	const api = body.api;
+	if (typeof api !== "string" || !MODEL_API_KINDS.includes(api as ModelApiKind)) {
+		throw new ApiError(400, "api must be one of the supported API kinds");
+	}
+	const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+	if (!apiKey) throw new ApiError(400, "apiKey is required to discover models");
+	const providerId = typeof body.providerId === "string" ? body.providerId.trim() : "";
+	return {
+		baseUrl,
+		api: api as ModelApiKind,
+		apiKey,
+		...(providerId ? { providerId } : {}),
+	};
+}
 
 async function serveStatic(response: ServerResponse, staticRoot: string, pathname: string): Promise<void> {
 	const root = resolve(staticRoot);
@@ -231,6 +259,16 @@ export async function startLocalWebServer(
 			if (request.method === "POST" && url.pathname === "/api/config/execute") {
 				const body = await readJson(request);
 				json(response, 200, await application.writeConfiguration(body.config, grantFromBody(body)));
+				return;
+			}
+			if (request.method === "POST" && url.pathname === "/api/models/discover") {
+				const input = modelDiscoveryInput(await readJson(request));
+				try {
+					json(response, 200, await application.discoverModels(input));
+				} catch (error) {
+					// 失败来自用户填写的端点或密钥，按客户端错误返回，便于前端区分于服务故障。
+					throw new ApiError(400, error instanceof Error ? error.message : String(error));
+				}
 				return;
 			}
 			if (request.method === "POST" && url.pathname === "/api/model-probe/prepare") {

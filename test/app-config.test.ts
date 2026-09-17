@@ -850,4 +850,81 @@ describe("Paper Agent local configuration", () => {
 			);
 		}
 	});
+
+	it("discovers provider models without persisting the key or touching stored config", async () => {
+		const server = createServer(async (request, response) => {
+			expect(request.url).toBe("/v1/models");
+			expect(request.headers.authorization).toBe("Bearer discovery-secret");
+			response.writeHead(200, { "content-type": "application/json" });
+			response.end(
+				JSON.stringify({
+					data: [{ id: "model-b" }, { id: "model-a" }, { id: "model-a" }, { noId: true }],
+				}),
+			);
+		});
+		await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-discovery-"));
+		const application = new PaperAgentApplication({ projectRoot: root });
+		try {
+			const address = server.address() as AddressInfo;
+			const result = await application.discoverModels({
+				providerId: "fixture-relay",
+				baseUrl: `http://127.0.0.1:${address.port}/v1`,
+				api: "openai-completions",
+				apiKey: "discovery-secret",
+			});
+			expect(result.providerId).toBe("fixture-relay");
+			expect(result.models.map((model) => model.id)).toEqual(["model-a", "model-b"]);
+			// 发现过程只读远端：密钥不落盘，配置保持原样。
+			await expect(access(join(root, ".paper-agent", "config", "auth.json"))).rejects.toMatchObject({
+				code: "ENOENT",
+			});
+			const stored = await loadPaperAgentConfig(root);
+			expect(stored.models ?? []).toEqual([]);
+			expect(stored.model).toBeUndefined();
+		} finally {
+			await application.close();
+			await new Promise<void>((resolveClose, rejectClose) =>
+				server.close((error) => (error ? rejectClose(error) : resolveClose())),
+			);
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("reports restartRequired when a configuration write changes the available models", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-restart-"));
+		const application = new PaperAgentApplication({ projectRoot: root });
+		try {
+			// 让存储路径与运行中的应用一致，以便把 restartRequired 隔离到"模型列表"这一项。
+			const initial = defaultPaperAgentConfig();
+			initial.storage.dataRoot = join(root, ".paper-agent");
+			initial.storage.corpusRoot = join(root, ".paper-agent", "corpus");
+			const prepared = await application.prepareConfigurationWrite(initial);
+			const grant = await application.confirmOperation(prepared.operationId, prepared.manifestFingerprint);
+			await expect(application.writeConfiguration(initial, grant)).resolves.toMatchObject({
+				restartRequired: false,
+			});
+
+			const withModel = {
+				...initial,
+				models: [
+					{
+						providerId: "research-relay",
+						modelId: "new-model",
+						api: "openai-completions" as const,
+						baseUrl: "https://relay.example.com/v1",
+					},
+				],
+			};
+			const next = await application.prepareConfigurationWrite(withModel);
+			const nextGrant = await application.confirmOperation(next.operationId, next.manifestFingerprint);
+			// Agent 对话在启动时读取一次模型列表，因此新增模型必须提示重启。
+			await expect(application.writeConfiguration(withModel, nextGrant)).resolves.toMatchObject({
+				restartRequired: true,
+			});
+		} finally {
+			await application.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
 });

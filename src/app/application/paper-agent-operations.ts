@@ -8,15 +8,26 @@ import {
 	supportsAutomaticToolCallingProbe,
 	validatePaperAgentConfig,
 } from "../../config/application/config-service.ts";
-import { probeModelToolCalling } from "../../config/application/model-service.ts";
+import { discoverModelEndpointModels, probeModelToolCalling } from "../../config/application/model-service.ts";
+import type { PaperAgentConfig } from "../../config/domain/config-types.ts";
 import type { ArtifactManifest } from "../../literature/domain/literature-types.ts";
 import type { PdfBox } from "../../pdf/domain/pdf-types.ts";
 import { PdfAnnotationStore } from "../../pdf/infrastructure/pdf-annotation-store.ts";
 import type { ConfirmationGrant, PreparedOperation } from "../../shared/application/operation-consent.ts";
 import { applyExternalToolDirectories } from "../../shared/infrastructure/external-tool-environment.ts";
 
-import type { PdfAssetCorrectionInput } from "./paper-agent-contracts.ts";
+import type {
+	DiscoveredModelView,
+	ModelDiscoveryRequestInput,
+	PdfAssetCorrectionInput,
+} from "./paper-agent-contracts.ts";
 import { PaperAgentResearch } from "./paper-agent-research.ts";
+
+/** 持久模型列表的稳定身份，用来判断一次配置写入是否改变了可选择的模型。 */
+function modelIdentities(config: PaperAgentConfig): string {
+	const models = [...(config.models ?? []), ...(config.model ? [config.model] : [])];
+	return [...new Set(models.map((model) => `${model.providerId}/${model.modelId}`))].sort().join("\n");
+}
 
 export abstract class PaperAgentOperations extends PaperAgentResearch {
 	protected pdfAnnotationStore(): PdfAnnotationStore {
@@ -167,6 +178,7 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 	async writeConfiguration(value: unknown, grant: ConfirmationGrant) {
 		const prepared = this.configurationWritePlan(value);
 		await this.consent.consume(grant, prepared.plan);
+		const previousIdentities = modelIdentities(await loadPaperAgentConfig(this.projectRoot));
 		const saved = await savePaperAgentConfig(this.projectRoot, prepared.config);
 		applyExternalToolDirectories(saved.config.externalTools.commandDirectories);
 		return {
@@ -174,7 +186,28 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 			restartRequired:
 				saved.config.storage.dataRoot !== this.dataRoot ||
 				saved.config.storage.corpusRoot !== this.corpusRoot ||
-				saved.config.storage.defaultNamespace !== this.defaultNamespace,
+				saved.config.storage.defaultNamespace !== this.defaultNamespace ||
+				// Web Agent 在启动时读取一次模型列表，新增或删除的模型要重启后才会出现在会话里。
+				previousIdentities !== modelIdentities(saved.config),
+		};
+	}
+
+	/**
+	 * 读取远端 `/models` 列表，供设置页的"添加供应商"选择模型。这里只做发现：
+	 * 不写入配置、不缓存密钥，发现的条目只带回选择所需的最小信息。
+	 */
+	async discoverModels(
+		input: ModelDiscoveryRequestInput,
+	): Promise<{ providerId: string; models: DiscoveredModelView[] }> {
+		const discovered = await discoverModelEndpointModels({
+			providerId: input.providerId,
+			baseUrl: input.baseUrl,
+			api: input.api,
+			apiKey: input.apiKey,
+		});
+		return {
+			providerId: discovered[0]?.providerId ?? input.providerId ?? "",
+			models: discovered.map((model) => ({ id: model.modelId, name: model.name ?? model.modelId })),
 		};
 	}
 

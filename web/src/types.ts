@@ -499,27 +499,32 @@ export interface PaperAgentConfigView {
 		queryExpansions: string[];
 		reuseCorpus: boolean;
 	};
-	model?: {
-		name?: string;
-		providerId: string;
-		modelId: string;
-		api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
-		baseUrl: string;
-		apiKeyEnvironmentVariable: string;
-		headers?: Record<string, string>;
-		credentialsAvailable?: boolean;
-		toolCallingVerifiedAt?: string;
-		toolCallingProbe?: { supported: boolean; reason: string; latencyMs: number; checkedAt: string };
-	};
-	models?: Array<{
-		name?: string;
-		providerId: string;
-		modelId: string;
-		api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
-		baseUrl: string;
-		apiKeyEnvironmentVariable?: string;
-	}>;
+	model?: ModelConfigView;
+	models?: ModelConfigView[];
 	updatedAt: string;
+}
+
+/**
+ * 持久化的模型声明。设置页会把整个配置视图原样回传保存，所以视图必须携带全部
+ * 元数据；缺少的字段会被服务端校验层用默认值补齐，从而静默重置用户的设置。
+ */
+export interface ModelConfigView {
+	name?: string;
+	providerId: string;
+	modelId: string;
+	api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+	baseUrl: string;
+	reasoning?: boolean;
+	input?: Array<"text" | "image">;
+	contextWindow?: number;
+	maxTokens?: number;
+	/** 保存时回传 `[redacted]` 表示沿用服务端已存的密钥。 */
+	apiKey?: string;
+	apiKeyEnvironmentVariable?: string;
+	headers?: Record<string, string>;
+	credentialsAvailable?: boolean;
+	toolCallingVerifiedAt?: string;
+	toolCallingProbe?: { supported: boolean; reason: string; latencyMs: number; checkedAt: string };
 }
 
 export type AgentApiKind = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";

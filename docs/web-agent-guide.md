@@ -26,15 +26,15 @@ Ordinary Web management functions work without a model. Agent conversations, inc
 
 ## 2. Configure the model
 
-The **Model and credentials** panel accepts:
+Open **Settings & diagnostics (`系统设置`)** in the left navigation. The first block is **Model providers (`模型与供应商`)**. Select **Add provider (`添加供应商`)** and fill in the dialog:
 
 | Field | What to enter |
 | --- | --- |
-| Provider ID | A stable local name for the provider or relay, such as `research-relay` |
-| Model ID | The exact model identifier accepted by that endpoint |
 | Base URL | The provider or relay API root |
-| API type | The protocol implemented by the endpoint |
-| API key | An optional key held only for the current service process |
+| Provider ID (`供应商 ID`) | A stable local name for the relay, such as `research-relay`; inferred from the Base URL host by default and editable |
+| API type (`API 类型`) | The protocol implemented by the endpoint |
+| API key | That provider's key, written to local configuration |
+| Or environment variable name (`或使用环境变量名`) | Let Paper Agent read the key from a named environment variable, storing only the variable name |
 
 Choose the API type that the endpoint actually implements:
 
@@ -47,20 +47,32 @@ Choose the API type that the endpoint actually implements:
 
 The Base URL must use HTTPS. Plain HTTP is accepted only for a loopback service on `localhost`, `127.0.0.1`, or `::1`.
 
-Select **Apply configuration (`应用配置`)**. When configuration and credentials are usable, the page reports **Ready to chat (`可开始对话`)**. Leaving the key field empty keeps the current credential instead of replacing it.
+For `openai-completions` and `openai-responses`, select **Load model list (`读取模型列表`)** after entering the API key. Paper Agent calls that endpoint's `/models` route and lists what it reports; tick the models you want. You can also skip discovery and type one model ID per line under **Enter model IDs manually (`手动填写模型 ID`)**. The `anthropic-messages` and `google-generative-ai` protocols do not support discovery and must be entered manually.
 
-The endpoint must support streaming, tool/function calling, JSON Schema arguments, and enough context for the requested research task. A successful model connection does not by itself prove that tool calling works.
+**Add and save (`添加并保存`)** first returns an exact-plan confirmation; after you confirm, Paper Agent writes `.paper-agent/config/models.json` and `.paper-agent/config/auth.json`. The key is never returned to the browser through the configuration view.
+
+Back in the **Model providers** block:
+
+- Each provider lists its models; **Set as chat model (`设为对话模型`)** chooses the one Agent chat uses by default;
+- **Remove model** and **Remove provider** save immediately; removing the current chat model also clears that selection;
+- Reconfiguring the same provider replaces its previous model entries, while models whose API and Base URL are unchanged keep their existing context window and input capability declarations.
+
+**Restart Paper Agent after adding or removing models** so the new entries appear in the Agent chat model selector. Changing only the current chat model takes effect on the next message.
+
+Every model under one provider shares a single credential, so a new key requires reconfiguring that whole provider.
+
+The endpoint must support streaming, tool/function calling, JSON Schema arguments, and enough context for the requested research task. A successful model connection does not by itself prove that tool calling works; select **Probe (`探测`)** to send one very small tool-calling request and verify it. `anthropic-messages` and `google-generative-ai` cannot be probed automatically; verify them from `paper-agent agent` with a real tool-using task.
 
 ## 3. Understand credential lifetime
 
-A key entered on the Agent chat page:
+An API key entered in the **Add provider** dialog:
 
-- stays only in the current Paper Agent service process memory;
-- is cleared from the password field after a successful submission;
-- is not written to project configuration, Pi files, browser storage, transcripts, logs, or returned errors;
-- is lost when Paper Agent restarts.
+- is written to `.paper-agent/config/auth.json`, stored separately from the model declarations;
+- is never returned to the browser by `/api/config`, which substitutes `[redacted]`;
+- is kept unchanged when you leave the key field empty while reconfiguring that provider;
+- must not be copied into commits, issues, logs, or shared transcripts — the whole `.paper-agent/` directory is gitignored.
 
-For a reusable launch configuration, set an API-key environment-variable name in **Settings & diagnostics**, set that variable before launching Paper Agent, and then start the service from the same terminal. The project stores only the variable name, never its value. Replace the example name with the one saved in project settings:
+The Agent chat model selector now reads project configuration, so there is no longer a key that exists only in the current service process. For a reusable launch configuration, fill in **Or environment variable name** when adding the provider, set that variable before launching Paper Agent, and then start the service from the same terminal. The project stores only the variable name, never its value:
 
 ```powershell
 $env:PAPER_AGENT_RELAY_API_KEY = "your-private-key"
@@ -71,8 +83,6 @@ paper-agent
 export PAPER_AGENT_RELAY_API_KEY="your-private-key"
 paper-agent
 ```
-
-Clearing the memory key or changing the Provider ID, Model ID, Base URL, or API type preserves existing conversations. The runtime is refreshed on the next message to use the current configuration and available credential. If no matching credential remains, supply one before continuing.
 
 ## 4. Create the first session
 
@@ -198,7 +208,7 @@ Use separate sessions for unrelated research questions so model context and pend
 
 ## 10. Troubleshooting
 
-- **Needs model configuration or key:** apply a complete endpoint configuration and submit a memory key, or launch Paper Agent with the project-configured environment variable set.
+- **Needs model configuration or key:** add a provider in **Settings & diagnostics** with a Base URL and API key, or launch Paper Agent with the configured environment variable set.
 - **Key missing after restart:** expected behavior for a Web-entered key; enter it again or use the environment-variable option.
 - **HTTP Base URL rejected:** use HTTPS unless the endpoint is a loopback test service.
 - **Text works but tools fail:** confirm that the selected model and relay support tool/function calling and JSON Schema arguments.
@@ -208,4 +218,4 @@ Use separate sessions for unrelated research questions so model context and pend
 
 ## 11. Web Agent versus the Pi terminal
 
-Agent chat is the normal browser interface, with persisted conversations and process-memory-only storage for keys entered on the page. It can also use matching project model credentials or an environment credential. `paper-agent agent` starts the advanced original Pi terminal interface, which has its own Pi login, model configuration, and interactive commands. A key entered in the Web page is not copied into Pi configuration.
+Agent chat is the normal browser interface, with persisted conversations and providers configured from **Settings & diagnostics**. It can use a key stored in project configuration or an environment credential. `paper-agent agent` starts the advanced original Pi terminal interface, which has its own Pi login, model configuration, and interactive commands. Web-configured model credentials are not copied into Pi configuration.

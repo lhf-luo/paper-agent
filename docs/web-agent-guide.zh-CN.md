@@ -26,15 +26,15 @@ paper-agent --no-open
 
 ## 2. 配置模型
 
-在 **模型与凭据** 区域填写：
+在左侧导航进入 **系统设置**，第一个区块就是 **模型与供应商**。点击 **添加供应商**，在对话框中填写：
 
 | 字段 | 填写内容 |
 | --- | --- |
-| Provider ID | Provider 或中转站在本地使用的稳定名称，例如 `research-relay` |
-| Model ID | Endpoint 实际接受的模型标识 |
 | Base URL | Provider 或中转站的 API 根地址 |
+| 供应商 ID | 本地用于标识该中转站的稳定名称，例如 `research-relay`；默认由 Base URL 的主机名推断，可手动修改 |
 | API 类型 | Endpoint 实际实现的协议 |
-| API key | 可选，只在当前服务进程内存中使用的密钥 |
+| API key | 该供应商的密钥，写入本地配置 |
+| 或使用环境变量名 | 让 Paper Agent 从命名环境变量读取密钥，配置中只保存变量名 |
 
 API 类型必须与 Endpoint 实际协议一致：
 
@@ -47,20 +47,32 @@ API 类型必须与 Endpoint 实际协议一致：
 
 Base URL 必须使用 HTTPS。只有 `localhost`、`127.0.0.1` 或 `::1` 上的 loopback 服务可以使用普通 HTTP。
 
-点击 **应用配置**。模型配置和凭据可用时，页面会显示 **可开始对话**。API key 留空表示继续使用当前凭据，不会替换它。
+对 `openai-completions` 和 `openai-responses`，填好 API key 后点击 **读取模型列表**，Paper Agent 会调用该端点的 `/models` 接口并把可用模型列出来。勾选需要的模型即可；也可以跳过读取，在 **手动填写模型 ID** 中每行填一个。`anthropic-messages` 和 `google-generative-ai` 不支持自动发现，只能手动填写模型 ID。
 
-Endpoint 需要支持流式响应、tool/function calling、JSON Schema 参数和足够的上下文。能够连接模型并不代表工具调用一定可用。
+点击 **添加并保存** 后，Paper Agent 会先给出一次带计划指纹的确认，确认后写入 `.paper-agent/config/models.json` 与 `.paper-agent/config/auth.json`。密钥不会随配置视图回传浏览器。
+
+保存后回到 **模型与供应商** 区块：
+
+- 每个供应商列出其模型；点击 **设为对话模型** 指定 Agent 对话默认使用的模型；
+- **删除模型**、**删除供应商** 会立即保存；删除当前对话模型会同时清除该选择；
+- 重新配置同一供应商会替换它原有的模型条目，接口和 Base URL 未变的模型会保留原有的上下文窗口与输入能力声明。
+
+**新增或删除模型后需要重启 Paper Agent**，新模型才会出现在 Agent 对话的选择器里；只修改当前模型则在下一次发送消息时生效。
+
+同一个供应商名下的所有模型共用一份凭据，因此更换密钥时请重新配置整个供应商。
+
+Endpoint 需要支持流式响应、tool/function calling、JSON Schema 参数和足够的上下文。能够连接模型并不代表工具调用一定可用；可点击 **探测** 发送一次极小的工具调用请求来验证（`anthropic-messages` 和 `google-generative-ai` 无法自动探测，请从 `paper-agent agent` 用真实任务验证）。
 
 ## 3. 理解密钥生命周期
 
-在 Agent 对话页面输入的 key：
+在 **添加供应商** 对话框中填写的 API key：
 
-- 只保存在当前 Paper Agent 服务进程内存；
-- 提交成功后立即从密码框清空；
-- 不会写入项目配置、Pi 文件、浏览器存储、对话记录、日志或错误响应；
-- Paper Agent 重启后失效。
+- 保存后写入 `.paper-agent/config/auth.json`，与模型声明分开存放；
+- 不会随 `/api/config` 回传浏览器，读取时以 `[redacted]` 占位；
+- 重新配置供应商时留空表示沿用已保存的密钥；
+- `.paper-agent/` 整个目录已被 gitignore，请勿把其中文件复制进提交、issue、日志或共享对话。
 
-如果希望每次启动都从环境变量读取密钥，可在 **设置与诊断** 中配置 API key 环境变量名，在启动 Paper Agent 之前设置该变量，并从同一个终端启动服务。项目只保存环境变量名，不保存变量值。请把下面的示例名称替换为项目设置中保存的名称：
+Agent 对话的模型选择器读取的是项目配置，因此不再有"只存在于当前进程内存"的密钥。如果希望每次启动都从环境变量读取密钥，可在添加供应商时填写 **或使用环境变量名**，在启动 Paper Agent 之前设置该变量，并从同一个终端启动服务。项目只保存环境变量名，不保存变量值：
 
 ```powershell
 $env:PAPER_AGENT_RELAY_API_KEY = "your-private-key"
