@@ -94,7 +94,7 @@ test-output/*
 /SYSTEM.md
 /src/get_personal_libary_paper.txt
 /scripts/_*.ts
-
+/skill-副本
 # Local archives and PDFs
 /*.zip
 *.pdf
