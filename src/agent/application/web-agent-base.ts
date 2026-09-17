@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { type ExtensionFactory, loadSkills } from "@earendil-works/pi-coding-agent";
 import {
+	loadPaperAgentConfig,
 	type PaperAgentModelConfig,
 	type PiBuiltinToolName,
 	relayHeadersForModelApi,
@@ -36,7 +37,10 @@ export { WebAgentServiceError } from "../domain/web-agent-contracts.ts";
 import {
 	cloneMessage,
 	cloneTool,
+	configuredModelKey,
 	DEFAULT_UI_TIMEOUT_MS,
+	emptyEndpointConfig,
+	endpointFromConfiguredModel,
 	MAX_TOOL_CHARACTERS,
 	type ManagedWebAgentSession,
 	PROVIDER_ID,
@@ -55,9 +59,18 @@ export abstract class WebAgentServiceBase {
 	protected readonly additionalSkillPaths: string[];
 	protected readonly builtinTools: PiBuiltinToolName[];
 	protected readonly shellPath?: string;
-	protected readonly configuredModels: PaperAgentModelConfig[];
+	/**
+	 * 已配置模型随项目配置变化，因此不是 readonly：设置页新增或删除供应商后，
+	 * 这里会在读取配置视图或切换模型时重新对齐磁盘。
+	 */
+	protected configuredModels: PaperAgentModelConfig[];
 	protected readonly sessionStore: WebAgentSessionStore;
 	protected endpoint: WebAgentEndpointConfig;
+	/**
+	 * 端点由 `PUT /api/agent/config` 直接提交、而非取自项目配置时为 true。这类端点
+	 * 可能根本不在 `models.json` 里，因此模型列表变化时不能覆盖或清空它。
+	 */
+	protected endpointOverridden = false;
 	protected environmentCredentialScope?: string;
 	protected memoryApiKey?: string;
 	protected readonly sessions = new Map<string, ManagedWebAgentSession>();
@@ -133,6 +146,39 @@ export abstract class WebAgentServiceBase {
 
 	protected persistView(session: ManagedWebAgentSession): void {
 		this.sessionStore.persist(this.persistedView(session));
+	}
+
+	/**
+	 * 重新读取 `.paper-agent/config/` 并与内存状态对齐。设置页新增、删除或切换供应商
+	 * 后磁盘上的模型列表会变化；在读取配置视图与切换模型前调用这里，用户不必重启服务。
+	 * 读取失败（例如配置正在被写入）时保留上一次可用的列表，不打断正在进行的会话。
+	 */
+	protected async reloadConfiguredModels(): Promise<void> {
+		let models: PaperAgentModelConfig[];
+		let active: PaperAgentModelConfig | undefined;
+		try {
+			const config = await loadPaperAgentConfig(this.projectRoot);
+			models = config.models ?? (config.model ? [config.model] : []);
+			active = config.model;
+		} catch {
+			return;
+		}
+		this.configuredModels = models;
+		// 页面直接提交的端点由页面自己决定，模型列表变化不覆盖它，只刷新可选列表。
+		if (this.endpointOverridden) return;
+		// 否则端点跟随配置：仍存在的当前模型保留（并刷新元数据），被删除时回退到配置的
+		// active 模型，没有 active 就回到"未选择"。
+		const current = this.endpoint;
+		const findCurrent = (model: PaperAgentModelConfig): boolean =>
+			model.providerId === current.providerId &&
+			model.modelId === current.modelId &&
+			model.api === current.api;
+		const target = models.find(findCurrent) ?? active;
+		const next = target ? endpointFromConfiguredModel(target) : emptyEndpointConfig();
+		if (this.endpointIdentity(next) === this.endpointIdentity(current)) return;
+		this.configRevision += 1;
+		this.endpoint = next;
+		this.environmentCredentialScope = next.apiKeyEnvironmentVariable ? this.credentialScope(next) : undefined;
 	}
 
 	protected credentialScope(endpoint: WebAgentEndpointConfig): string {
@@ -232,7 +278,10 @@ export abstract class WebAgentServiceBase {
 		}));
 	}
 
-	getConfig(): WebAgentConfigView {
+	async getConfig(): Promise<WebAgentConfigView> {
+		// 设置页可能刚改过 models.json，读取前先对齐，否则新增或删除的供应商不会出现。
+		this.assertOpen();
+		await this.reloadConfiguredModels();
 		const credential = this.credential();
 		const configured = Boolean(
 			this.endpoint.providerId && this.endpoint.modelId && this.endpoint.baseUrl && this.endpoint.api,
@@ -268,6 +317,7 @@ export abstract class WebAgentServiceBase {
 
 	async updateConfig(input: WebAgentConfigUpdate): Promise<WebAgentConfigView> {
 		this.assertOpen();
+		await this.reloadConfiguredModels();
 		const providerId = input.providerId?.trim();
 		const modelId = input.modelId?.trim();
 		if (!PROVIDER_ID.test(providerId)) {
@@ -306,6 +356,8 @@ export abstract class WebAgentServiceBase {
 		const keySubmitted = input.apiKey !== undefined;
 		if (oldCredentialScope !== nextCredentialScope && !keySubmitted) nextKey = undefined;
 		if (endpointChanged || keySubmitted) this.configRevision += 1;
+		// 页面直接提交的端点优先于项目配置，后续模型列表变化不再覆盖它。
+		this.endpointOverridden = true;
 		this.endpoint = nextEndpoint;
 		this.memoryApiKey = nextKey;
 		return this.getConfig();
@@ -313,25 +365,16 @@ export abstract class WebAgentServiceBase {
 
 	async applyConfiguredModel(key: string): Promise<WebAgentConfigView> {
 		this.assertOpen();
-		const model = this.configuredModels.find((entry) => `${entry.providerId}/${entry.modelId}` === key);
+		// 设置页可能刚新增了供应商，先对齐磁盘再查找，否则新模型会被判为"未配置"。
+		await this.reloadConfiguredModels();
+		const model = this.configuredModels.find((entry) => configuredModelKey(entry) === key);
 		if (!model) throw new WebAgentServiceError(404, `未找到已配置的模型: ${key}`);
-		const nextEndpoint: WebAgentEndpointConfig = {
-			providerId: model.providerId,
-			modelId: model.modelId,
-			baseUrl: model.baseUrl,
-			api: model.api,
-			input: model.input,
-			reasoning: model.reasoning,
-			contextWindow: model.contextWindow,
-			maxTokens: model.maxTokens,
-			compat: model.compat,
-			thinkingLevelMap: model.thinkingLevelMap,
-			apiKeyEnvironmentVariable: model.apiKeyEnvironmentVariable,
-			headers: model.headers,
-		};
+		const nextEndpoint = endpointFromConfiguredModel(model);
 		const oldIdentity = this.endpointIdentity(this.endpoint);
 		const nextIdentity = this.endpointIdentity(nextEndpoint);
 		if (oldIdentity !== nextIdentity || this.memoryApiKey !== undefined) this.configRevision += 1;
+		// 该端点取自项目配置列表，因此继续跟随列表：模型被删除时 reload 会回退或清空。
+		this.endpointOverridden = false;
 		this.endpoint = nextEndpoint;
 		this.environmentCredentialScope = nextEndpoint.apiKeyEnvironmentVariable
 			? this.credentialScope(nextEndpoint)

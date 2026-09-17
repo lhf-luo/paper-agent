@@ -36,9 +36,9 @@ An external-provider failure does not discard successful results from other prov
 
 ### Agent chat
 
-Open **Agent 对话** to use Paper Agent's research tools from a streaming Web conversation. Configure the Provider ID, Model ID, Base URL, and one of `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`, then submit an API key or use matching project model credentials or the configured environment variable. A model is needed only for Agent conversations and the Pi terminal; the rest of the Web workspace continues to work without one.
+Open **Agent 对话** to use Paper Agent's research tools from a streaming Web conversation. Add a provider in **Settings & diagnostics** with the Base URL, an optional Provider ID, one of `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`, and an API key or its environment-variable name, then choose the model that Agent chat should use. A model is needed only for Agent conversations and the Pi terminal; the rest of the Web workspace continues to work without one.
 
-A key submitted in the page is stored only in the current service process memory. The password field is cleared after a successful submission, and the value is never written to `.paper-agent/config/`, Pi `auth.json`/`models.json`, browser storage, conversation history, logs, or error responses. Restarting the service discards the key. Clearing the key or changing the endpoint preserves conversations; the runtime is refreshed with the current configuration and available credential on the next message.
+A key entered in the **Add provider** dialog is written to `.paper-agent/config/auth.json`, separately from the model declarations in `models.json`. The configuration view never returns it: reads substitute `[redacted]`, and an empty key field while reconfiguring a provider keeps the stored credential. The value is not written to Pi `auth.json`/`models.json`, browser storage, conversation history, logs, or error responses. Changing the current model preserves conversations; the runtime is refreshed with the current configuration and available credential on the next message.
 
 Sessions can be created, switched, deleted, and restored after a restart. General conversation views are saved under `.paper-agent/web-agent-memory/session-views/`, with Pi context under `pi-sessions/`; paper-reader conversations are stored in the personal SQLite database. `persistent` reuses the Pi runtime between turns; `once` releases it after each completed turn but retains saved session files, which can be reopened on the next message. It does not guarantee an empty context. Restarting does not automatically resume an interrupted model turn or approve pending operations.
 
@@ -97,9 +97,9 @@ Create and revise Markdown research notes from blank, skim, close-reading, compa
 
 ### Settings & diagnostics
 
-Configure the default namespace, data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity, and namespace, then writes the connection to a Git-ignored local access file. The separate Agent chat page can accept an ephemeral model key held only in service-process memory. Unsaved configuration changes are marked by the save action.
+Configure the default namespace, data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity, and namespace, then writes the connection to a Git-ignored local access file. The **Model providers** block manages the endpoints Agent chat can use: add a provider, load its model list, choose the current chat model, and remove models or providers. Added or removed models appear in the Agent chat selector immediately; switching the current model takes effect once the in-flight reply finishes. Unsaved changes on the rest of the page are marked by the save action.
 
-Automatic capability probing is available for `openai-completions` and `openai-responses` endpoints. It may consume a small amount of provider quota and therefore requires confirmation. `anthropic-messages` and `google-generative-ai` configurations are accepted by Pi, but Paper Agent clearly requires a real tool-using Pi session for their capability check instead of reporting an unimplemented automatic probe as a model failure.
+Automatic capability probing is available for `openai-completions` and `openai-responses` endpoints, from the **Probe** button in the **Model providers** block. It may consume a small amount of provider quota and therefore requires confirmation. `anthropic-messages` and `google-generative-ai` configurations are accepted by Pi, but Paper Agent clearly requires a real tool-using Pi session for their capability check instead of reporting an unimplemented automatic probe as a model failure.
 
 ## Confirmation model
 
@@ -128,7 +128,8 @@ The gate is implemented in the operation code rather than relying only on agent 
 - **A recovered review disappeared after the PDF changed:** browser drafts are keyed by the pinned PDF SHA-256 so an old review cannot silently carry over to another version.
 - **Team shows configured but disconnected:** paste a fresh access string or clear the invalid local access, then confirm that the server is reachable and the selected namespace is authorized.
 - **A team section is hidden:** the connection is valid, but the identity lacks the required role.
-- **Agent chat asks for a key after restart:** Web-entered model keys are intentionally process-memory-only; enter it again or set the environment variable named by the project model configuration before launching Paper Agent.
+- **A model has no credential after restart:** open **Settings & diagnostics** and check the provider's badge; supply a key or set the environment variable named by that provider, then restart Paper Agent.
 - **Agent chat rejects an HTTP Base URL:** use HTTPS except for a local test endpoint on `localhost`, `127.0.0.1`, or `::1`.
-- **Model probe is disabled:** save pending model edits first; then confirm that the API-key environment variable is visible to the current process. Anthropic Messages and Google Generative AI configurations require a real tool-using Pi session instead of the automatic probe.
+- **A newly added model is missing from Agent chat:** reopen the Agent chat page; the selector refetches the configuration when the page loads.
+- **Model probe is disabled:** probes need a saved `openai-completions` or `openai-responses` provider with a usable credential; confirm the API key or that the environment variable is visible to the current process. Anthropic Messages and Google Generative AI configurations require a real tool-using Pi session instead of the automatic probe.
 

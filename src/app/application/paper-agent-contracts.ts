@@ -1,3 +1,4 @@
+import type { ModelApiKind } from "../../config/domain/config-types.ts";
 import type { CorpusExportFormat } from "../../literature/application/corpus-operations.ts";
 import type { DoiEnrichmentResult, DoiProviderLookup } from "../../literature/application/literature-doi-enrichment.ts";
 import type {
@@ -196,4 +197,20 @@ export interface PersonalCorpusExportInput {
 	paperIds?: string[];
 	format: PersonalCorpusExportFormat;
 	filename?: string;
+}
+
+/**
+ * 设置页"添加供应商"的一次性发现请求。它只读取远端 `/models` 列表，不写入任何
+ * 配置：密钥只存在于这一次请求中，只有用户确认保存设置后才会落盘。
+ */
+export interface ModelDiscoveryRequestInput {
+	providerId?: string;
+	baseUrl: string;
+	api: ModelApiKind;
+	apiKey: string;
+}
+
+export interface DiscoveredModelView {
+	id: string;
+	name: string;
 }
