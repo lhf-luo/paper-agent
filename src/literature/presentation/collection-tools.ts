@@ -30,8 +30,6 @@ export {
 	saveSearchRunSelection,
 	searchRunSelectionPlan,
 } from "../application/literature-search-planning.ts";
-export { enrichSidebarRows, mergeSidebarRows, scrapeRowsFromMarkdown } from "../application/literature-sidebar.ts";
-
 export function registerCollectionTools(pi: ExtensionAPI): void {
 	registerCollectionSearchTools(pi);
 	registerCollectionQueryTools(pi);

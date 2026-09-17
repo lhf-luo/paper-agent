@@ -10,6 +10,7 @@ import {
 	editLiteratureSidebar,
 	type SidebarEditOperation,
 } from "../src/literature/application/literature-sidebar-editor.ts";
+import { renderSidebarTable, type SidebarField } from "../src/literature/application/literature-sidebar-fields.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
 
@@ -26,6 +27,9 @@ function paper(id: string, title: string, doi?: string): PaperRecord {
 		authors: ["First Author", "Second Author"],
 		year: 2025,
 		venue: "NDSS",
+		publicationType: "conference-paper",
+		venueRank: "A",
+		citationCount: 12,
 		identifiers: doi ? { doi } : {},
 		links: doi ? [{ url: `https://doi.org/${doi}`, kind: "doi" }] : [],
 		provenance: [],
@@ -62,25 +66,25 @@ async function fixture() {
 	const filename = "session-1-list.md";
 	const path = join(resultsDir, filename);
 	const resultUrl = `/api/agent/results/${filename}`;
+	const fields: SidebarField[] = ["title", "year_venue", "identifier", "focus"];
 	const oldRow = {
 		title: "Statically Discover Cross-Entry Use-After-Free Vulnerabilities in the Linux Kernel",
 		paper_id: "paper-old",
 		search_run_id: "run-old",
+		namespace: "default",
 		curated: "search",
+		authors: "First Author, Second Author",
+		year: "2025",
+		venue: "NDSS",
+		publication_type: "conference-paper",
+		citationCount: 12,
+		ccf: "A",
+		identifier: "paper-old",
 		focus: "UAF detection",
 		relevance: "high",
 		topic: "Linux kernel",
 	};
-	const content = [
-		"# Literature",
-		"",
-		"| 标题 | 年份/venue | 标识 | focus |",
-		"| --- | --- | --- | --- |",
-		`| ${oldRow.title} | 2024 NDSS |  | ${oldRow.focus} |`,
-		"",
-		`<!-- paper-agent-sidebar-meta ${JSON.stringify({ headers: ["摘要", "作者"], rows: [oldRow] })} -->`,
-		"",
-	].join("\n");
+	const content = `${renderSidebarTable(fields, [oldRow])}\n\n<!-- paper-agent-sidebar-meta ${JSON.stringify({ revision: 1, fields, rows: [oldRow] })} -->\n`;
 	await writeFile(path, content, "utf8");
 	await store.saveSearchRun(run("run-old", [paper("paper-old", oldRow.title)]));
 	return { root, store, path, resultUrl, content };
@@ -128,7 +132,7 @@ describe("editLiteratureSidebar", () => {
 		});
 		const updated = await readFile(test.path, "utf8");
 		const metadata = parseSidebarResultMetadata(updated);
-		expect(metadata.headers).toEqual(["摘要", "作者"]);
+		expect(metadata.fields).toEqual(["title", "year_venue", "identifier", "focus"]);
 		expect(metadata.rows?.[0]).toMatchObject({
 			title: replacement.title,
 			paper_id: "paper-correct",
@@ -139,12 +143,51 @@ describe("editLiteratureSidebar", () => {
 			topic: "Linux kernel",
 		});
 		expect(updated).toContain("Statically Discover Complex Cross-Entry");
-		expect(updated).toContain("DOI 10.14722/ndss.2025.240559");
+		expect(updated).toContain("doi:10.14722/ndss.2025.240559");
 
 		const selection = await resolveSidebarSelection(test.store, test.root, test.resultUrl);
 		expect(selection.records.map((entry) => entry.record.id)).toEqual(["paper-correct"]);
 		expect((await test.store.getPaper("paper-old"))?.title).toBe(savedOriginal.title);
 		expect(await test.store.getPaper("paper-correct")).toBeUndefined();
+	});
+
+	it("adds, removes, and reorders fields while preserving hidden annotation values", async () => {
+		const test = await fixture();
+		const first = await editLiteratureSidebar(test.store, test.root, test.resultUrl, 1, [
+			{
+				action: "set-fields",
+				fields: [
+					"title",
+					"authors",
+					"year",
+					"venue",
+					"publication_type",
+					"citation_count",
+					"ccf",
+					"focus",
+					"relevance",
+					"topic",
+				],
+			},
+		]);
+		expect(first).toMatchObject({ revision: 2, changed: 1 });
+		let content = await readFile(test.path, "utf8");
+		expect(content).toContain(
+			"| title | authors | year | venue | publication_type | citation_count | ccf | focus | relevance | topic |",
+		);
+		expect(content).toContain("| Statically Discover Cross-Entry");
+		expect(content).toContain("| First Author, Second Author | 2025 | NDSS |");
+
+		await editLiteratureSidebar(test.store, test.root, test.resultUrl, 2, [
+			{ action: "set-fields", fields: ["title", "year"] },
+		]);
+		const third = await editLiteratureSidebar(test.store, test.root, test.resultUrl, 3, [
+			{ action: "set-fields", fields: ["title", "topic", "focus", "relevance"] },
+		]);
+		expect(third).toMatchObject({ revision: 4, changed: 1 });
+		content = await readFile(test.path, "utf8");
+		expect(content).toContain("| title | topic | focus | relevance |");
+		expect(content).toContain("| Linux kernel | UAF detection | high |");
 	});
 
 	it("supports adding, patching, and removing rows in one atomic edit", async () => {
@@ -184,7 +227,7 @@ describe("editLiteratureSidebar", () => {
 		expect(await readFile(test.path, "utf8")).toBe(test.content);
 	});
 
-	it("rejects stale revisions and results owned by another session", async () => {
+	it("rejects stale revisions, another session, and legacy documents", async () => {
 		const test = await fixture();
 		await expect(
 			editLiteratureSidebar(test.store, test.root, test.resultUrl, 2, [
@@ -201,6 +244,15 @@ describe("editLiteratureSidebar", () => {
 				"another-session",
 			),
 		).rejects.toThrow("does not belong to the current session");
+
+		await writeFile(
+			test.path,
+			'| title | focus |\n| --- | --- |\n| Legacy | old |\n<!-- paper-agent-sidebar-meta {"revision":1,"rows":[{"title":"Legacy"}]} -->\n',
+			"utf8",
+		);
+		await expect(
+			editLiteratureSidebar(test.store, test.root, test.resultUrl, 1, [{ action: "set-fields", fields: ["title"] }]),
+		).rejects.toThrow("unsupported legacy column format");
 	});
 
 	it("leaves the original file untouched when any operation fails", async () => {
@@ -228,17 +280,15 @@ describe("editLiteratureSidebar", () => {
 		expect(parseSidebarResultMetadata(onceEdited).rows?.[0]?.focus).toBe("matched by title");
 
 		const metadata = parseSidebarResultMetadata(onceEdited);
-		const duplicated = [
-			"| 标题 | 年份/venue | 标识 | focus |",
-			"| --- | --- | --- | --- |",
-			`| ${metadata.rows?.[0]?.title} | 2024 NDSS | | matched by title |`,
-			`| ${metadata.rows?.[0]?.title} | 2024 NDSS | | duplicate |`,
-			`<!-- paper-agent-sidebar-meta ${JSON.stringify({
-				revision: 2,
-				rows: [...(metadata.rows ?? []), { ...(metadata.rows?.[0] ?? {}), paper_id: "paper-duplicate" }],
-			})} -->`,
-		].join("\n");
-		await writeFile(test.path, duplicated, "utf8");
+		const duplicatedRows = [
+			...(metadata.rows ?? []),
+			{ ...(metadata.rows?.[0] ?? {}), paper_id: "paper-duplicate", focus: "duplicate" },
+		];
+		await writeFile(
+			test.path,
+			`${renderSidebarTable(metadata.fields ?? ["title"], duplicatedRows)}\n<!-- paper-agent-sidebar-meta ${JSON.stringify({ revision: 2, fields: metadata.fields, rows: duplicatedRows })} -->\n`,
+			"utf8",
+		);
 		await expect(
 			editLiteratureSidebar(test.store, test.root, test.resultUrl, 2, [
 				{

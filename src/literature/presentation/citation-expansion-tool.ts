@@ -25,7 +25,8 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 		promptSnippet: "Expand a paper's bounded OpenAlex citation neighborhood",
 		promptGuidelines: [
 			"Use citation expansion after a focused seed search, not as a substitute for a documented query strategy.",
-			"Expansion results are NOT saved to the corpus automatically; do not prompt to save them. Present the list so the user can choose what to keep later.",
+			"Expansion results are staged in a temporary Search Run and are not saved to the personal library automatically.",
+			"Before creating a sidebar, screen the temporary Search Run with filter_search_run_results, then pass its search_run_id and filter_result_id with fields, annotation_fields, and annotations to update_literature_sidebar.",
 		],
 		parameters: Type.Object({
 			seed_ids: Type.Array(Type.String(), { minItems: 1, maxItems: 20, description: "Corpus paper ids" }),

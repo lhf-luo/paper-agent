@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { requestInteractiveOperationAuthorization } from "../../app/presentation/interactive-operation-consent.ts";
 import { collectionPersistencePlan, collectLiterature } from "../application/literature-collection.ts";
+import { reviewLiteratureDuplicates } from "../application/literature-duplicate-review.ts";
 import {
 	type FilterResultEntry,
 	fingerprintSearchRun,
@@ -12,7 +13,6 @@ import { type FilterGroupOptions, filterGroup, filterTableLines } from "../appli
 import { buildCandidatePaperTable, primaryIdentifier } from "../application/literature-query-planning.ts";
 import { readSidebarResultRows } from "../application/literature-sidebar.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../application/literature-store.ts";
-import { mergePaperRecords } from "../domain/literature-identifiers.ts";
 import {
 	collectionParameters,
 	formatCollection,
@@ -101,6 +101,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Only mark same-work when title, authors, venue, identifiers, or primary sources support that conclusion.",
 			"Use the paper IDs returned by the search run. Re-run screening after a same-work merge to refresh the sidebar baseline.",
+			"Batch decisions are processed independently. Inspect decisionOutcomes and retry only failed items; one missing or already merged Paper ID does not roll back successful decisions.",
 		],
 		parameters: Type.Object({
 			search_run_id: Type.String(),
@@ -125,67 +126,35 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				"personal",
 				namespace,
 			);
-			const run = await store.getSearchRun(params.search_run_id);
-			if (!run) throw new Error(`Search run not found: ${params.search_run_id}`);
-			for (const input of params.decisions ?? []) {
-				if (input.left_id === input.right_id)
-					throw new Error("Duplicate decision requires two different paper IDs");
-				const leftIndex = run.results.findIndex((record) => record.id === input.left_id);
-				const rightIndex = run.results.findIndex((record) => record.id === input.right_id);
-				if (leftIndex < 0 || rightIndex < 0) {
-					throw new Error(
-						`Duplicate decision papers were not found in the run: ${input.left_id}, ${input.right_id}`,
-					);
-				}
-				if (input.decision === "same-work") {
-					const merged = mergePaperRecords(run.results[leftIndex], run.results[rightIndex]);
-					run.results[leftIndex] = merged;
-					run.results.splice(rightIndex, 1);
-					run.deduplicatedCount++;
-					const remappedDuplicates = (run.possibleDuplicates ?? [])
-						.map((candidate) => ({
-							...candidate,
-							leftId: candidate.leftId === input.right_id ? input.left_id : candidate.leftId,
-							rightId: candidate.rightId === input.right_id ? input.left_id : candidate.rightId,
-						}))
-						.filter((candidate) => candidate.leftId !== candidate.rightId);
-					run.possibleDuplicates = [
-						...new Map(
-							remappedDuplicates.map((candidate) => [
-								[candidate.leftId, candidate.rightId].sort().join("\n"),
-								candidate,
-							]),
-						).values(),
-					];
-				} else {
-					run.possibleDuplicates = (run.possibleDuplicates ?? []).filter(
-						(candidate) =>
-							!(
-								[candidate.leftId, candidate.rightId].includes(input.left_id) &&
-								[candidate.leftId, candidate.rightId].includes(input.right_id)
-							),
-					);
-				}
-				run.identityDecisions = [
-					...(run.identityDecisions ?? []),
-					{
-						leftId: input.left_id,
-						rightId: input.right_id,
-						decision: input.decision,
-						reason: input.reason?.trim() || undefined,
-						decidedAt: new Date().toISOString(),
-					},
-				];
-			}
-			if (params.decisions?.length) {
-				run.candidateTable = buildCandidatePaperTable(run.results);
-				await store.saveSearchRun(run);
-			}
+			const { run, decisionOutcomes, appliedDecisionCount, failedDecisionCount } = await reviewLiteratureDuplicates(
+				store,
+				params.search_run_id,
+				(params.decisions ?? []).map((decision) => ({
+					leftId: decision.left_id,
+					rightId: decision.right_id,
+					decision: decision.decision,
+					reason: decision.reason,
+				})),
+			);
+			const failedLines = decisionOutcomes
+				.filter((outcome) => outcome.status === "failed")
+				.map(
+					(outcome) =>
+						`- ${outcome.leftId} <> ${outcome.rightId} (${outcome.decision}): ${outcome.error ?? "failed"}`,
+				);
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Possible duplicates: ${run.possibleDuplicates?.length ?? 0}; recorded decisions: ${run.identityDecisions?.length ?? 0}; results: ${run.results.length}`,
+						text: [
+							`Possible duplicates: ${run.possibleDuplicates?.length ?? 0}; recorded decisions: ${run.identityDecisions?.length ?? 0}; results: ${run.results.length}`,
+							...(decisionOutcomes.length
+								? [
+										`Batch decisions: ${appliedDecisionCount} applied; ${failedDecisionCount} failed.`,
+										...(failedLines.length ? ["Failed decisions:", ...failedLines] : []),
+									]
+								: []),
+						].join("\n"),
 					},
 				],
 				details: {
@@ -193,6 +162,10 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 					possibleDuplicates: run.possibleDuplicates ?? [],
 					identityDecisions: run.identityDecisions ?? [],
 					resultCount: run.results.length,
+					submittedDecisionCount: decisionOutcomes.length,
+					appliedDecisionCount,
+					failedDecisionCount,
+					decisionOutcomes,
 				},
 			};
 		},
@@ -288,7 +261,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			"with_abstract checks title and abstract. without_abstract checks title only and must contain a positive include rule; passing records remain unresolved.",
 			"Use include_term_groups for OR within each concept group and AND across groups. Do not combine it with include_terms.",
 			"To loosen rules, start again from search_run_id. A chained filter can only narrow retained papers.",
-			"Pass the final filter_result_id with its root search_run_id to update_literature_sidebar. Never cherry-pick papers by title.",
+			"Pass the final filter_result_id with its root search_run_id, fields, annotation_fields, and annotations to update_literature_sidebar. Never cherry-pick papers by title.",
 		],
 		parameters: Type.Object({
 			search_run_id: Type.Optional(Type.String({ description: "Root Search Run for the first filter pass" })),

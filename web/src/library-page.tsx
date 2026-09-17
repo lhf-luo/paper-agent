@@ -1938,6 +1938,14 @@ export function LibraryPage({
 										<span>派生记忆</span>
 										<strong>{details.derived.length}</strong>
 									</div>
+									<div title="该论文引用的参考文献数量">
+										<span>引用</span>
+										<strong>{details.paper.referencedWorks?.length ?? "—"}</strong>
+									</div>
+									<div title="其他论文引用该论文的次数">
+										<span>被引用</span>
+										<strong>{details.paper.citationCount ?? "—"}</strong>
+									</div>
 									{details.artifact?.available && (
 										<button
 											type="button"

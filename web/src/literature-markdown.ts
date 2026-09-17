@@ -7,7 +7,7 @@ export interface ParsedLiteratureTable {
 	focus: string;
 	headers: string[];
 	rows: ParsedCell[][];
-	/** 自定义列标题(工具传入), 覆盖表格首行表头。 */
+	/** Canonical field order stored with the generated sidebar. */
 	customHeaders?: string[];
 	/** 与表格行对齐的结构化元信息(paper_id/doi/abstract/search_run_id)。 */
 	rowMeta?: Array<Record<string, unknown>>;
@@ -16,18 +16,18 @@ export interface ParsedLiteratureTable {
 export interface ParsedLiteratureTables {
 	before: string;
 	tables: ParsedLiteratureTable[];
-	/** 整个文档的元信息(自定义表头 + 行元信息)。 */
-	meta?: { headers?: string[]; rows?: Array<Record<string, unknown>> };
+	/** Document-level field schema and row metadata. */
+	meta?: { fields?: string[]; rows?: Array<Record<string, unknown>> };
 }
 
 const LINK_CELL = /^\[((?:\\.|[^\]])+)\]\((https?:\/\/[^)\s]+)\)$/;
 const SIDEBAR_META_COMMENT = /<!--\s*paper-agent-sidebar-meta\s+([\s\S]*?)\s*-->\s*$/;
 
-function tryParseSidebarMeta(markdown: string): { headers?: string[]; rows?: Array<Record<string, unknown>> } | null {
+function tryParseSidebarMeta(markdown: string): { fields?: string[]; rows?: Array<Record<string, unknown>> } | null {
 	const match = SIDEBAR_META_COMMENT.exec(markdown.trim());
 	if (!match) return null;
 	try {
-		const value = JSON.parse(match[1]) as { headers?: string[]; rows?: Array<Record<string, unknown>> };
+		const value = JSON.parse(match[1]) as { fields?: string[]; rows?: Array<Record<string, unknown>> };
 		if (value && typeof value === "object") return value;
 	} catch {
 		// ignore malformed metadata
@@ -77,7 +77,7 @@ export function parseLiteratureTables(markdown: string): ParsedLiteratureTables 
 					focus: currentFocus,
 					headers: cells,
 					rows: [],
-					customHeaders: meta?.headers,
+					customHeaders: meta?.fields,
 					rowMeta: meta?.rows,
 				};
 			} else if (isSeparator) {

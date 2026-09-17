@@ -1,6 +1,6 @@
 ---
 name: literature-corpus-manager
-description: Build, update, audit, and share evidence-traceable literature corpora with paper-agent. Use for systematic or exploratory literature collection, query expansion, multi-source search, deduplication, PDF and artifact acquisition, personal/team library separation, once/persistent workflows, citation expansion, exports, and avoiding repeated analysis. This skill organizes research memory; it does not replace human deep reading, experiments, interpretation, or idea formation.
+description: Build, update, audit, and share evidence-traceable literature corpora with paper-agent. Use for systematic or exploratory literature collection, query expansion, multi-source search, deduplication, PDF and artifact acquisition, personal/team library separation, once/persistent workflows, citation expansion, exports, and derived-analysis reuse. Paper reading and research-note authoring belong to the paper-research skill.
 ---
 
 # Literature corpus manager
@@ -42,13 +42,21 @@ Use this when the user asks for a literature review, related work, reading list,
 5. Use `collect_literature` with corpus reuse enabled, documented filters, bounded pagination, and the structured search plan. Collection automatically attempts DOI-based abstract completion through configured Crossref, OpenAlex, and Semantic Scholar providers before saving the Search Run.
 6. Keep the search-run ID, search coverage, abstract-enrichment status, provider failures, possible duplicates, corpus-hit count, and the bounded candidate Paper ID/title list visible. Retrieve full metadata, abstracts, discovery paths, PDF links, and artifact links from the stored search run only when needed.
 
+**Review duplicate candidates before final screening:**
+
+- When collection reports possible duplicates, call `review_literature_duplicates` before creating the final filter chain. Inspect only the metadata needed to support each decision. Record `same-work` only when identifiers, title, authors, venue, or a primary source provide sufficient evidence; leave uncertain and identifier-conflict pairs unresolved.
+- Batch decisions are independent: one missing or already merged Paper ID is reported as a failed outcome while valid decisions are saved. Inspect `decisionOutcomes` and retry only failed decisions; do not replay successful merges.
+- A `same-work` decision mutates the Search Run and may remove Paper IDs. Every `filter_result_id` created before that mutation is stale and must not be passed to `update_literature_sidebar`.
+- A preliminary filter may be used only as a disposable aid for examining a large run. After the last duplicate merge, start final screening again from the root `search_run_id`; do not continue from a pre-merge `source_filter_result_id`.
+- Do not merge duplicates after final screening. If a late merge is unavoidable, discard the current filter chain and rerun final screening from the root Search Run before creating the sidebar.
+
 **Mandatory screening after collection:**
 
 - Screen and denoise every externally collected search run before presenting a literature list. This is routine quality control: perform it proactively and do not ask the user whether routine denoising should be performed. Filtering preserves the search run and saves only a session-scoped selection snapshot.
-- After duplicate review, call `filter_search_run_results` with the persisted `search_run_id`. Each group has `with_abstract` rules for title+abstract and `without_abstract` rules for title only. Use `include_term_groups` when several concepts are required: terms inside a group are alternatives (OR), while every group is required (AND). Use exclusion terms only for clearly unrelated concepts; prefer `exclude_scope=title` for broad words so an incidental abstract mention cannot remove a relevant paper.
+- After duplicate review is complete, call `filter_search_run_results` with the persisted root `search_run_id`. Each group has `with_abstract` rules for title+abstract and `without_abstract` rules for title only. Both rule objects are required. Use `include_term_groups` when several concepts are required: terms inside a group are alternatives (OR), while every group is required (AND). Use exclusion terms only for clearly unrelated concepts; prefer `exclude_scope=title` for broad words so an incidental abstract mention cannot remove a relevant paper.
 - Papers with abstracts that pass are `matched`. Papers without abstracts can only be `unresolved`, and only when they pass an explicit positive title rule in `without_abstract`; missing positive rules exclude them. Thus `unresolved` means "passed title screening but lacks an abstract for verification", not "every record without an abstract".
 - Filtering returns every unique matched and unresolved Paper ID/title, counts for the current source and root run, and a `filter_result_id`. If the result still has obvious noise, call the tool again with `source_filter_result_id` to narrow the retained subset. To loosen a rule, restart from the root `search_run_id`. Once the rule is accepted, do not select a subset by title or silently drop unresolved papers.
-- Pass `filter_result_id` and `search_run_id` to `update_literature_sidebar`. The tool imports every retained paper directly from the filter snapshot and stored search run; the Agent may add provisional title-based `focus`, `relevance`, and `topic` annotations by Paper ID. Use `get_search_run_papers` only when full metadata or a specific abstract is needed.
+- Pass `filter_result_id`, `search_run_id`, `fields`, `annotation_fields`, and `annotations` to `update_literature_sidebar`. The tool imports every retained paper directly from the filter snapshot and stored search run. `fields` controls visible columns and must start with `title`; `annotation_fields` declares the visible `focus`, `relevance`, and `topic` values supplied by the Agent. Use `get_search_run_papers` only when full metadata or a specific abstract is needed.
 - `collect_literature` automatically merges records whose normalized titles and normalized first authors are exactly equal, including preprint and formal-publication records from different years. Review only fuzzy-title candidates and exact title/first-author matches that report conflicting DOI or arXiv identifiers.
 
 7. Report the recorded status for every query/provider execution: succeeded, partial, failed, or skipped. Providers can be circuit-broken mid-collection; skipped remaining queries are not successful coverage. Other providers continue normally.
@@ -60,9 +68,9 @@ Use this when the user asks for a literature review, related work, reading list,
 
 ### 1.1 Deliver and edit the generated sidebar
 
-- For the normal filter flow, do not construct a Markdown table or repeat complete metadata. Pass the accepted filter's `filter_result_id`, `search_run_id`, and optional `annotations: [{ paper_id, focus, relevance, topic }]` to `update_literature_sidebar`. Treat all annotations as title-based initial judgments, not claims from abstracts. Missing annotations do not remove papers; report the tool's incomplete-annotation count.
-- The tool builds one combined Markdown table, marks unresolved papers for review, and returns its `mdUrl` as the sidebar link. Keep abstracts in the Search Run; do not put them in annotations or the Markdown document.
-- To correct or extend an existing list, call `edit_literature_sidebar` with that list's `mdUrl` and current revision. Apply small changes by Paper ID; the tool reports added, removed, and updated IDs.
+- For the normal filter flow, do not construct a Markdown table or repeat complete metadata. Pass the accepted filter's `filter_result_id` and `search_run_id`, a visible field list such as `fields: ["title", "year_venue", "identifier", "focus", "relevance", "topic"]`, `annotation_fields: ["focus", "relevance", "topic"]`, and `annotations: [{ paper_id, focus, relevance, topic }]` to `update_literature_sidebar`. Treat annotations as title-based initial judgments, not claims from abstracts. Pass an empty annotations array when no labels are available. Missing values do not remove papers; report the tool's incomplete-annotation count.
+- The tool builds one combined Markdown table, marks unresolved papers for review, and returns its `mdUrl` as the sidebar link. If a filtered Paper ID unexpectedly no longer exists in the Search Run, it still writes every remaining row and reports the missing ID; report those missing IDs to the user. This is recovery behavior, not permission to reuse a filter snapshot after duplicate merging. Keep abstracts in the Search Run; do not put them in annotations or the Markdown document.
+- To correct or extend an existing list, call `edit_literature_sidebar` with that list's `mdUrl` and current revision. Apply row changes by Paper ID. Use `set_fields` to add, remove, or reorder visible columns; this rerenders all rows from hidden metadata without deleting hidden annotation values. The tool reports added, removed, and updated IDs.
 - For bibliographic corrections, query `search_literature` with the complete title and first author, verify title/author/identifier agreement, then use the returned `searchRunId` and candidate `paperId` with `replace_from_search`. A search candidate is not a completed correction until the edit succeeds.
 - Never regenerate the whole list or edit its Markdown by hand just to add a DOI, replace a record, remove a row, or change focus/relevance/topic.
 - Do not print the table in the chat reply. Report counts, focus distribution, notable papers, and the document link.
@@ -72,7 +80,7 @@ Use this when the user asks for a literature review, related work, reading list,
 1. Use `expand_citation_network` only after the seed papers are relevant and already in a personal corpus.
 2. Keep direction and depth explicit. Default to bounded depth; do not use citation snowballing as a substitute for a documented query strategy.
 3. Pass the seed search run as `source_search_run_id` when known. Preserve the citation expansion table, including seed id, relationship, depth, actual source provider, and discovery path.
-4. After expansion, build ONE combined markdown table of the discovered neighboring papers (same `标题 | 年份/venue | 标识 | focus` format with a `focus` column) and pass it to `update_literature_sidebar` — the sidebar is the ONLY place the expansion list is shown. Do NOT print the markdown table in the chat reply; give a short summary instead (seed → neighbor counts, focus distribution, notable neighbors, next steps).
+4. `expand_citation_network` stages the neighbors in a temporary Search Run. Screen that run with `filter_search_run_results`, then pass its final `filter_result_id`, root `search_run_id`, `fields`, `annotation_fields`, and annotations to `update_literature_sidebar`. Do not construct Markdown manually. The sidebar is the only place the expansion list is shown; give a short chat summary instead (seed → neighbor counts, focus distribution, notable neighbors, next steps).
 
 ### 3. Save selected results
 
@@ -84,7 +92,6 @@ Use this when the user chooses papers from a candidate table and wants them kept
 4. Optional `collection` argument: the name of the target folder/collection the papers should go into. If a collection with that name already exists in the target corpus it is reused (no duplicate), otherwise it is created. When omitted the papers stay uncategorized — the user can later move them in the library UI (Personal → 分类 sidebar, select papers and use “把已勾选论文移到”). Ask the user which folder, or propose one per the user's research directions; let the user confirm rather than guessing.
 5. Complete the exact confirmation prompt before writing.
 6. Report created, updated, unchanged, failed, and missing ids, plus which collection the papers were saved into.
-7. Resolve reported possible duplicates with `review_literature_duplicates` before final screening when evidence is sufficient. A same-work decision merges only the search-run records under the chosen left ID; a paper ID already persisted in the personal library is never rewritten.
 
 When the user asks about one paper that may already be saved, call `get_personal_library_paper` with its exact title, paper ID, DOI, or arXiv ID before using an external Provider. The result distinguishes remote PDF download links from locally saved PDF versions and also returns classifications, notes, provenance, and Artifact records. If it returns multiple or approximate candidates, retry with the selected `paper_id`; never guess which record the user meant.
 
@@ -145,8 +152,8 @@ Use this after selected papers have been saved and the user wants traceable mate
 | -------------------------------- | ------------------------------- | ---------------------------------------------------------------------- |
 | Plan search                      | `plan_literature_search`        | `src/literature/presentation/collection-search-tools.ts`               |
 | Collect candidates               | `collect_literature`            | `src/literature/presentation/collection-query-tools.ts`                |
-| Screen and denoise results       | `filter_search_run_results`     | `src/literature/presentation/collection-query-tools.ts`                |
 | Review possible duplicates       | `review_literature_duplicates`  | `src/literature/presentation/collection-query-tools.ts`                |
+| Screen and denoise results       | `filter_search_run_results`     | `src/literature/presentation/collection-query-tools.ts`                |
 | Search local corpus              | `search_literature_corpus`      | `src/literature/presentation/collection-query-tools.ts`                |
 | Inspect one personal paper       | `get_personal_library_paper`    | `src/literature/presentation/personal-library-query-tool.ts`           |
 | Expand seeds                     | `expand_citation_network`       | `src/literature/presentation/citation-expansion-tool.ts`               |
@@ -167,8 +174,6 @@ Use this after selected papers have been saved and the user wants traceable mate
 | Build material package           | `build_paper_package`           | `src/artifacts/presentation/paper-package-tools.ts`                    |
 | Export/annotate/delete/promote   | `manage_literature_corpus`      | `src/literature/presentation/literature-corpus-tool.ts`                |
 | Derived memory                   | `manage_literature_memory`      | `src/literature/presentation/literature-download-memory-tools.ts`      |
-| Search research notes            | `search_research_notes`         | `src/research/presentation/research-tools.ts`                          |
-| Manage research notes            | `manage_research_note`          | `src/research/presentation/research-tools.ts`                          |
 
 ## Supporting operations
 
@@ -177,17 +182,14 @@ Use this after selected papers have been saved and the user wants traceable mate
 
    When selected search results are saved, `save_literature_selection` automatically checks exact DOI enrichment before showing the confirmation. Complete records make no provider request; incomplete records stop querying once useful bibliographic, citation, and open-access fields are filled. Do not ask the user whether to run OpenCitations or Unpaywall separately, and do not treat an enrichment warning as a save failure.
 
-2. Before repeating generated analysis, search linked Markdown notes with `search_research_notes` and use `manage_literature_memory` for exact derived-cache hits. Reuse an exact hit unless refresh is explicit.
+2. Before repeating generated corpus analysis, use `manage_literature_memory` for exact derived-cache hits. Reuse an exact hit unless refresh is explicit.
 3. Use `manage_literature_corpus` for local annotate/audit/export/promotion. For the central service, use `manage_team_literature_server` to propose explicitly selected, provenance-reviewed personal records into `team-proposed`, then have a reviewer explicitly approve or reject them. Exclude personal notes and screening decisions from every proposal; the server scrubs them again.
 4. After producing reusable generated work, record it with `manage_literature_memory`; keep it separate from user notes and source metadata.
 
-## Research workspace
+## Research-note handoff
 
-1. Research note bodies are Markdown files under `.paper-agent/notes/{namespace}/`. SQLite stores only their index, revision, content hash, and paper relationships. Never edit `personal.sqlite` by hand.
-2. A note may link zero or more papers, but every linked paper must already exist in the same personal namespace. Put evidence locators such as paper ID, PDF version, physical page, section, figure, table, and quotation in the Markdown body.
-3. Use `search_research_notes` before creating overlapping work. Reuse its folder IDs when organizing notes in the existing folder tree. Use `manage_research_note` for every Agent-created or Agent-edited note and include the intended namespace; mutations follow the research confirmation policy.
-4. Use `template_id=skim`, `deep-reading`, or `comparison-matrix` when a template is useful. These templates are copied only at creation and may initially be empty, so the Agent must write the actual Markdown content.
-5. Deleting a paper removes only its note relationships. It must not delete otherwise valid notes. Delete a note explicitly through `manage_research_note` when the user requests it.
+- When a request includes reading papers or searching, creating, or editing research notes, follow the `paper-research` skill. It owns note lookup, templates, evidence locators, Markdown content, and note mutations.
+- Corpus operations may link a note only to papers in the same personal namespace. Deleting a paper removes its note relationships but must not delete the note itself.
 
 ## Handoff
 

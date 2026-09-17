@@ -111,6 +111,55 @@ describe("collection tool mutation consent", () => {
 		expect(stored?.identityDecisions).toMatchObject([{ decision: "same-work" }]);
 	});
 
+	it("keeps valid duplicate decisions when another decision references a merged or missing paper", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-duplicate-partial-"));
+		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const value = searchRun("run-duplicate-partial", [
+			paper("paper-a"),
+			paper("paper-b"),
+			paper("paper-c"),
+			paper("paper-d"),
+		]);
+		await store.saveSearchRun(value);
+
+		const result = await registeredTools()
+			.get("review_literature_duplicates")
+			.execute(
+				"review-partial",
+				{
+					search_run_id: value.id,
+					decisions: [
+						{ left_id: "paper-a", right_id: "paper-b", decision: "same-work" },
+						{ left_id: "paper-b", right_id: "paper-d", decision: "same-work" },
+						{ left_id: "paper-a", right_id: "paper-c", decision: "same-work" },
+						{ left_id: "missing", right_id: "paper-d", decision: "different-work" },
+					],
+				},
+				undefined,
+				undefined,
+				context(root),
+			);
+
+		expect(result.details).toMatchObject({
+			resultCount: 2,
+			submittedDecisionCount: 4,
+			appliedDecisionCount: 2,
+			failedDecisionCount: 2,
+			decisionOutcomes: [
+				{ leftId: "paper-a", rightId: "paper-b", status: "applied" },
+				{ leftId: "paper-b", rightId: "paper-d", status: "failed", missingPaperIds: ["paper-b"] },
+				{ leftId: "paper-a", rightId: "paper-c", status: "applied" },
+				{ leftId: "missing", rightId: "paper-d", status: "failed", missingPaperIds: ["missing"] },
+			],
+		});
+		expect(result.content[0].text).toContain("Batch decisions: 2 applied; 2 failed.");
+		const stored = await store.getSearchRun(value.id);
+		expect(stored?.results.map((record) => record.id)).toEqual(["paper-a", "paper-d"]);
+		expect(stored?.results[0]).toMatchObject({ id: "paper-a", mergedFrom: ["paper-b", "paper-c"] });
+		expect(stored?.identityDecisions).toHaveLength(2);
+	});
+
 	it("reads sidebar pages and selected search abstracts on demand", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-read-"));
 		temporaryPaths.push(root);
@@ -175,7 +224,16 @@ describe("collection tool mutation consent", () => {
 		temporaryPaths.push(root);
 		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
 		const records = [
-			{ ...paper("paper-a"), title: "Linux UAF A", abstract: "kernel use after free" },
+			{
+				...paper("paper-a"),
+				title: "Linux UAF A",
+				abstract: "kernel use after free",
+				venue: "NDSS",
+				publicationType: "conference-paper",
+				venueRank: "A" as const,
+				citationCount: 42,
+				identifiers: { doi: "10.1000/linux-uaf-a" },
+			},
 			{ ...paper("paper-b"), title: "Linux UAF B", abstract: "kernel use after free" },
 			{ ...paper("paper-c"), title: "Linux candidate" },
 		];
@@ -217,6 +275,23 @@ describe("collection tool mutation consent", () => {
 			{
 				search_run_id: "run-filter",
 				filter_result_id: result.details.filterResultId,
+				fields: [
+					"title",
+					"paper_id",
+					"authors",
+					"year",
+					"venue",
+					"publication_type",
+					"identifier",
+					"doi",
+					"citation_count",
+					"ccf",
+					"screening_status",
+					"focus",
+					"relevance",
+					"topic",
+				],
+				annotation_fields: ["focus", "relevance", "topic"],
 				annotations: [{ paper_id: "paper-a", focus: "内核漏洞", relevance: "标题涉及内核漏洞", topic: "内核安全" }],
 			},
 			undefined,
@@ -226,9 +301,29 @@ describe("collection tool mutation consent", () => {
 		expect(sidebar.details).toMatchObject({ rowCount: 3, revision: 1, unannotatedCount: 2 });
 		const content = await readFile(sidebar.details.mdPath, "utf8");
 		const metadata = parseSidebarResultMetadata(content);
+		expect(metadata.fields).toEqual([
+			"title",
+			"paper_id",
+			"authors",
+			"year",
+			"venue",
+			"publication_type",
+			"identifier",
+			"doi",
+			"citation_count",
+			"ccf",
+			"screening_status",
+			"focus",
+			"relevance",
+			"topic",
+		]);
 		expect(metadata.rows?.map((row) => row.paper_id)).toEqual(["paper-a", "paper-b", "paper-c"]);
 		expect(metadata.rows?.map((row) => row.screening_status)).toEqual(["matched", "matched", "unresolved"]);
 		expect(metadata.rows?.[0].annotation_basis).toBe("title");
+		expect(content).toContain(
+			"| [Linux UAF A](https://doi.org/10.1000/linux-uaf-a) | paper-a | Ada Researcher | 2026 | NDSS | conference-paper |",
+		);
+		expect(content).toContain("| doi:10.1000/linux-uaf-a | 10.1000/linux-uaf-a | 42 | A | matched |");
 		expect(content).not.toContain("kernel use after free");
 	});
 
@@ -349,7 +444,13 @@ describe("collection tool mutation consent", () => {
 		expect(filtered.content[0].text).toContain("paper_id=paper-0514 | title=OS candidate 514");
 		expect(filtered.content[0].text).not.toContain("paper_id=paper-0515");
 		expect(filtered.content[0].text.match(/paper_id=paper-0000 \| title=/g)).toHaveLength(1);
-		const input = { search_run_id: "run-large", filter_result_id: filtered.details.filterResultId };
+		const input = {
+			search_run_id: "run-large",
+			filter_result_id: filtered.details.filterResultId,
+			fields: ["title", "year_venue", "identifier", "focus", "relevance", "topic"],
+			annotation_fields: ["focus", "relevance", "topic"],
+			annotations: [],
+		};
 		const update = tools.get("update_literature_sidebar");
 		const sidebar = await update.execute(
 			"update",
@@ -383,7 +484,7 @@ describe("collection tool mutation consent", () => {
 		expect(markdown.split("\n").filter((line) => line.startsWith("| ["))).toHaveLength(515);
 		const parsed = parseLiteratureTables(markdown);
 		expect(parsed?.tables[0].rows).toHaveLength(515);
-		expect(parsed?.tables[0].rows[0]).toHaveLength(4);
+		expect(parsed?.tables[0].rows[0]).toHaveLength(6);
 		expect(parsed?.tables[0].rowMeta?.[0].paper_id).toBe("paper-0000");
 		expect(parsed?.tables[0].rows[0][0].text).toBe("Linux UAF | [same] title");
 		expect(parsed?.tables[0].rows[0][0].url).toBe("https://example.org/paper-0000");
@@ -403,7 +504,7 @@ describe("collection tool mutation consent", () => {
 		await expect(
 			update.execute(
 				"unknown",
-				{ ...input, annotations: [{ paper_id: "absent" }] },
+				{ ...input, annotations: [{ paper_id: "absent", focus: "x" }] },
 				undefined,
 				undefined,
 				sessionContext,
@@ -412,12 +513,55 @@ describe("collection tool mutation consent", () => {
 		await expect(
 			update.execute(
 				"duplicate",
-				{ ...input, annotations: [{ paper_id: "paper-0000" }, { paper_id: "paper-0000" }] },
+				{
+					...input,
+					annotations: [
+						{ paper_id: "paper-0000", focus: "x" },
+						{ paper_id: "paper-0000", focus: "y" },
+					],
+				},
 				undefined,
 				undefined,
 				sessionContext,
 			),
 		).rejects.toThrow("Duplicate annotation Paper ID");
+		await expect(
+			update.execute(
+				"undeclared",
+				{
+					...input,
+					fields: ["title", "focus"],
+					annotation_fields: [],
+					annotations: [],
+				},
+				undefined,
+				undefined,
+				sessionContext,
+			),
+		).rejects.toThrow("Visible Agent field must be declared");
+		await expect(
+			update.execute(
+				"annotation-field",
+				{
+					...input,
+					fields: ["title", "focus"],
+					annotation_fields: ["focus"],
+					annotations: [{ paper_id: "paper-0000", relevance: "undeclared" }],
+				},
+				undefined,
+				undefined,
+				sessionContext,
+			),
+		).rejects.toThrow("Annotation field was not declared");
+		await expect(
+			update.execute(
+				"field-order",
+				{ ...input, fields: ["year", "title"], annotation_fields: [], annotations: [] },
+				undefined,
+				undefined,
+				sessionContext,
+			),
+		).rejects.toThrow("fields must start with title");
 		await expect(
 			update.execute("session", input, undefined, undefined, {
 				...context(root),
@@ -431,9 +575,18 @@ describe("collection tool mutation consent", () => {
 		await expect(update.execute("stale", input, undefined, undefined, sessionContext)).rejects.toThrow("stale");
 		changedRun.results.shift();
 		await store.saveSearchRun(changedRun);
-		await expect(update.execute("missing", input, undefined, undefined, sessionContext)).rejects.toThrow(
-			"no longer exists",
-		);
+		const partial = await update.execute("missing", input, undefined, undefined, sessionContext);
+		expect(partial.details).toMatchObject({
+			rowCount: 514,
+			matched: 0,
+			unresolved: 514,
+			missingPaperIds: ["paper-0000"],
+		});
+		expect(partial.content[0].text).toContain("missing: 1");
+		expect(partial.content[0].text).toContain("Missing paper IDs: paper-0000");
+		const partialRows = parseSidebarResultMetadata(await readFile(partial.details.mdPath, "utf8")).rows ?? [];
+		expect(partialRows).toHaveLength(514);
+		expect(partialRows.map((row) => row.paper_id)).not.toContain("paper-0000");
 	});
 
 	it("rejects an oversized sidebar rather than silently truncating it", async () => {
@@ -442,37 +595,19 @@ describe("collection tool mutation consent", () => {
 		await expect(
 			writeLiteratureSidebarResult({
 				cwd: root,
-				content: "x".repeat(MAX_SIDEBAR_BYTES),
-				rows: [],
+				fields: ["title"],
+				rows: [{ title: "x".repeat(MAX_SIDEBAR_BYTES) }],
 			}),
 		).rejects.toThrow("max 5MB");
 	});
 
-	it("preserves the legacy Markdown input for lists outside one filter result", async () => {
-		const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-legacy-"));
-		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
-		await store.saveSearchRun(searchRun("run-legacy", [paper("paper-a")]));
-		const result = await registeredTools()
-			.get("update_literature_sidebar")
-			.execute(
-				"legacy",
-				{
-					search_run_id: "run-legacy",
-					content: [
-						"| 标题 | 年份/venue | 标识 | focus |",
-						"| --- | --- | --- | --- |",
-						"| [Consent paper paper-a](https://example.org/paper-a) | 2026 | paper-a | 测试 |",
-					].join("\n"),
-					rows: [{ paper_id: "paper-a", search_run_id: "run-legacy", focus: "测试" }],
-				},
-				undefined,
-				undefined,
-				context(root),
-			);
-		expect(result.details.rowCount).toBe(1);
-		expect(parseSidebarResultMetadata(await readFile(result.details.mdPath, "utf8")).rows?.[0].paper_id).toBe(
-			"paper-a",
+	it("exposes only the field-driven update input", () => {
+		const update = registeredTools().get("update_literature_sidebar");
+		expect(Object.keys(update.parameters.properties).sort()).toEqual(
+			["annotation_fields", "annotations", "fields", "filter_result_id", "search_run_id"].sort(),
+		);
+		expect(update.parameters.required.sort()).toEqual(
+			["annotation_fields", "annotations", "fields", "filter_result_id", "search_run_id"].sort(),
 		);
 	});
 

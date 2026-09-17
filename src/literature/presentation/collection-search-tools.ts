@@ -7,13 +7,8 @@ import {
 	saveSearchRunSelection,
 	searchRunSelectionPlan,
 } from "../application/literature-search-planning.ts";
-import {
-	compactSidebarRows,
-	enrichSidebarRows,
-	mergeSidebarRows,
-	writeLiteratureSidebarResult,
-} from "../application/literature-sidebar.ts";
 import { editLiteratureSidebar, type SidebarEditOperation } from "../application/literature-sidebar-editor.ts";
+import { SIDEBAR_ANNOTATION_FIELD_NAMES, SIDEBAR_FIELD_NAMES } from "../application/literature-sidebar-fields.ts";
 import { writeSidebarFromFilter } from "../application/literature-sidebar-from-filter.ts";
 import {
 	assignCollection,
@@ -22,6 +17,9 @@ import {
 } from "../application/literature-sidebar-save.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../application/literature-store.ts";
 import { corpusUpsertPlan } from "../application/literature-write.ts";
+
+const sidebarFieldSchema = Type.Union(SIDEBAR_FIELD_NAMES.map((field) => Type.Literal(field)));
+const sidebarAnnotationFieldSchema = Type.Union(SIDEBAR_ANNOTATION_FIELD_NAMES.map((field) => Type.Literal(field)));
 
 export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -318,142 +316,78 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 		name: "update_literature_sidebar",
 		label: "Update literature sidebar",
 		description:
-			"Create a literature sidebar from every paper in a saved filter result. The tool reads exact Paper IDs from the source search run and builds the Markdown table; title-based annotations never remove papers. The legacy content/rows input remains available for lists assembled outside one filter result.",
+			"Create a field-driven literature sidebar from every paper in a saved filter result. fields controls visible Markdown columns, annotation_fields declares Agent-supplied focus/relevance/topic columns, and all other requested fields are loaded from exact Search Run records.",
 		promptSnippet: "Send screened literature to the sidebar panel",
 		promptGuidelines: [
-			"After accepting filter_search_run_results, pass its filter_result_id and search_run_id. The tool imports every matched and unresolved paper, even if an annotation is missing. Never choose a title-based subset.",
-			"Optional annotations contain only paper_id, focus, relevance, and topic. These are provisional title-based judgments, not abstract or full-paper evidence. The tool reports incomplete annotations.",
-			"For citation expansion or historical workflows without a filter result, pass exactly one combined Markdown table in content and optional aligned rows, as before.",
-			"Optional: pass headers to override the displayed column titles (e.g. 标题, 年份/venue, 标识, focus). The first column is treated as the paper title.",
-			"Optional: pass search_run_id of the source search run so the sidebar can auto-fill paper_id/DOI/year/venue and load abstracts on demand.",
-			"For filter-result annotations, describe only what the title supports and treat relevance/topic as provisional. In the legacy Markdown path, do not claim to have inspected abstracts you did not read.",
-			"Optional: pass rows as an array of { paper_id, doi, search_run_id, relevance, topic, curated, ... } to attach lightweight metadata for saving and on-demand lookup. Do not include abstracts; CCF rank is auto-added from the venue.",
-			'Mark the source of each paper: papers taken from the search runs carry paper_id/doi and can be saved to the library; papers you add from your own domain knowledge (classic/well-known works that did NOT appear in any search result) MUST be marked curated: "llm" and typically have no paper_id/doi — they cannot be saved to the library and should be visually flagged as LLM-curated in the sidebar. Use curated: "search" (or omit) for papers from the search results.',
-			"In the legacy path, content should contain only the table, not the whole conversation.",
-			"Do NOT print any markdown table in the chat reply; reply with a short summary (counts, focus distribution, highlights, next steps) and let the sidebar show the list.",
+			"After accepting filter_search_run_results, pass its filter_result_id and search_run_id with fields, annotation_fields, and annotations. The tool imports every matched and unresolved paper. Never choose a title-based subset.",
+			"fields must start with title and controls visible columns in order. Use only the documented field names; bibliographic fields are loaded from the Search Run.",
+			"Supported fields: title, paper_id, authors, year, venue, year_venue, publication_type, identifier, doi, arxiv_id, url, citation_count, ccf, screening_status, focus, relevance, topic.",
+			"annotation_fields must list every visible Agent field and may contain only focus, relevance, and topic. annotations are provisional title-based judgments keyed by Paper ID.",
+			"Pass an empty annotations array when no labels are available. Missing annotation values leave blank cells and never remove papers.",
+			"If a filtered Paper ID no longer exists because the Search Run changed, the tool still creates the sidebar from every remaining paper and reports the missing IDs.",
+			"Do NOT print any markdown table in the chat reply; reply with a short summary and let the sidebar show the list.",
 		],
 		parameters: Type.Object({
-			content: Type.Optional(
-				Type.String({
-					description: "Legacy input for lists assembled outside one filter result: one combined Markdown table",
-				}),
-			),
-			filter_result_id: Type.Optional(
-				Type.String({ description: "Saved complete filter result returned by filter_search_run_results" }),
-			),
-			annotations: Type.Optional(
-				Type.Array(
-					Type.Object({
+			search_run_id: Type.String({ description: "Root Search Run associated with filter_result_id" }),
+			filter_result_id: Type.String({
+				description: "Saved complete filter result returned by filter_search_run_results",
+			}),
+			fields: Type.Array(sidebarFieldSchema, {
+				minItems: 1,
+				maxItems: SIDEBAR_FIELD_NAMES.length,
+				uniqueItems: true,
+				description: "Visible Markdown fields in order; title must be first",
+			}),
+			annotation_fields: Type.Array(sidebarAnnotationFieldSchema, {
+				maxItems: SIDEBAR_ANNOTATION_FIELD_NAMES.length,
+				uniqueItems: true,
+				description: "Visible Agent-supplied fields; only focus, relevance, and topic",
+			}),
+			annotations: Type.Array(
+				Type.Object(
+					{
 						paper_id: Type.String(),
 						focus: Type.Optional(Type.String()),
 						relevance: Type.Optional(Type.String()),
 						topic: Type.Optional(Type.String()),
-					}),
-					{ description: "Optional title-based labels keyed by Paper ID; missing entries never remove papers" },
+					},
+					{ additionalProperties: false },
 				),
-			),
-			search_run_id: Type.Optional(
-				Type.String({
-					description:
-						"Optional search run id so the sidebar can auto-fill paper_id/DOI/year/venue and load abstracts on demand",
-				}),
-			),
-			headers: Type.Optional(
-				Type.Array(Type.String(), {
-					maxItems: 12,
-					description: "Custom column headers displayed in the sidebar table",
-				}),
-			),
-			rows: Type.Optional(
-				Type.Array(
-					Type.Object({
-						title: Type.Optional(Type.String()),
-						paper_id: Type.Optional(Type.String()),
-						doi: Type.Optional(Type.String()),
-						url: Type.Optional(Type.String()),
-						search_run_id: Type.Optional(Type.String()),
-						year: Type.Optional(Type.String()),
-						venue: Type.Optional(Type.String()),
-						focus: Type.Optional(Type.String()),
-						relevance: Type.Optional(
-							Type.String({
-								description:
-									"LLM 推断的切题度: 一段中文总结句(约20-40字), 说明论文内容及与研究问题的相关性; 不要用 高/中/低 等级词",
-							}),
-						),
-						topic: Type.Optional(
-							Type.String({ description: "LLM 推断的主题/技术关键词(如 机器学习;反编译代码)" }),
-						),
-						curated: Type.Optional(
-							Type.Union([Type.Literal("search"), Type.Literal("llm")], {
-								description:
-									"来源标记: search=来自搜索结果(有 paper_id/DOI, 可入库); llm=模型凭知识补充(不在搜索结果中, 无法入库/无 DOI)",
-							}),
-						),
-					}),
-					{ maxItems: 500, description: "Optional structured row metadata aligned with table rows" },
-				),
+				{ description: "Title-based Agent values keyed by Paper ID; missing values never remove papers" },
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (params.filter_result_id !== undefined) {
-				if (!params.search_run_id) throw new Error("search_run_id is required with filter_result_id");
-				if (params.content !== undefined || params.rows !== undefined || params.headers !== undefined) {
-					throw new Error("Use filter_result_id with annotations, without content, rows, or headers");
-				}
-				const result = await writeSidebarFromFilter({
-					cwd: ctx.cwd,
-					sessionId: ctx.sessionManager?.getSessionId?.(),
-					filterResultId: params.filter_result_id,
-					searchRunId: params.search_run_id,
-					annotations: (params.annotations ?? []).map((item) => ({
-						paperId: item.paper_id,
-						focus: item.focus,
-						relevance: item.relevance,
-						topic: item.topic,
-					})),
-				});
-				return {
-					content: [
-						{
-							type: "text",
-							text: `论文清单已生成: ${result.mdUrl}\nRows: ${result.rowCount}; matched: ${result.matched}; unresolved: ${result.unresolved}; incompletely annotated: ${result.unannotatedCount}; revision: ${result.revision}.`,
-						},
-					],
-					details: result,
-				};
-			}
-			if (params.annotations !== undefined) throw new Error("annotations require filter_result_id");
-			const content = params.content?.trim();
-			if (!content) throw new Error("content is required");
-			// 合并可见表格字段与隐藏元数据，保证标题/DOI可参与搜索记录校验。
-			const fallbackRunId =
-				typeof params.search_run_id === "string"
-					? params.search_run_id
-					: (params.rows ?? []).find((row) => typeof row.search_run_id === "string")?.search_run_id;
-			const sidebarRows = mergeSidebarRows(content, params.rows);
-			const enrichedRows = await enrichSidebarRows(ctx.cwd, fallbackRunId, sidebarRows);
-			const storedRows = compactSidebarRows(enrichedRows ?? sidebarRows);
-			const result = await writeLiteratureSidebarResult({
+			const result = await writeSidebarFromFilter({
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager?.getSessionId?.(),
-				content,
-				rows: storedRows ?? [],
-				headers: params.headers,
+				filterResultId: params.filter_result_id,
+				searchRunId: params.search_run_id,
+				fields: params.fields,
+				annotationFields: params.annotation_fields,
+				annotations: params.annotations.map((item) => ({
+					paperId: item.paper_id,
+					focus: item.focus,
+					relevance: item.relevance,
+					topic: item.topic,
+				})),
 			});
-			// 在 markdown 顶部嵌入一行 JSON 元信息, 供前端侧边栏渲染结构化卡片。
 			return {
 				content: [
 					{
 						type: "text",
-						text: `论文清单已生成，点击对话中的链接在右侧打开: ${result.mdUrl}`,
+						text: [
+							`Literature sidebar created: ${result.mdUrl}`,
+							`Rows: ${result.rowCount}; matched: ${result.matched}; unresolved: ${result.unresolved}; incompletely annotated: ${result.unannotatedCount}; missing: ${result.missingPaperIds.length}; revision: ${result.revision}.`,
+							...(result.missingPaperIds.length
+								? [`Missing paper IDs: ${result.missingPaperIds.join(", ")}`]
+								: []),
+						].join("\n"),
 					},
 				],
 				details: result,
 			};
 		},
 	});
-
 	pi.registerTool({
 		name: "edit_literature_sidebar",
 		label: "Edit literature sidebar",
@@ -461,9 +395,11 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 			"Atomically edit an existing literature sidebar document in place. The URL and chat result card stay unchanged. Bibliographic replacements and additions must reference an exact paper_id from a persisted search_run_id.",
 		promptSnippet: "Modify the current literature sidebar without creating a new list",
 		promptGuidelines: [
-			"Use this instead of update_literature_sidebar when the user asks to correct, enrich, add, remove, or regroup papers in an existing sidebar list.",
+			"Use this when the user asks to change visible fields, correct metadata, add, remove, or regroup papers in an existing sidebar list.",
+			"Use set_fields to add, remove, or reorder visible columns. It rerenders every row from stored metadata and does not delete hidden annotation values.",
+			"set_fields uses the same fixed field names as update_literature_sidebar and must keep title first.",
 			"After search_literature finds corrected metadata, use replace_from_search with the returned searchRunId and paperId. Finding a DOI does not update the list until this edit succeeds.",
-			"Use the revision returned by update_literature_sidebar or the preceding edit. Existing older lists start at revision 1.",
+			"Use the revision returned by update_literature_sidebar or the preceding edit. Legacy sidebars without a fields schema cannot be edited.",
 			"Edits affect only the sidebar document. They never silently modify or delete papers already saved in the personal library.",
 		],
 		parameters: Type.Object({
@@ -474,8 +410,17 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 			operations: Type.Array(
 				Type.Union([
 					Type.Object({
+						action: Type.Literal("set_fields"),
+						fields: Type.Array(sidebarFieldSchema, {
+							minItems: 1,
+							maxItems: SIDEBAR_FIELD_NAMES.length,
+							uniqueItems: true,
+						}),
+					}),
+					Type.Object({
 						action: Type.Literal("replace_from_search"),
 						target_paper_id: Type.Optional(Type.String()),
+						target_search_run_id: Type.Optional(Type.String()),
 						target_title: Type.Optional(Type.String()),
 						search_run_id: Type.String(),
 						paper_id: Type.String(),
@@ -502,11 +447,13 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 					Type.Object({
 						action: Type.Literal("remove"),
 						target_paper_id: Type.Optional(Type.String()),
+						target_search_run_id: Type.Optional(Type.String()),
 						target_title: Type.Optional(Type.String()),
 					}),
 					Type.Object({
 						action: Type.Literal("patch"),
 						target_paper_id: Type.Optional(Type.String()),
+						target_search_run_id: Type.Optional(Type.String()),
 						target_title: Type.Optional(Type.String()),
 						focus: Type.Optional(Type.String()),
 						relevance: Type.Optional(Type.String()),
@@ -523,10 +470,14 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 				params.namespace ?? "default",
 			);
 			const operations: SidebarEditOperation[] = params.operations.map((operation) => {
+				if (operation.action === "set_fields") {
+					return { action: "set-fields", fields: operation.fields };
+				}
 				if (operation.action === "replace_from_search") {
 					return {
 						action: "replace-from-search",
 						targetPaperId: operation.target_paper_id,
+						targetSearchRunId: operation.target_search_run_id,
 						targetTitle: operation.target_title,
 						searchRunId: operation.search_run_id,
 						paperId: operation.paper_id,
@@ -549,12 +500,14 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 					return {
 						action: "remove",
 						targetPaperId: operation.target_paper_id,
+						targetSearchRunId: operation.target_search_run_id,
 						targetTitle: operation.target_title,
 					};
 				}
 				return {
 					action: "patch",
 					targetPaperId: operation.target_paper_id,
+					targetSearchRunId: operation.target_search_run_id,
 					targetTitle: operation.target_title,
 					focus: operation.focus,
 					relevance: operation.relevance,

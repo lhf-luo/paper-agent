@@ -1,8 +1,7 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { normalizeTitle, paperPrimaryUrl } from "../domain/literature-identifiers.ts";
+import { normalizeTitle } from "../domain/literature-identifiers.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
-import { lookupCcfLevel } from "../infrastructure/ccf-ranking.ts";
 import {
 	compactSidebarRows,
 	MAX_SIDEBAR_BYTES,
@@ -10,14 +9,22 @@ import {
 	resolveSidebarResultPath,
 	SIDEBAR_META_COMMENT,
 } from "./literature-sidebar.ts";
+import {
+	renderSidebarTable,
+	type SidebarField,
+	sidebarMetadataFromRecord,
+	validateSidebarFields,
+} from "./literature-sidebar-fields.ts";
 import type { LiteratureStore } from "./literature-store.ts";
 
 export interface SidebarRowSelector {
 	targetPaperId?: string;
+	targetSearchRunId?: string;
 	targetTitle?: string;
 }
 
 export type SidebarEditOperation =
+	| { action: "set-fields"; fields: SidebarField[] }
 	| ({ action: "replace-from-search"; searchRunId: string; paperId: string } & SidebarRowSelector)
 	| {
 			action: "add-from-search";
@@ -53,15 +60,13 @@ export interface SidebarEditResult {
 }
 
 interface SidebarDocumentRow {
-	cells: string[];
 	meta: Record<string, unknown>;
 }
 
 interface ParsedSidebarDocument {
 	prefixLines: string[];
 	suffixLines: string[];
-	headers: string[];
-	metadataHeaders?: string[];
+	fields: SidebarField[];
 	rows: SidebarDocumentRow[];
 	revision: number;
 }
@@ -90,6 +95,10 @@ function parseSidebarDocument(content: string): ParsedSidebarDocument {
 		throw new Error("Literature sidebar result does not contain structured metadata");
 	}
 	const metadata = parseSidebarResultMetadata(trimmed);
+	if (!metadata.fields) {
+		throw new Error("This literature sidebar uses the unsupported legacy column format");
+	}
+	const fields = validateSidebarFields(metadata.fields);
 	const bodyLines = trimmed.slice(0, metadataMatch.index).trimEnd().split(/\r?\n/);
 	let headerIndex = -1;
 	for (let index = 0; index < bodyLines.length - 1; index += 1) {
@@ -99,9 +108,16 @@ function parseSidebarDocument(content: string): ParsedSidebarDocument {
 		}
 	}
 	if (headerIndex < 0) throw new Error("Literature sidebar result does not contain a markdown table");
+	const headers = splitTableRow(bodyLines[headerIndex]);
+	if (headers.length !== fields.length || headers.some((header, index) => header !== fields[index])) {
+		throw new Error("Literature sidebar columns do not match the stored fields schema");
+	}
 	let rowEnd = headerIndex + 2;
 	while (rowEnd < bodyLines.length && isTableRow(bodyLines[rowEnd])) rowEnd += 1;
 	const cells = bodyLines.slice(headerIndex + 2, rowEnd).map(splitTableRow);
+	if (cells.some((row) => row.length !== fields.length)) {
+		throw new Error("Literature sidebar table contains a row with the wrong number of columns");
+	}
 	const metaRows = metadata.rows ?? [];
 	if (cells.length !== metaRows.length) {
 		throw new Error(
@@ -109,82 +125,38 @@ function parseSidebarDocument(content: string): ParsedSidebarDocument {
 		);
 	}
 	return {
-		prefixLines: bodyLines.slice(0, headerIndex + 2),
+		prefixLines: bodyLines.slice(0, headerIndex),
 		suffixLines: bodyLines.slice(rowEnd),
-		headers: splitTableRow(bodyLines[headerIndex]),
-		metadataHeaders: metadata.headers,
-		rows: cells.map((rowCells, index) => ({ cells: rowCells, meta: { ...metaRows[index] } })),
+		fields,
+		rows: metaRows.map((meta) => ({ meta: { ...meta } })),
 		revision: Number.isInteger(metadata.revision) && Number(metadata.revision) > 0 ? Number(metadata.revision) : 1,
 	};
 }
 
-function escapeCell(value: string): string {
-	return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
-}
-
-function titleCell(title: string, url?: string): string {
-	const label = escapeCell(title).replace(/\[|\]/g, "\\$&");
-	return url ? `[${label}](${url.replace(/\s/g, "%20")})` : label;
-}
-
-function columnIndex(headers: string[], pattern: RegExp, fallback: number): number {
-	const found = headers.findIndex((header) => pattern.test(header.trim()));
-	return found >= 0 ? found : Math.min(fallback, Math.max(0, headers.length - 1));
-}
-
-function sourceMeta(record: PaperRecord, searchRunId: string, preserved: Record<string, unknown> = {}) {
-	const meta: Record<string, unknown> = {
-		...preserved,
-		title: record.title,
-		paper_id: record.id,
-		search_run_id: searchRunId,
-		curated: "search",
-		authors: record.authors.join(", "),
-	};
-	const url = paperPrimaryUrl(record);
-	if (url) meta.url = url;
-	if (record.year !== undefined) meta.year = String(record.year);
-	if (record.venue) meta.venue = record.venue;
-	if (record.identifiers.doi) meta.doi = record.identifiers.doi;
-	if (record.identifiers.arxivId) meta.arxiv_id = record.identifiers.arxivId;
-	if (record.citationCount !== undefined) meta.citationCount = record.citationCount;
-	const ccf = record.venueRank ?? lookupCcfLevel(record.venue);
-	if (ccf) meta.ccf = ccf;
-	return meta;
-}
-
-function cellsFromMeta(headers: string[], meta: Record<string, unknown>, previous?: string[]): string[] {
-	const cells = previous ? [...previous] : Array.from({ length: Math.max(4, headers.length) }, () => "");
-	while (cells.length < headers.length) cells.push("");
-	const titleIndex = 0;
-	const yearVenueIndex = columnIndex(headers, /year|年份/i, 1);
-	const identifierIndex = columnIndex(headers, /identifier|标识|doi|arxiv/i, 2);
-	const focusIndex = columnIndex(headers, /^focus$/i, 3);
-	const title = typeof meta.title === "string" ? meta.title : "Untitled";
-	const url = typeof meta.url === "string" ? meta.url : undefined;
-	const year = typeof meta.year === "string" ? meta.year : "";
-	const venue = typeof meta.venue === "string" ? meta.venue : "";
-	const doi = typeof meta.doi === "string" ? meta.doi : undefined;
-	const arxivId = typeof meta.arxiv_id === "string" ? meta.arxiv_id : undefined;
-	cells[titleIndex] = titleCell(title, url);
-	cells[yearVenueIndex] = escapeCell([year, venue].filter(Boolean).join(" "));
-	cells[identifierIndex] = doi ? `DOI ${escapeCell(doi)}` : arxivId ? `arXiv ${escapeCell(arxivId)}` : "";
-	cells[focusIndex] = typeof meta.focus === "string" ? escapeCell(meta.focus) : "";
-	return cells;
-}
-
-async function searchRecord(store: LiteratureStore, searchRunId: string, paperId: string): Promise<PaperRecord> {
+async function searchRecord(
+	store: LiteratureStore,
+	searchRunId: string,
+	paperId: string,
+): Promise<{ record: PaperRecord; namespace: string }> {
 	const run = await store.getSearchRun(searchRunId);
 	if (!run) throw new Error(`Search run not found: ${searchRunId}`);
 	const record = run.results.find((candidate) => candidate.id === paperId);
 	if (!record) throw new Error(`Paper ${paperId} was not found in search run ${searchRunId}`);
-	return record;
+	return { record, namespace: run.namespace };
 }
 
 function selectRow(rows: SidebarDocumentRow[], selector: SidebarRowSelector): number {
+	if (selector.targetSearchRunId && !selector.targetPaperId) {
+		throw new Error("target_search_run_id requires target_paper_id");
+	}
 	let matches: number[] = [];
 	if (selector.targetPaperId) {
-		matches = rows.flatMap((row, index) => (row.meta.paper_id === selector.targetPaperId ? [index] : []));
+		matches = rows.flatMap((row, index) =>
+			row.meta.paper_id === selector.targetPaperId &&
+			(!selector.targetSearchRunId || row.meta.search_run_id === selector.targetSearchRunId)
+				? [index]
+				: [],
+		);
 	}
 	if (matches.length === 0 && selector.targetTitle) {
 		const title = normalizeTitle(selector.targetTitle);
@@ -217,6 +189,17 @@ async function applyOperation(
 	store: LiteratureStore,
 	warnings: string[],
 ): Promise<boolean> {
+	if (operation.action === "set-fields") {
+		const fields = validateSidebarFields(operation.fields);
+		if (
+			fields.length === document.fields.length &&
+			fields.every((field, index) => field === document.fields[index])
+		) {
+			return false;
+		}
+		document.fields = fields;
+		return true;
+	}
 	if (operation.action === "remove") {
 		document.rows.splice(selectRow(document.rows, operation), 1);
 		return true;
@@ -225,15 +208,13 @@ async function applyOperation(
 		if (operation.focus === undefined && operation.relevance === undefined && operation.topic === undefined) {
 			throw new Error("Patch operation must change focus, relevance, or topic");
 		}
-		const index = selectRow(document.rows, operation);
-		const row = document.rows[index];
+		const row = document.rows[selectRow(document.rows, operation)];
 		for (const field of ["focus", "relevance", "topic"] as const) {
 			if (operation[field] === undefined) continue;
 			const value = operation[field]?.trim();
 			if (value) row.meta[field] = value;
 			else delete row.meta[field];
 		}
-		row.cells = cellsFromMeta(document.headers, row.meta, row.cells);
 		return true;
 	}
 	if (operation.action === "add-model-supplement") {
@@ -253,44 +234,55 @@ async function applyOperation(
 			warnings.push(`Skipped duplicate model supplement: ${meta.title}`);
 			return false;
 		}
-		document.rows.push({ meta, cells: cellsFromMeta(document.headers, meta) });
+		document.rows.push({ meta });
 		return true;
 	}
-	const record = await searchRecord(store, operation.searchRunId, operation.paperId);
+	const found = await searchRecord(store, operation.searchRunId, operation.paperId);
 	if (operation.action === "add-from-search") {
-		const meta = sourceMeta(record, operation.searchRunId, {
-			...(operation.focus?.trim() ? { focus: operation.focus.trim() } : {}),
-			...(operation.relevance?.trim() ? { relevance: operation.relevance.trim() } : {}),
-			...(operation.topic?.trim() ? { topic: operation.topic.trim() } : {}),
+		const meta = sidebarMetadataFromRecord(found.record, {
+			searchRunId: operation.searchRunId,
+			namespace: found.namespace,
+			preserved: {
+				...(operation.focus?.trim() ? { focus: operation.focus.trim() } : {}),
+				...(operation.relevance?.trim() ? { relevance: operation.relevance.trim() } : {}),
+				...(operation.topic?.trim() ? { topic: operation.topic.trim() } : {}),
+			},
 		});
 		if (duplicateIndex(document.rows, meta) >= 0) {
-			warnings.push(`Skipped duplicate search result: ${record.title}`);
+			warnings.push(`Skipped duplicate search result: ${found.record.title}`);
 			return false;
 		}
-		document.rows.push({ meta, cells: cellsFromMeta(document.headers, meta) });
+		document.rows.push({ meta });
 		return true;
 	}
 	const index = selectRow(document.rows, operation);
 	const previous = document.rows[index];
 	const preserved = Object.fromEntries(
-		["focus", "relevance", "topic"].flatMap((field) =>
+		["focus", "relevance", "topic", "screening_status"].flatMap((field) =>
 			previous.meta[field] === undefined ? [] : [[field, previous.meta[field]]],
 		),
 	);
-	const meta = sourceMeta(record, operation.searchRunId, preserved);
+	const meta = sidebarMetadataFromRecord(found.record, {
+		searchRunId: operation.searchRunId,
+		namespace: found.namespace,
+		preserved,
+	});
 	if (duplicateIndex(document.rows, meta, index) >= 0) {
-		throw new Error(`Replacement would duplicate another sidebar row: ${record.title}`);
+		throw new Error(`Replacement would duplicate another sidebar row: ${found.record.title}`);
 	}
-	document.rows[index] = { meta, cells: cellsFromMeta(document.headers, meta, previous.cells) };
+	document.rows[index] = { meta };
 	return true;
 }
 
 function renderDocument(document: ParsedSidebarDocument, revision: number): string {
-	const tableRows = document.rows.map((row) => `| ${row.cells.join(" | ")} |`);
-	const body = [...document.prefixLines, ...tableRows, ...document.suffixLines].join("\n").trimEnd();
+	const table = renderSidebarTable(
+		document.fields,
+		document.rows.map((row) => row.meta),
+	);
+	const body = [...document.prefixLines, table, ...document.suffixLines].join("\n").trimEnd();
 	const metadata = {
 		revision,
-		...(document.metadataHeaders ? { headers: document.metadataHeaders } : {}),
+		fields: document.fields,
 		rows: compactSidebarRows(document.rows.map((row) => row.meta)),
 	};
 	return `${body}\n\n<!-- paper-agent-sidebar-meta ${JSON.stringify(metadata)} -->\n`;
