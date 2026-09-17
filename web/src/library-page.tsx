@@ -99,7 +99,11 @@ export function LibraryPage({
 	onTask: (job: BackgroundJob) => void;
 	toolbarTarget: HTMLDivElement | null;
 	onOpenResearchNote: (target: ResearchNoteNavigation) => void;
-	onAgentSession: (sessionId: string, draft?: string) => void;
+	onAgentSession: (
+		sessionId: string,
+		draft: string | undefined,
+		target: { paperId: string; namespace: string },
+	) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
 	const [query, setQuery] = useState("");
@@ -598,7 +602,10 @@ export function LibraryPage({
 			reusedExistingSession: boolean;
 		}>("/api/agent/research/start", jsonBody(input));
 		// 研究指令只填入输入框作为待发送草稿，由用户确认后手动发送。
-		onAgentSession(response.session.id, response.draft);
+		onAgentSession(response.session.id, response.draft, {
+			paperId: input.paperId,
+			namespace: input.namespace,
+		});
 		if (response.reusedExistingSession) setMessage("已把研究任务填入该论文最近会话的输入框，请确认后发送。");
 	};
 	const prepareAnnotation = async () => {

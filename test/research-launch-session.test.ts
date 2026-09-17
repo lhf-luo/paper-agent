@@ -149,7 +149,7 @@ describe("one-click automated research launch", () => {
 		}
 	});
 
-	it("prefers the session bound to the same paper over a more recent one for another paper", async () => {
+	it("never reuses a session bound to another paper", async () => {
 		const { application, server, created } = await fixture();
 		try {
 			const firstPaper = await seedPaperWithPdf(application, "lab", "paper-a");
@@ -159,17 +159,18 @@ describe("one-click automated research launch", () => {
 			expect(created).toHaveLength(1);
 			expect(a.body.reusedExistingSession).toBe(false);
 
-			// paper-b has no session of its own yet, so it falls back to the newest one in the library.
+			// paper-b has no associated session, so it must receive a new paper-scoped session.
 			const b = await launch(server.url, secondPaper.id, "lab");
-			expect(b.body.reusedExistingSession).toBe(true);
-			expect(b.body.session.id).toBe(a.body.session.id);
-			expect(created).toHaveLength(1);
+			expect(b.body.reusedExistingSession).toBe(false);
+			expect(b.body.session.id).not.toBe(a.body.session.id);
+			expect(created).toHaveLength(2);
+			expect(created[1]?.context).toEqual({ kind: "paper", namespace: "lab", paperId: secondPaper.id });
 
-			// paper-a's own session already exists, so it must win over the newer paper-b reuse.
+			// paper-a still reuses its own associated session.
 			const again = await launch(server.url, firstPaper.id, "lab");
 			expect(again.body.reusedExistingSession).toBe(true);
 			expect(again.body.session.id).toBe(a.body.session.id);
-			expect(created).toHaveLength(1);
+			expect(created).toHaveLength(2);
 
 			// Each draft still describes the paper that was launched.
 			expect(a.body.draft).toContain(firstPaper.id);
@@ -182,7 +183,7 @@ describe("one-click automated research launch", () => {
 	});
 
 	it("picks the most recent session among those bound to the same paper", async () => {
-		const { application, server, sessions } = await fixture();
+		const { application, server, sessions, created } = await fixture();
 		try {
 			const paperA = await seedPaperWithPdf(application, "lab", "paper-a");
 			const paperB = await seedPaperWithPdf(application, "lab", "paper-b");
@@ -215,10 +216,11 @@ describe("one-click automated research launch", () => {
 			const launchedB = await launch(server.url, paperB.id, "lab");
 			expect(launchedB.body.session.id).toBe("b-newest");
 
-			// paper-c has no session, so it falls back to the newest one in the library.
+			// paper-c has no associated session, so sessions for paper-a/paper-b must not be reused.
 			const launchedC = await launch(server.url, paperC.id, "lab");
-			expect(launchedC.body.reusedExistingSession).toBe(true);
-			expect(launchedC.body.session.id).toBe("b-newest");
+			expect(launchedC.body.reusedExistingSession).toBe(false);
+			expect(["a-older", "a-newer", "b-newest"]).not.toContain(launchedC.body.session.id);
+			expect(created.at(-1)?.context).toEqual({ kind: "paper", namespace: "lab", paperId: paperC.id });
 		} finally {
 			await server.close();
 			await application.close();

@@ -6705,16 +6705,33 @@ body.paper-reader-resizing .browser-pdf-frame {
 	background: var(--surface-hover);
 }
 
+.agent-thinking summary small {
+	margin-left: 6px;
+	font-weight: 400;
+	opacity: 0.78;
+}
+
 .agent-thinking-body {
 	padding: 8px 12px 10px;
 	border-top: 1px solid var(--brand-200);
 	color: var(--brand-700);
 	font-size: 12px;
 	line-height: 1.7;
-	white-space: pre-wrap;
 	word-break: break-word;
 	max-height: 240px;
 	overflow-y: auto;
+}
+
+.agent-thinking-body > :first-child {
+	margin-top: 0;
+}
+
+.agent-thinking-body > :last-child {
+	margin-bottom: 0;
+}
+
+.agent-thinking-body p {
+	margin: 4px 0;
 }
 
 .agent-thinking-streaming {

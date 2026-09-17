@@ -681,8 +681,13 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
 	const [open, setOpen] = useState(true);
 	return (
 		<details className="agent-thinking" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-			<summary>{streaming ? "思考中…" : "思考过程"}</summary>
-			<div className="agent-thinking-body">{thinking}</div>
+			<summary>
+				<span>{streaming ? "模型推理中…" : "模型推理输出"}</span>
+				<small>API 可能仅提供摘要</small>
+			</summary>
+			<div className="agent-thinking-body">
+				<ReactMarkdown remarkPlugins={[remarkGfm]}>{thinking}</ReactMarkdown>
+			</div>
 		</details>
 	);
 }
@@ -819,6 +824,8 @@ export function AgentPage({
 	paperContext?: PaperAgentContext;
 	focusSessionId?: string;
 }) {
+	const paperContextNamespace = paperContext?.namespace;
+	const paperContextPaperId = paperContext?.paperId;
 	const sessionListUrl = paperContext
 		? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
 		: "/api/agent/sessions";
@@ -1158,6 +1165,15 @@ export function AgentPage({
 			try {
 				// 论文作用域的会话（如一键研究）不在 general 会话列表里，按 ID 直接拉取并合并进侧栏。
 				const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
+				if (
+					paperContextNamespace &&
+					paperContextPaperId &&
+					(snapshot.context?.kind !== "paper" ||
+						snapshot.context.namespace !== paperContextNamespace ||
+						snapshot.context.paperId !== paperContextPaperId)
+				) {
+					return false;
+				}
 				setActive(snapshot);
 				setSessions((current) =>
 					current.some((session) => session.id === snapshot.id)
@@ -1170,7 +1186,7 @@ export function AgentPage({
 				return false;
 			}
 		},
-		[restoreSidebarFromSession],
+		[paperContextNamespace, paperContextPaperId, restoreSidebarFromSession],
 	);
 
 	const refreshSessions = useCallback(
