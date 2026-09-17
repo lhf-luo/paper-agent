@@ -2,7 +2,12 @@ import { loadPaperAgentConfig } from "../../config/application/config-service.ts
 import type { PaperAgentModelConfig } from "../../config/domain/config-types.ts";
 import type { WebAgentServiceApi } from "../domain/web-agent-contracts.ts";
 import { WebAgentActions } from "./web-agent-actions.ts";
-import type { WebAgentEndpointConfig, WebAgentServiceOptions } from "./web-agent-support.ts";
+import {
+	emptyEndpointConfig,
+	endpointFromConfiguredModel,
+	type WebAgentEndpointConfig,
+	type WebAgentServiceOptions,
+} from "./web-agent-support.ts";
 
 export type * from "../domain/web-agent-contracts.ts";
 export { WebAgentServiceError } from "../domain/web-agent-contracts.ts";
@@ -20,22 +25,11 @@ export class WebAgentService extends WebAgentActions implements WebAgentServiceA
 	static async create(options: WebAgentServiceOptions): Promise<WebAgentService> {
 		const config = await loadPaperAgentConfig(options.projectRoot);
 		const configuredModels = config.models ?? (config.model ? [config.model] : []);
+		// 服务启动只是取一份初始状态；之后 `reloadConfiguredModels` 会在读取配置视图
+		// 和切换模型时重新对齐磁盘，设置页的改动无需重启。
 		const service = new WebAgentService(
 			{ ...options, builtinTools: config.agent.builtinTools, shellPath: config.agent.shellPath },
-			{
-				providerId: config.model?.providerId ?? "",
-				modelId: config.model?.modelId ?? "",
-				baseUrl: config.model?.baseUrl ?? "",
-				api: config.model?.api ?? "openai-completions",
-				input: config.model?.input ?? ["text"],
-				reasoning: config.model?.reasoning ?? false,
-				contextWindow: config.model?.contextWindow ?? 128_000,
-				maxTokens: config.model?.maxTokens ?? 16_384,
-				compat: config.model?.compat,
-				thinkingLevelMap: config.model?.thinkingLevelMap,
-				apiKeyEnvironmentVariable: config.model?.apiKeyEnvironmentVariable,
-				headers: config.model?.headers,
-			},
+			config.model ? endpointFromConfiguredModel(config.model) : emptyEndpointConfig(),
 			configuredModels,
 		);
 		await service.restoreSessions();

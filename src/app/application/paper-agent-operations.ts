@@ -8,14 +8,18 @@ import {
 	supportsAutomaticToolCallingProbe,
 	validatePaperAgentConfig,
 } from "../../config/application/config-service.ts";
-import { probeModelToolCalling } from "../../config/application/model-service.ts";
+import { discoverModelEndpointModels, probeModelToolCalling } from "../../config/application/model-service.ts";
 import type { ArtifactManifest } from "../../literature/domain/literature-types.ts";
 import type { PdfBox } from "../../pdf/domain/pdf-types.ts";
 import { PdfAnnotationStore } from "../../pdf/infrastructure/pdf-annotation-store.ts";
 import type { ConfirmationGrant, PreparedOperation } from "../../shared/application/operation-consent.ts";
 import { applyExternalToolDirectories } from "../../shared/infrastructure/external-tool-environment.ts";
 
-import type { PdfAssetCorrectionInput } from "./paper-agent-contracts.ts";
+import type {
+	DiscoveredModelView,
+	ModelDiscoveryRequestInput,
+	PdfAssetCorrectionInput,
+} from "./paper-agent-contracts.ts";
 import { PaperAgentResearch } from "./paper-agent-research.ts";
 
 export abstract class PaperAgentOperations extends PaperAgentResearch {
@@ -169,12 +173,33 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 		await this.consent.consume(grant, prepared.plan);
 		const saved = await savePaperAgentConfig(this.projectRoot, prepared.config);
 		applyExternalToolDirectories(saved.config.externalTools.commandDirectories);
+		// 模型列表不再列入重启条件：Web Agent 在读取配置视图与切换模型时会重新对齐
+		// 磁盘上的 models.json，设置页的增删会立即出现在对话页。
 		return {
 			...saved,
 			restartRequired:
 				saved.config.storage.dataRoot !== this.dataRoot ||
 				saved.config.storage.corpusRoot !== this.corpusRoot ||
 				saved.config.storage.defaultNamespace !== this.defaultNamespace,
+		};
+	}
+
+	/**
+	 * 读取远端 `/models` 列表，供设置页的"添加供应商"选择模型。这里只做发现：
+	 * 不写入配置、不缓存密钥，发现的条目只带回选择所需的最小信息。
+	 */
+	async discoverModels(
+		input: ModelDiscoveryRequestInput,
+	): Promise<{ providerId: string; models: DiscoveredModelView[] }> {
+		const discovered = await discoverModelEndpointModels({
+			providerId: input.providerId,
+			baseUrl: input.baseUrl,
+			api: input.api,
+			apiKey: input.apiKey,
+		});
+		return {
+			providerId: discovered[0]?.providerId ?? input.providerId ?? "",
+			models: discovered.map((model) => ({ id: model.modelId, name: model.name ?? model.modelId })),
 		};
 	}
 

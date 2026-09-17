@@ -49,6 +49,7 @@ import { AccessibleModal, confirmOperation, EmptyState, LoadingBlock, StatusPill
 import { useRouterContext } from "./router";
 import { TeamCollaborationPanel } from "./team-collaboration-panel";
 import { TeamKnowledgeDialog, type TeamKnowledgeValue } from "./team-content-view";
+import { shouldRevealCredentialCard } from "./team-credentials";
 import { showDerivedAndArtifactFeatures } from "./team-feature-flags";
 import { TeamMembersPanel } from "./team-members-panel";
 import { TeamOperationModal } from "./team-operation-preview";
@@ -342,12 +343,23 @@ export function TeamPage() {
 
 	// Member identity administration
 	const [oneTimeToken, setOneTimeToken] = useState("");
+	const oneTimeTokenRef = useRef<HTMLOutputElement>(null);
 	const [personalNamespace, setPersonalNamespace] = useState(() => workspaceNamespace || "default");
 	const [personalNamespaces, setPersonalNamespaces] = useState<string[]>(["default"]);
 
 	useEffect(() => {
 		if (workspaceNamespace) setPersonalNamespace(workspaceNamespace);
 	}, [workspaceNamespace]);
+
+	// 凭据卡片渲染在页面画布顶部，而"成员管理"入口在页面下方。签发后若不把卡片带进
+	// 视口，用户会以为没有生成凭据串。已经在视口内时不做任何滚动。
+	useEffect(() => {
+		const card = oneTimeTokenRef.current;
+		if (!oneTimeToken || !card) return;
+		if (shouldRevealCredentialCard(card.getBoundingClientRect(), { height: window.innerHeight })) {
+			card.scrollIntoView({ block: "center" });
+		}
+	}, [oneTimeToken]);
 
 	// Blob uploads & multi-modal asset proposals
 	const [blobPaperId, setBlobPaperId] = useState("");
@@ -1337,7 +1349,7 @@ export function TeamPage() {
 
 			{/* ONE-TIME TOKEN REVEAL MODAL */}
 			{oneTimeToken && (
-				<div className="secret-reveal-card">
+				<output className="secret-reveal-card" ref={oneTimeTokenRef} aria-live="polite">
 					<div className="secret-reveal-header">
 						<Key size={18} />
 						<div>
@@ -1358,7 +1370,7 @@ export function TeamPage() {
 							已记录，隐藏
 						</button>
 					</div>
-				</div>
+				</output>
 			)}
 
 			{/* PREPARED OPERATION CONSENT MODAL */}

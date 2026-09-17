@@ -850,4 +850,90 @@ describe("Paper Agent local configuration", () => {
 			);
 		}
 	});
+
+	it("discovers provider models without persisting the key or touching stored config", async () => {
+		const server = createServer(async (request, response) => {
+			expect(request.url).toBe("/v1/models");
+			expect(request.headers.authorization).toBe("Bearer discovery-secret");
+			response.writeHead(200, { "content-type": "application/json" });
+			response.end(
+				JSON.stringify({
+					data: [{ id: "model-b" }, { id: "model-a" }, { id: "model-a" }, { noId: true }],
+				}),
+			);
+		});
+		await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-discovery-"));
+		const application = new PaperAgentApplication({ projectRoot: root });
+		try {
+			const address = server.address() as AddressInfo;
+			const result = await application.discoverModels({
+				providerId: "fixture-relay",
+				baseUrl: `http://127.0.0.1:${address.port}/v1`,
+				api: "openai-completions",
+				apiKey: "discovery-secret",
+			});
+			expect(result.providerId).toBe("fixture-relay");
+			expect(result.models.map((model) => model.id)).toEqual(["model-a", "model-b"]);
+			// 发现过程只读远端：密钥不落盘，配置保持原样。
+			await expect(access(join(root, ".paper-agent", "config", "auth.json"))).rejects.toMatchObject({
+				code: "ENOENT",
+			});
+			const stored = await loadPaperAgentConfig(root);
+			expect(stored.models ?? []).toEqual([]);
+			expect(stored.model).toBeUndefined();
+		} finally {
+			await application.close();
+			await new Promise<void>((resolveClose, rejectClose) =>
+				server.close((error) => (error ? rejectClose(error) : resolveClose())),
+			);
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("requires a restart only for storage changes, not for model list changes", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-restart-"));
+		const application = new PaperAgentApplication({ projectRoot: root });
+		try {
+			// 让存储路径与运行中的应用一致，以便把 restartRequired 隔离到"模型列表"这一项。
+			const initial = defaultPaperAgentConfig();
+			initial.storage.dataRoot = join(root, ".paper-agent");
+			initial.storage.corpusRoot = join(root, ".paper-agent", "corpus");
+			const prepared = await application.prepareConfigurationWrite(initial);
+			const grant = await application.confirmOperation(prepared.operationId, prepared.manifestFingerprint);
+			await expect(application.writeConfiguration(initial, grant)).resolves.toMatchObject({
+				restartRequired: false,
+			});
+
+			const withModel = {
+				...initial,
+				models: [
+					{
+						providerId: "research-relay",
+						modelId: "new-model",
+						api: "openai-completions" as const,
+						baseUrl: "https://relay.example.com/v1",
+					},
+				],
+			};
+			// 模型列表变化不再要求重启：Web Agent 会在读取配置视图与切换模型时重新
+			// 对齐磁盘上的 models.json，设置页的增删立即反映到对话页。
+			const next = await application.prepareConfigurationWrite(withModel);
+			const nextGrant = await application.confirmOperation(next.operationId, next.manifestFingerprint);
+			await expect(application.writeConfiguration(withModel, nextGrant)).resolves.toMatchObject({
+				restartRequired: false,
+			});
+
+			// 存储路径变化仍然要求重启，避免把两种情形混为一谈。
+			const movedStorage = { ...withModel, storage: { ...withModel.storage, defaultNamespace: "renamed" } };
+			const moved = await application.prepareConfigurationWrite(movedStorage);
+			const movedGrant = await application.confirmOperation(moved.operationId, moved.manifestFingerprint);
+			await expect(application.writeConfiguration(movedStorage, movedGrant)).resolves.toMatchObject({
+				restartRequired: true,
+			});
+		} finally {
+			await application.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
 });

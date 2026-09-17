@@ -3646,6 +3646,206 @@ body.paper-reader-resizing .browser-pdf-frame {
 	word-break: break-all;
 }
 
+/* --- Model providers: 模型与供应商 ---------------------------------------- */
+/* 供应商列表横跨设置页的两列网格，内部的模型行自己排列。 */
+.settings-form > .model-providers-panel {
+	grid-column: 1 / -1;
+}
+
+.model-providers-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.model-providers-heading h2 {
+	margin-bottom: 0;
+}
+
+.model-provider-list {
+	display: grid;
+	gap: 12px;
+	margin-top: 18px;
+}
+
+.model-provider-card {
+	display: grid;
+	gap: 10px;
+	padding: 14px 16px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--surface-base);
+}
+
+.model-provider-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	flex-wrap: wrap;
+}
+
+.model-provider-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.model-provider-title strong {
+	font-size: 13px;
+}
+
+.model-provider-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.text-button.danger {
+	color: var(--accent-red-text, #dc2626);
+}
+
+.text-button.danger:hover {
+	background: var(--accent-red-soft, #fee2e2);
+}
+
+.model-provider-url {
+	display: block;
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.model-provider-models {
+	display: grid;
+	gap: 2px;
+	border-top: 1px solid var(--line);
+	padding-top: 4px;
+}
+
+.model-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 7px 0;
+}
+
+.model-row + .model-row {
+	border-top: 1px solid var(--line);
+}
+
+.model-row-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	flex-wrap: wrap;
+}
+
+.model-row-name strong {
+	font-size: 12px;
+}
+
+.model-row-name code {
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.model-row-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+}
+
+.model-probe-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-top: 18px;
+	padding: 12px 14px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--brand-50);
+}
+
+.model-probe-row strong {
+	font-size: 12px;
+}
+
+.model-probe-row .form-hint {
+	margin-top: 4px;
+}
+
+.model-discovery {
+	margin-top: 18px;
+	padding-top: 16px;
+	border-top: 1px solid var(--line);
+}
+
+.model-discovery-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.model-discovery-head > span {
+	color: var(--text-secondary);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.model-discovery-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 6px;
+	max-height: 220px;
+	margin-top: 12px;
+	overflow-y: auto;
+	padding: 10px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--surface-base);
+}
+
+.model-manual-models {
+	display: block;
+	margin-top: 16px;
+}
+
+.model-manual-models > span {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--text-secondary);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.model-manual-models textarea {
+	width: 100%;
+	padding: 10px 11px;
+	border: 1px solid var(--brand-300);
+	border-radius: 6px;
+	outline: 0;
+	color: var(--ink);
+	background: var(--surface-base);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	resize: vertical;
+}
+
+.model-manual-models textarea:focus {
+	border-color: var(--green-700);
+	box-shadow: 0 0 0 3px rgba(45, 107, 92, 0.1);
+}
+
 .switch {
 	position: relative;
 	width: 38px;

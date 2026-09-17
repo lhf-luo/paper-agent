@@ -133,13 +133,18 @@ export function AccessibleModal({
 }) {
 	const modalRef = useRef<HTMLDivElement>(null);
 	const prevFocusRef = useRef<HTMLElement | null>(null);
+	// 调用方普遍传入内联箭头函数。若把 onClose 放进依赖数组，父组件每次重渲染都会
+	// 重跑这个副作用，把焦点从正在输入的控件抢回弹窗第一个元素——表现就是每输入
+	// 一个字符焦点就丢失。用 ref 读取最新回调，让副作用只在挂载与卸载时各跑一次。
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
 
 	useEffect(() => {
 		prevFocusRef.current = document.activeElement as HTMLElement | null;
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				event.preventDefault();
-				onClose();
+				onCloseRef.current();
 			}
 			if (event.key === "Tab" && modalRef.current) {
 				const focusables = modalRef.current.querySelectorAll<HTMLElement>(
@@ -160,12 +165,17 @@ export function AccessibleModal({
 		document.addEventListener("keydown", handleKeyDown);
 
 		const focusTimer = window.setTimeout(() => {
-			if (modalRef.current) {
-				const first = modalRef.current.querySelector<HTMLElement>(
-					'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+			if (!modalRef.current) return;
+			// 表单弹窗优先聚焦第一个输入控件；纯确认弹窗回退到首个可聚焦按钮，
+			// 避免打开后焦点仍停在页面背后的触发按钮上。
+			const first =
+				modalRef.current.querySelector<HTMLElement>(
+					'input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+				) ??
+				modalRef.current.querySelector<HTMLElement>(
+					'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
 				);
-				first?.focus();
-			}
+			first?.focus();
 		}, 50);
 
 		return () => {
@@ -173,7 +183,7 @@ export function AccessibleModal({
 			window.clearTimeout(focusTimer);
 			prevFocusRef.current?.focus();
 		};
-	}, [onClose]);
+	}, []);
 
 	const titleId = useMemo(() => `modal-title-${Math.random().toString(36).slice(2, 8)}`, []);
 	const descId = useMemo(() => `modal-desc-${Math.random().toString(36).slice(2, 8)}`, []);

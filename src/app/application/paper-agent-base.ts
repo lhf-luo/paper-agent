@@ -153,19 +153,14 @@ export abstract class PaperAgentApplicationBase {
 		return {
 			...redacted,
 			path: resolvePaperAgentConfigPaths(this.projectRoot).directory,
-			model: config.model
+			// 设置页会把整个视图原样回传保存，所以这里必须保留模型的全部元数据：
+			// 只返回部分字段会让校验层用默认值补齐，从而静默重置上下文窗口和 token 上限。
+			model: redacted.model
 				? {
-						providerId: config.model.providerId,
-						modelId: config.model.modelId,
-						api: config.model.api,
-						baseUrl: config.model.baseUrl,
-						apiKeyEnvironmentVariable: config.model.apiKeyEnvironmentVariable,
-						headers: config.model.headers,
-						toolCallingVerifiedAt: config.model.toolCallingVerifiedAt,
-						toolCallingProbe: config.model.toolCallingProbe,
+						...redacted.model,
 						credentialsAvailable: Boolean(
-							config.model.apiKey ??
-								(config.model.apiKeyEnvironmentVariable
+							config.model?.apiKey ??
+								(config.model?.apiKeyEnvironmentVariable
 									? process.env[config.model.apiKeyEnvironmentVariable]
 									: undefined),
 						),
