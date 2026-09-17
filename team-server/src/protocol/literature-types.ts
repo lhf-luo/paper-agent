@@ -111,6 +111,15 @@ export interface PaperCuration {
 	};
 }
 
+export type PaperMetadataConflictField = "authors" | "year" | "venue" | "publicationType" | "citedByApiUrl";
+
+export interface PaperMetadataConflictValue {
+	value: string | number | string[];
+	sources: string[];
+}
+
+export type PaperMetadataConflicts = Partial<Record<PaperMetadataConflictField, PaperMetadataConflictValue[]>>;
+
 export interface PaperRecord {
 	id: string;
 	title: string;
@@ -120,6 +129,7 @@ export interface PaperRecord {
 	venue?: string;
 	venueRank?: "A" | "B" | "C";
 	publicationType?: string;
+	metadataConflicts?: PaperMetadataConflicts;
 	identifiers: PaperIdentifiers;
 	links: PaperLink[];
 	materialHashes?: string[];

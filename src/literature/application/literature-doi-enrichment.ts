@@ -1,5 +1,10 @@
 import { loadPaperAgentConfigSync } from "../../config/application/config-service.ts";
-import { normalizeDoi, uniquePaperLinks, withCanonicalPaperLinks } from "../domain/literature-identifiers.ts";
+import {
+	mergePaperMetadataConflicts,
+	normalizeDoi,
+	uniquePaperLinks,
+	withCanonicalPaperLinks,
+} from "../domain/literature-identifiers.ts";
 import type { LiteratureProvider, PaperRecord } from "../domain/literature-types.ts";
 import {
 	enrichProviderByDoi,
@@ -50,6 +55,7 @@ export function mergeMissingPaperMetadata(record: PaperRecord, candidate: PaperR
 		venue: record.venue?.trim() ? record.venue : candidate.venue,
 		venueRank: record.venueRank ?? candidate.venueRank,
 		publicationType: record.publicationType?.trim() ? record.publicationType : candidate.publicationType,
+		metadataConflicts: mergePaperMetadataConflicts(record, candidate),
 		identifiers: {
 			doi: record.identifiers.doi ?? candidate.identifiers.doi,
 			arxivId: record.identifiers.arxivId ?? candidate.identifiers.arxivId,

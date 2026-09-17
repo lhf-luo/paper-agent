@@ -54,11 +54,7 @@ export class LiteratureProviderHttpError extends Error {
 	}
 }
 
-export function providerFailureFromError(
-	provider: LiteratureProvider,
-	query: string,
-	error: unknown,
-): ProviderFailure {
+export function providerFailureFromError(provider: LiteratureProvider, query: string, error: unknown): ProviderFailure {
 	const message = error instanceof Error ? error.message : String(error);
 	const statusCode =
 		error instanceof LiteratureProviderHttpError
@@ -94,28 +90,23 @@ export function readNumber(record: Record<string, unknown>, key: string): number
 	return typeof record[key] === "number" ? record[key] : undefined;
 }
 
+// arXiv and ACL escape inline markup in titles (`&lt;i&gt;ECG&lt;/i&gt;`), so entities must be
+// decoded before tags are stripped or the tags survive as literal text.
+function xmlTagText(value: string): string {
+	return decodeEntities(decodeEntities(value).replace(/<[^>]+>/g, " "))
+		.replace(/<[^>]+>/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 export function extractXmlTag(xml: string, tag: string): string | undefined {
 	const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i").exec(xml);
-	return match
-		? decodeEntities(
-				match[1]
-					.replace(/<[^>]+>/g, " ")
-					.replace(/\s+/g, " ")
-					.trim(),
-			)
-		: undefined;
+	return match ? xmlTagText(match[1]) : undefined;
 }
 
 export function extractXmlTags(xml: string, tag: string): string[] {
 	const matches = xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "gi"));
-	return [...matches].map((match) =>
-		decodeEntities(
-			match[1]
-				.replace(/<[^>]+>/g, " ")
-				.replace(/\s+/g, " ")
-				.trim(),
-		),
-	);
+	return [...matches].map((match) => xmlTagText(match[1]));
 }
 
 export function passesFilters(record: PaperRecord, filters: SearchFilters | undefined): boolean {
@@ -140,7 +131,7 @@ export function passesFilters(record: PaperRecord, filters: SearchFilters | unde
 			!filters.types.some((type) => record.publicationType?.toLowerCase().includes(type.toLowerCase())))
 	)
 		return false;
-	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true || link.kind === "pdf"))
+	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true))
 		return false;
 	return true;
 }

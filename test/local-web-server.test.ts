@@ -144,7 +144,8 @@ describe("local Paper Agent web server", () => {
 						id: "acl_anthology",
 						searchConstraints: expect.objectContaining({ exactYear: true, singleVenue: true }),
 					}),
-					expect.objectContaining({ id: "usenix" }),
+					expect.objectContaining({ id: "exa", searchLimits: { supportsPagination: false, maxPageSize: 10 } }),
+					expect.objectContaining({ id: "usenix", searchLimits: { supportsPagination: true, maxPageSize: 10 } }),
 				]),
 			});
 			const namespaces = await authenticated("/api/namespaces");
@@ -166,6 +167,14 @@ describe("local Paper Agent web server", () => {
 			});
 			expect(unconstrainedAclSearch.status).toBe(400);
 			expect(await unconstrainedAclSearch.json()).toMatchObject({ error: expect.stringContaining("exact year") });
+			const nonSearchProvider = await authenticated("/api/search", {
+				method: "POST",
+				body: JSON.stringify({ query: "stateful fuzzing", providers: ["unpaywall"], filters: {} }),
+			});
+			expect(nonSearchProvider.status).toBe(400);
+			expect(await nonSearchProvider.json()).toMatchObject({
+				error: expect.stringContaining("Unsupported literature provider"),
+			});
 			const team = await authenticated("/api/team/overview");
 			expect(await team.json()).toMatchObject({ configured: false, connected: false });
 

@@ -74,8 +74,9 @@ export async function searchSemanticScholarPage(options: ProviderSearchOptions):
 	const offset = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid Semantic Scholar cursor");
 	const url = new URL("https://api.semanticscholar.org/graph/v1/paper/search");
+	const limit = Math.min(options.limit, 100);
 	url.searchParams.set("query", options.query);
-	url.searchParams.set("limit", String(Math.min(options.limit, 100)));
+	url.searchParams.set("limit", String(limit));
 	url.searchParams.set("offset", String(offset));
 	url.searchParams.set(
 		"fields",
@@ -110,8 +111,8 @@ export async function searchSemanticScholarPage(options: ProviderSearchOptions):
 		nextCursor:
 			next !== undefined
 				? String(next)
-				: offset + options.limit < (total ?? offset + options.limit)
-					? String(offset + options.limit)
+				: offset + limit < (total ?? offset + limit)
+					? String(offset + limit)
 					: undefined,
 		total,
 		requestUrl: url.href,

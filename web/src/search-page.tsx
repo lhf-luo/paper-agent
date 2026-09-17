@@ -70,6 +70,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				singleVenue?: boolean;
 				supportedVenues?: string[];
 			};
+			searchLimits?: { supportsPagination: boolean; maxPageSize?: number };
 			requiresEnvironmentVariable?: string;
 			credentialsAvailable: boolean;
 		}>
@@ -106,29 +107,35 @@ export function SearchPage({ onTask }: SearchPageProps) {
 	};
 
 	useEffect(() => {
-		void Promise.all([
-			api<{ providers: typeof providerCatalog }>("/api/providers"),
-			api<PaperAgentConfigView>("/api/config"),
-			api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
-		])
-			.then(([catalogResponse, config, namespaceResponse]) => {
-				setProviderCatalog(catalogResponse.providers);
+		void (async () => {
+			const [catalogResult, configResult, namespaceResult] = await Promise.allSettled([
+				api<{ providers: typeof providerCatalog }>("/api/providers"),
+				api<PaperAgentConfigView>("/api/config"),
+				api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
+			]);
+			const errors: string[] = [];
+			if (catalogResult.status === "fulfilled") setProviderCatalog(catalogResult.value.providers);
+			else errors.push(catalogResult.reason instanceof Error ? catalogResult.reason.message : String(catalogResult.reason));
+			if (configResult.status === "fulfilled") {
+				const config = configResult.value;
+				const catalog = catalogResult.status === "fulfilled" ? catalogResult.value.providers : [];
 				const available = new Set(
-					catalogResponse.providers
-						.filter(
-							(provider) => provider.credentialsAvailable && provider.capabilities.includes("keyword-search"),
-						)
+					catalog
+						.filter((provider) => provider.credentialsAvailable && provider.capabilities.includes("keyword-search"))
 						.map((provider) => provider.id),
 				);
-				setProviders(config.search.providers.filter((provider) => available.has(provider)));
+				setProviders(catalog.length ? config.search.providers.filter((provider) => available.has(provider)) : []);
 				setMaxResults(String(config.search.maxResultsPerProvider));
 				setPagesPerProvider(String(config.search.pagesPerProvider));
 				setQueryExpansions(config.search.queryExpansions.join("\n"));
 				setReuseCorpus(config.search.reuseCorpus);
-				setNamespace(namespaceResponse.defaultNamespace);
-				setNamespaces(namespaceResponse.personal);
-			})
-			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+			} else errors.push(configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason));
+			if (namespaceResult.status === "fulfilled") {
+				setNamespace(namespaceResult.value.defaultNamespace);
+				setNamespaces(namespaceResult.value.personal);
+			} else errors.push(namespaceResult.reason instanceof Error ? namespaceResult.reason.message : String(namespaceResult.reason));
+			if (errors.length) setError([...new Set(errors)].join("；"));
+		})();
 	}, []);
 
 	useEffect(() => {
@@ -329,12 +336,13 @@ export function SearchPage({ onTask }: SearchPageProps) {
 							<div className="chip-row">
 								{(providerCatalog.length
 									? providerCatalog.filter((provider) => provider.capabilities.includes("keyword-search"))
-									: ["arxiv", "openalex", "crossref", "semanticscholar"].map((id) => ({
+									: ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "exa", "usenix"].map((id) => ({
 											id,
 											label: id,
 											description: id,
 											capabilities: ["keyword-search"],
 											credentialsAvailable: true,
+											searchLimits: undefined,
 											requiresEnvironmentVariable: undefined,
 										}))
 								).map((provider) => (
@@ -344,7 +352,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 										key={provider.id}
 										disabled={!provider.credentialsAvailable}
 										onClick={() => toggleProvider(provider.id)}
-										title={`${provider.description}${provider.requiresEnvironmentVariable && !provider.credentialsAvailable ? `；未找到 ${provider.requiresEnvironmentVariable}` : ""}`}
+										title={`${provider.description}${provider.searchLimits?.supportsPagination === false ? "；仅支持单页" : ""}${provider.searchLimits?.maxPageSize ? `；单页最多 ${provider.searchLimits.maxPageSize} 条` : ""}${provider.requiresEnvironmentVariable && !provider.credentialsAvailable ? `；未找到 ${provider.requiresEnvironmentVariable}` : ""}`}
 									>
 										{provider.label}
 									</button>
@@ -390,7 +398,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 							/>
 						</label>
 						<label>
-							<span className="field-label">每源页数</span>
+							<span className="field-label">每源最多翻页数</span>
 							<input
 								type="number"
 								min="1"

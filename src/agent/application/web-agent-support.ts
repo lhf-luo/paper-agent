@@ -1,9 +1,5 @@
 import type { AgentSession, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type {
-	ModelApiKind,
-	ModelInputModality,
-	PiBuiltinToolName,
-} from "../../config/application/config-service.ts";
+import type { ModelApiKind, ModelInputModality, PiBuiltinToolName } from "../../config/application/config-service.ts";
 
 export const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const SUPPORTED_APIS = new Set<ModelApiKind>([
@@ -19,6 +15,7 @@ export const MAX_TOOL_CHARACTERS = 16_000;
 export const DEFAULT_UI_TIMEOUT_MS = 5 * 60_000;
 
 import {
+	WEB_AGENT_THINKING_LEVELS,
 	type WebAgentEvent,
 	type WebAgentMessageView,
 	type WebAgentMode,
@@ -28,7 +25,6 @@ import {
 	type WebAgentThinkingLevel,
 	type WebAgentToolView,
 	type WebAgentUIRequestView,
-	WEB_AGENT_THINKING_LEVELS,
 } from "../domain/web-agent-contracts.ts";
 
 export type {
@@ -43,10 +39,10 @@ export type {
 	WebAgentMessageView,
 	WebAgentMode,
 	WebAgentServiceApi,
+	WebAgentSessionContext,
 	WebAgentSessionSnapshot,
 	WebAgentSessionStatus,
 	WebAgentSessionSummary,
-	WebAgentSessionContext,
 	WebAgentToolView,
 	WebAgentUIRequestView,
 } from "../domain/web-agent-contracts.ts";
@@ -98,6 +94,8 @@ export interface ManagedWebAgentSession {
 	abortRequested: boolean;
 	thinkingLevel?: WebAgentThinkingLevel;
 	permissionMode: "ask" | "auto";
+	/** Set once a session has been told its provider returns no reasoning content. */
+	reasoningNoticeSent?: boolean;
 }
 
 export function normalizeThinkingLevel(value: unknown): WebAgentThinkingLevel | undefined {

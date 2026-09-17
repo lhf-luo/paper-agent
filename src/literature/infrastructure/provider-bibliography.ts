@@ -46,8 +46,9 @@ export async function searchDblpPage(options: ProviderSearchOptions): Promise<Pr
 	const offset = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid DBLP cursor");
 	const url = new URL("https://dblp.org/search/publ/api");
+	const limit = Math.min(options.limit, 1000);
 	url.searchParams.set("q", options.query);
-	url.searchParams.set("h", String(Math.min(options.limit, 1000)));
+	url.searchParams.set("h", String(limit));
 	url.searchParams.set("f", String(offset));
 	url.searchParams.set("format", "json");
 	const response = await fetchWithRetry(url, {
@@ -123,8 +124,9 @@ export async function searchCorePage(options: ProviderSearchOptions): Promise<Pr
 	const offset = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid CORE cursor");
 	const url = new URL("https://api.core.ac.uk/v3/search/works");
+	const limit = Math.min(options.limit, 100);
 	url.searchParams.set("q", options.query);
-	url.searchParams.set("limit", String(Math.min(options.limit, 100)));
+	url.searchParams.set("limit", String(limit));
 	url.searchParams.set("offset", String(offset));
 	const response = await fetchWithRetry(url, {
 		signal: options.signal,
@@ -188,8 +190,8 @@ export async function searchCorePage(options: ProviderSearchOptions): Promise<Pr
 		query: options.query,
 		records,
 		nextCursor:
-			offset + options.limit < (total ?? offset + payload.results.length) && payload.results.length
-				? String(offset + options.limit)
+			offset + limit < (total ?? offset + payload.results.length) && payload.results.length
+				? String(offset + limit)
 				: undefined,
 		total,
 		requestUrl: url.href,

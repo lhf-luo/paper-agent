@@ -20,7 +20,8 @@ function launcherOutput(projectRoot: string, argument: "--help" | "--version" | 
 		cwd: projectRoot,
 		encoding: "utf8",
 		env: { ...process.env, PAPER_AGENT_NODE_BIN: process.execPath },
-		timeout: 30_000,
+		// Cold GitHub-hosted Windows runners can spend more than 30 seconds starting Windows PowerShell.
+		timeout: process.platform === "win32" ? 60_000 : 30_000,
 		windowsHide: true,
 	});
 	if (result.error) throw result.error;

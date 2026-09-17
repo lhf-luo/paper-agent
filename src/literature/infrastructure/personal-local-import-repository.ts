@@ -8,6 +8,7 @@ import {
 	uniquePaperLinks,
 } from "../domain/literature-identifiers.ts";
 import type { PaperRecord, PaperVersion } from "../domain/literature-types.ts";
+import { withCleanMetadata } from "../domain/paper-title.ts";
 
 import {
 	json,
@@ -78,9 +79,11 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 				...(collection ? [collection.id] : []),
 				...assignedCollectionIds,
 			];
-			const candidate = targetCollectionIds.length
-				? { ...input.record, collectionIds: [...new Set(targetCollectionIds)] }
-				: input.record;
+			const candidate = withCleanMetadata(
+				targetCollectionIds.length
+					? { ...input.record, collectionIds: [...new Set(targetCollectionIds)] }
+					: input.record,
+			);
 			const existing = workingRecords.find(
 				(record) => samePaperIdentity(record, candidate) || sameLocalPdfMetadataIdentity(record, candidate),
 			);

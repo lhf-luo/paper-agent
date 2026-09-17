@@ -107,8 +107,23 @@ function AppShell() {
 			: undefined,
 	);
 	const [libraryToolbarTarget, setLibraryToolbarTarget] = useState<HTMLDivElement | null>(null);
-	const [researchTarget, setResearchTarget] = useState<ResearchNoteNavigation>();
+	// Held in state rather than the URL: research prompts are long and would blow past practical URL length.
+	const [agentDraft, setAgentDraft] = useState<{ sessionId: string; text: string }>();
 	const { namespace } = useWorkspace();
+
+	// Derived from the URL rather than held in state so `?page=research&namespace=<ns>&noteId=<id>`
+	// still opens the same note after a refresh, when in-memory navigation state is gone.
+	const researchTarget = useMemo<ResearchNoteNavigation | undefined>(
+		() =>
+			params.namespace
+				? {
+						namespace: params.namespace,
+						...(params.noteId ? { noteId: params.noteId } : {}),
+						...(params.paperId ? { paperId: params.paperId } : {}),
+					}
+				: undefined,
+		[params.namespace, params.noteId, params.paperId],
+	);
 
 	// Deep-link rebuild: `?page=reader&paper=<id>` must survive a refresh, where the in-memory reader state is gone.
 	const readerPaperId = router.params.paper;
@@ -151,10 +166,10 @@ function AppShell() {
 
 	const openResearchNote = useCallback(
 		(target: ResearchNoteNavigation) => {
-			setResearchTarget(target);
 			navigate("research", {
 				namespace: target.namespace,
 				...(target.noteId ? { noteId: target.noteId } : {}),
+				...(target.paperId ? { paperId: target.paperId } : {}),
 			});
 		},
 		[navigate],
@@ -201,14 +216,14 @@ function AppShell() {
 											const Icon = item.icon;
 											const isActive = page === item.id;
 											return (
-											<button
-												key={item.id}
-												className={isActive ? "active" : ""}
-												type="button"
-												aria-current={isActive ? "page" : undefined}
-												onClick={() => go(item.id)}
-												title={sidebarCollapsed ? item.label : undefined}
-											>
+												<button
+													key={item.id}
+													className={isActive ? "active" : ""}
+													type="button"
+													aria-current={isActive ? "page" : undefined}
+													onClick={() => go(item.id)}
+													title={sidebarCollapsed ? item.label : undefined}
+												>
 													<span className="nav-icon">
 														<Icon size={18} />
 													</span>
@@ -273,14 +288,25 @@ function AppShell() {
 							<Suspense fallback={<LoadingBlock text="正在加载工作区…" />}>
 								{page === "dashboard" && <DashboardPage status={status} go={go} />}
 								{page === "search" && <SearchPage onTask={trackTask} />}
-								{page === "agent" && <AgentPage focusSessionId={params.session} />}
+								{page === "agent" && (
+									<AgentPage
+										focusSessionId={params.session}
+										initialPrompt={
+											agentDraft && agentDraft.sessionId === params.session ? agentDraft.text : undefined
+										}
+										onPromptConsumed={() => setAgentDraft(undefined)}
+									/>
+								)}
 								{page === "library" && (
 									<LibraryPage
 										onOpenReader={openReader}
 										onTask={trackTask}
 										toolbarTarget={libraryToolbarTarget}
 										onOpenResearchNote={openResearchNote}
-										onAgentSession={(sessionId) => navigate("agent", { session: sessionId })}
+										onAgentSession={(sessionId, draft) => {
+											setAgentDraft(draft ? { sessionId, text: draft } : undefined);
+											navigate("agent", { session: sessionId });
+										}}
 									/>
 								)}
 								{page === "tasks" && <TasksPage />}
