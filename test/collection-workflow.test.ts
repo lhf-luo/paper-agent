@@ -131,6 +131,59 @@ describe("collection workflow", () => {
 		]);
 	});
 
+	it("enriches DOI abstracts before final deduplication and candidate-table construction", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-collect-abstracts-"));
+		temporaryPaths.push(root);
+		const first: PaperRecord = {
+			id: "doi-record",
+			title: "Provider title",
+			authors: ["Ada Author"],
+			identifiers: { doi: "10.5555/enriched" },
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+		const second: PaperRecord = {
+			id: "arxiv-record",
+			title: "Preprint title",
+			authors: ["Different Author"],
+			identifiers: { arxivId: "2401.00001" },
+			links: [],
+			provenance: [],
+			mergedFrom: [],
+		};
+		const result = await collectLiterature({
+			queries: ["kernel security"],
+			providers: ["dblp"],
+			filters: {},
+			pagesPerProvider: 1,
+			maxResultsPerProvider: 10,
+			scope: "personal",
+			mode: "once",
+			namespace: "default",
+			cwd: root,
+			reuseCorpus: false,
+			providerPageSearch: (async () => ({
+				provider: "dblp",
+				query: "kernel security",
+				records: [first, second],
+				requestUrl: "https://dblp.example/search",
+			})) as never,
+			abstractDoiLookup: async (_provider, doi) => ({
+				...first,
+				id: "enrichment-candidate",
+				abstract: "Completed abstract",
+				identifiers: { doi, arxivId: "2401.00001" },
+			}),
+		});
+
+		expect(result.run.results).toHaveLength(1);
+		expect(result.run.results[0].abstract).toBe("Completed abstract");
+		expect(result.run.candidateTable).toHaveLength(1);
+		expect(result.run.deduplicatedCount).toBe(1);
+		expect(result.run.abstractEnrichment).toMatchObject({ attempted: 1, filled: 1, skippedWithoutDoi: 1 });
+	});
+
 	it("paginates Crossref, persists provenance, and avoids repeating an identical search", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-collect-"));
 		temporaryPaths.push(root);
@@ -151,6 +204,7 @@ describe("collection workflow", () => {
 			mode: "persistent" as const,
 			namespace: "test",
 			cwd: root,
+			abstractDoiLookup: async () => undefined,
 		};
 
 		const first = await collectLiterature(await authorizedCollection(options));

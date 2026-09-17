@@ -4,6 +4,12 @@ import { LiteratureStore, resolveCorpusRoot } from "../application/literature-st
 import { type PersonalPaperDetails, queryPersonalLibraryPaper } from "../application/personal-paper-query.ts";
 import { paperPrimaryUrl } from "../domain/literature-identifiers.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
+import {
+	type PersonalPaperProjectionField,
+	personalPaperProjectionFieldSchema,
+	projectCandidate,
+	projectPersonalPaperDetails,
+} from "./literature-query-projection.ts";
 
 function values(values: Array<string | undefined>): string {
 	return values.filter((value): value is string => Boolean(value)).join(", ") || "none";
@@ -79,18 +85,27 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 		name: "get_personal_library_paper",
 		label: "Get personal library paper",
 		description:
-			"Read one paper's complete stored personal-library record by exact title, paper ID, DOI, or arXiv ID. Returns metadata, abstract, publication version IDs, remote PDF links, local PDF versions and paths, collections, notes, provenance, derived records, and acquired Artifacts. Makes no external requests and performs no writes.",
+			"Read one stored personal-library paper by exact title, Paper ID, DOI, or arXiv ID. Omit fields for the complete existing response, or select only the metadata and materials needed. Makes no external requests and performs no writes.",
 		promptSnippet: "Inspect one complete personal-library paper record and its saved materials",
 		promptGuidelines: [
 			"Use this instead of a new provider search when the user asks about a paper already saved in the personal library.",
 			"Pass the exact title when paper_id is unknown. If multiple or only approximate candidates are returned, ask the user or retry with the candidate paper_id; never guess.",
 			"Distinguish remote PDF download links from localPdfVersions. A remote link is not proof that a PDF has already been saved.",
+			"Pass fields to reduce context when the complete paper record and all saved materials are unnecessary; Paper ID is always returned.",
 		],
 		parameters: Type.Object({
 			query: Type.String({
 				minLength: 1,
 				description: "Exact paper title, Paper Agent paper_id, DOI, DOI URL, arXiv ID, or arXiv URL",
 			}),
+			fields: Type.Optional(
+				Type.Array(personalPaperProjectionFieldSchema, {
+					minItems: 1,
+					uniqueItems: true,
+					description:
+						"Optional field projection. Omit for the complete existing response. Paper ID and lookup status are always returned.",
+				}),
+			),
 			namespace: Type.Optional(Type.String({ description: "Personal-library namespace; default: default" })),
 			corpus_root: Type.Optional(Type.String()),
 		}),
@@ -103,6 +118,13 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 			);
 			const result = await queryPersonalLibraryPaper(store, params.query);
 			if (result.status === "found") {
+				if (params.fields) {
+					const paper = projectPersonalPaperDetails(result.paper, params.fields as PersonalPaperProjectionField[]);
+					return {
+						content: [{ type: "text", text: `Personal library paper:\n${JSON.stringify(paper, null, 2)}` }],
+						details: { status: result.status, paper },
+					};
+				}
 				return {
 					content: [{ type: "text", text: formatPaperDetails(result.paper) }],
 					details: result,
@@ -110,6 +132,17 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 			}
 			const heading =
 				result.status === "ambiguous" ? "Multiple exact matches were found." : "No exact match was found.";
+			if (params.fields) {
+				const candidates = result.candidates.map(projectCandidate);
+				const text = [
+					heading,
+					candidates.length
+						? "Candidates (retry with paper_id after choosing the correct paper):"
+						: "No approximate candidates were found in this namespace.",
+					...candidates.map((candidate) => `- ${candidate.title} | paper_id=${candidate.id}`),
+				].join("\n");
+				return { content: [{ type: "text", text }], details: { status: result.status, candidates } };
+			}
 			const text = [
 				heading,
 				result.candidates.length

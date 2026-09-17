@@ -36,7 +36,7 @@ function run(results: PaperRecord[]): SearchRun {
 }
 
 describe("filterGroup", () => {
-	it("uses OR within concept groups, AND across groups, and preserves undecidable records", () => {
+	it("uses separate abstract and title-only rules", () => {
 		const result = filterGroup(
 			run([
 				paper("matched", "Linux kernel analysis", "Detects use after free bugs"),
@@ -44,10 +44,13 @@ describe("filterGroup", () => {
 				paper("unresolved", "Linux kernel analysis"),
 			]),
 			{
-				includeTermGroups: [
-					["linux", "bsd"],
-					["use after free", "uaf"],
-				],
+				withAbstract: {
+					includeTermGroups: [
+						["linux", "bsd"],
+						["use after free", "uaf"],
+					],
+				},
+				withoutAbstract: { includeTerms: ["linux"] },
 			},
 		);
 
@@ -56,13 +59,17 @@ describe("filterGroup", () => {
 		expect(result.excluded).toBe(1);
 	});
 
-	it("keeps the legacy include_terms OR behavior", () => {
-		const result = filterGroup(run([paper("one", "Linux"), paper("two", "Windows")]), {
-			includeTerms: ["linux", "bsd"],
-		});
+	it("uses include_terms OR and excludes abstractless records without a positive title rule", () => {
+		const result = filterGroup(
+			run([paper("one", "Linux", "kernel"), paper("two", "Windows"), paper("three", "Linux")]),
+			{
+				withAbstract: { includeTerms: ["linux", "bsd"] },
+				withoutAbstract: {},
+			},
+		);
 		expect(result.matched.map((entry) => entry.record.id)).toEqual(["one"]);
 		expect(result.unresolved).toEqual([]);
-		expect(result.excluded).toBe(1);
+		expect(result.excluded).toBe(2);
 	});
 
 	it("renders every retained Paper ID and title without bibliographic fields", () => {

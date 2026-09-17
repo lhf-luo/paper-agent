@@ -5,6 +5,7 @@ import { collectionPersistencePlan, collectLiterature } from "../application/lit
 import {
 	type FilterResultEntry,
 	fingerprintSearchRun,
+	readFilterResult,
 	saveFilterResult,
 } from "../application/literature-filter-result.ts";
 import { type FilterGroupOptions, filterGroup, filterTableLines } from "../application/literature-filtering.ts";
@@ -19,10 +20,31 @@ import {
 	optionsFromParams,
 } from "./collection-tool-formatting.ts";
 import { scopeSchema } from "./collection-tool-schemas.ts";
+import {
+	type PaperProjectionField,
+	paperProjectionFieldSchema,
+	projectPaperRecord,
+} from "./literature-query-projection.ts";
 
 const includeTermGroupsSchema = Type.Array(Type.Array(Type.String(), { minItems: 1, maxItems: 20 }), {
 	maxItems: 12,
 	description: "Required concept groups: terms inside one group are OR; every group must match (AND)",
+});
+
+const filterRuleSchema = Type.Object({
+	include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
+	include_term_groups: Type.Optional(includeTermGroupsSchema),
+	exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
+	exclude_scope: Type.Optional(Type.Union([Type.Literal("title"), Type.Literal("title+abstract")])),
+	year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+	year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+	venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
+});
+
+const filterGroupSchema = Type.Object({
+	label: Type.Optional(Type.String()),
+	with_abstract: filterRuleSchema,
+	without_abstract: Type.Omit(filterRuleSchema, ["exclude_scope"]),
 });
 
 export function registerCollectionQueryTools(pi: ExtensionAPI): void {
@@ -180,15 +202,24 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 		name: "get_search_run_papers",
 		label: "Get search run papers",
 		description:
-			"Read stored metadata and abstracts for up to 20 exact paper IDs from one persisted search run. Makes no external requests and performs no writes.",
+			"Read stored data for up to 20 exact paper IDs from one persisted search run. Omit fields for the complete existing response, or select only the fields needed. Makes no external requests and performs no writes.",
 		promptSnippet: "Read selected search-result papers on demand",
 		promptGuidelines: [
 			"Use only for papers you need to inspect; keep paper_ids limited to the current decision batch.",
 			"Use the exact paper IDs returned by filtering or inspect_literature_sidebar.",
+			"Pass fields when only selected metadata or abstracts are needed; Paper ID is always returned.",
 		],
 		parameters: Type.Object({
 			search_run_id: Type.String(),
 			paper_ids: Type.Array(Type.String(), { minItems: 1, maxItems: 20 }),
+			fields: Type.Optional(
+				Type.Array(paperProjectionFieldSchema, {
+					minItems: 1,
+					uniqueItems: true,
+					description:
+						"Optional field projection. Omit for the complete existing response. Paper ID and query status are always returned.",
+				}),
+			),
 			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
 			corpus_root: Type.Optional(Type.String()),
 		}),
@@ -217,20 +248,31 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				`Abstract: ${record.abstract ?? "unavailable"}`,
 				"",
 			]);
+			const projectedRecords = params.fields
+				? records.map((record) => projectPaperRecord(record, params.fields as PaperProjectionField[]))
+				: records;
 			return {
 				content: [
 					{
 						type: "text",
-						text: [
-							`Search run ${run.id}: ${records.length} paper(s) loaded on demand.`,
-							...lines,
-							missingPaperIds.length ? `Missing paper IDs: ${missingPaperIds.join(", ")}` : "",
-						]
-							.filter(Boolean)
-							.join("\n"),
+						text: params.fields
+							? [
+									`Search run ${run.id}: ${records.length} paper(s) loaded on demand.`,
+									JSON.stringify(projectedRecords, null, 2),
+									missingPaperIds.length ? `Missing paper IDs: ${missingPaperIds.join(", ")}` : "",
+								]
+									.filter(Boolean)
+									.join("\n")
+							: [
+									`Search run ${run.id}: ${records.length} paper(s) loaded on demand.`,
+									...lines,
+									missingPaperIds.length ? `Missing paper IDs: ${missingPaperIds.join(", ")}` : "",
+								]
+									.filter(Boolean)
+									.join("\n"),
 					},
 				],
-				details: { searchRunId: run.id, records, missingPaperIds },
+				details: { searchRunId: run.id, records: projectedRecords, missingPaperIds },
 			};
 		},
 	});
@@ -239,91 +281,102 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 		name: "filter_search_run_results",
 		label: "Filter search run results",
 		description:
-			"Filter a persisted search run, return every unique matched and unresolved Paper ID/title, and save a session-scoped filter result for update_literature_sidebar. The stored search run is unchanged. include_terms uses OR; include_term_groups uses OR within groups and AND across groups.",
+			"Filter a persisted search run or narrow a previous filter result. Separate rules apply to papers with abstracts and papers without abstracts. Every retained Paper ID/title is returned and the Search Run is unchanged.",
 		promptSnippet: "Filter collected literature results in place",
 		promptGuidelines: [
-			"Use after collect_literature when the candidate table is noisy or truncated; prefer this over re-searching.",
-			"Use include_term_groups for precise screening. Terms inside one group are synonyms (OR); every group is required (AND). Do not combine it with include_terms.",
-			"Records without abstracts that cannot satisfy every required group from the title alone are marked unresolved instead of silently excluded.",
-			"Use groups to run several topical filters (e.g. kernel vs binary) in one call; each group is reported separately.",
-			"Inspect the complete Paper ID/title list for obvious noise. If the rule needs tightening, rerun this tool; otherwise pass filter_result_id and search_run_id to update_literature_sidebar. Never cherry-pick papers by title.",
+			"Provide exactly one source: search_run_id for the first pass or source_filter_result_id to narrow an earlier result.",
+			"with_abstract checks title and abstract. without_abstract checks title only and must contain a positive include rule; passing records remain unresolved.",
+			"Use include_term_groups for OR within each concept group and AND across groups. Do not combine it with include_terms.",
+			"To loosen rules, start again from search_run_id. A chained filter can only narrow retained papers.",
+			"Pass the final filter_result_id with its root search_run_id to update_literature_sidebar. Never cherry-pick papers by title.",
 		],
 		parameters: Type.Object({
-			search_run_id: Type.String(),
-			include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
-			include_term_groups: Type.Optional(includeTermGroupsSchema),
-			exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
-			exclude_scope: Type.Optional(
-				Type.Union([Type.Literal("title"), Type.Literal("title+abstract")], {
-					description: "Where exclude_terms are checked; default: title+abstract",
-				}),
+			search_run_id: Type.Optional(Type.String({ description: "Root Search Run for the first filter pass" })),
+			source_filter_result_id: Type.Optional(
+				Type.String({ description: "Previous filter result to narrow; mutually exclusive with search_run_id" }),
 			),
-			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-			venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
-			limit: Type.Optional(
-				Type.Integer({
-					minimum: 1,
-					maximum: 500,
-					description: "Deprecated; accepted but ignored. All retained papers are returned.",
-				}),
-			),
-			groups: Type.Optional(
-				Type.Array(
-					Type.Object({
-						label: Type.Optional(Type.String()),
-						include_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
-						include_term_groups: Type.Optional(includeTermGroupsSchema),
-						exclude_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 60 })),
-						exclude_scope: Type.Optional(Type.Union([Type.Literal("title"), Type.Literal("title+abstract")])),
-						year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-						year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-						venue_rank: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("B"), Type.Literal("C")])),
-						limit: Type.Optional(
-							Type.Integer({ minimum: 1, maximum: 500, description: "Deprecated; accepted but ignored." }),
-						),
-					}),
-					{ maxItems: 8, description: "Independent topical filters run in one call" },
-				),
-			),
+			groups: Type.Array(filterGroupSchema, { minItems: 1, maxItems: 8 }),
 			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const corpusRoot = resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root);
+			if (Boolean(params.search_run_id) === Boolean(params.source_filter_result_id)) {
+				throw new Error("Provide exactly one of search_run_id or source_filter_result_id");
+			}
+			let namespace = params.namespace ?? "default";
+			let corpusRoot = resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root);
+			let rootSearchRunId = params.search_run_id;
+			let parentFilterResultId: string | undefined;
+			let sourceEntries: FilterResultEntry[] | undefined;
+			if (params.source_filter_result_id) {
+				const parent = await readFilterResult(
+					ctx.cwd,
+					ctx.sessionManager?.getSessionId?.(),
+					params.source_filter_result_id,
+				);
+				if (params.namespace !== undefined && parent.namespace !== namespace) {
+					throw new Error("source_filter_result_id belongs to a different namespace");
+				}
+				if (params.corpus_root !== undefined && parent.corpusRoot !== corpusRoot) {
+					throw new Error("source_filter_result_id belongs to a different corpus root");
+				}
+				rootSearchRunId = parent.searchRunId;
+				parentFilterResultId = params.source_filter_result_id;
+				sourceEntries = parent.entries;
+				corpusRoot = parent.corpusRoot;
+				namespace = parent.namespace;
+			}
 			const store = new LiteratureStore(corpusRoot, "personal", namespace);
-			const run = await store.getSearchRun(params.search_run_id);
-			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
-			const lines: string[] = [`search_run_id=${run.id}: ${run.results.length} results total.`];
+			const run = await store.getSearchRun(rootSearchRunId!);
+			if (!run) throw new Error(`Search run not found in source corpus: ${rootSearchRunId}`);
+			if (run.namespace !== namespace) throw new Error("Search run belongs to a different namespace");
+			if (parentFilterResultId) {
+				const parent = await readFilterResult(ctx.cwd, ctx.sessionManager?.getSessionId?.(), parentFilterResultId);
+				if (fingerprintSearchRun(run) !== parent.runFingerprint) {
+					throw new Error("Filter result is stale because the Search Run changed; filter from the root again");
+				}
+			}
+			const byId = new Map(run.results.map((record) => [record.id, record]));
+			const sourceRecords = sourceEntries
+				? sourceEntries.map((entry) => {
+						const record = byId.get(entry.paperId);
+						if (!record || record.title !== entry.title) {
+							throw new Error("Filter result is stale because a retained paper changed or disappeared");
+						}
+						return record;
+					})
+				: run.results;
+			const lines: string[] = [
+				`search_run_id=${run.id}: filtering ${sourceRecords.length} source papers from ${run.results.length} root results.`,
+				...(parentFilterResultId ? [`source_filter_result_id=${parentFilterResultId}`] : []),
+			];
 			const details: Array<Record<string, unknown>> = [];
 			const retained = new Map<string, FilterResultEntry>();
-			const groups: Array<{ label?: string } & FilterGroupOptions> = (params.groups ?? []).map((group) => ({
+			const groups: FilterGroupOptions[] = params.groups.map((group) => ({
 				label: group.label,
-				includeTerms: group.include_terms,
-				includeTermGroups: group.include_term_groups,
-				excludeTerms: group.exclude_terms,
-				excludeScope: group.exclude_scope,
-				yearFrom: group.year_from,
-				yearTo: group.year_to,
-				venueRank: group.venue_rank,
+				withAbstract: {
+					includeTerms: group.with_abstract.include_terms,
+					includeTermGroups: group.with_abstract.include_term_groups,
+					excludeTerms: group.with_abstract.exclude_terms,
+					excludeScope: group.with_abstract.exclude_scope,
+					yearFrom: group.with_abstract.year_from,
+					yearTo: group.with_abstract.year_to,
+					venueRank: group.with_abstract.venue_rank,
+				},
+				withoutAbstract: {
+					includeTerms: group.without_abstract.include_terms,
+					includeTermGroups: group.without_abstract.include_term_groups,
+					excludeTerms: group.without_abstract.exclude_terms,
+					yearFrom: group.without_abstract.year_from,
+					yearTo: group.without_abstract.year_to,
+					venueRank: group.without_abstract.venue_rank,
+				},
 			}));
-			if (groups.length === 0) {
-				groups.push({
-					includeTerms: params.include_terms,
-					includeTermGroups: params.include_term_groups,
-					excludeTerms: params.exclude_terms,
-					excludeScope: params.exclude_scope,
-					yearFrom: params.year_from,
-					yearTo: params.year_to,
-					venueRank: params.venue_rank,
-				});
-			}
 			for (const group of groups) {
-				const { matched, unresolved, total, excluded } = filterGroup(run, group);
+				const { matched, unresolved, total, excluded } = filterGroup(sourceRecords, group);
 				const label = group.label ? ` (${group.label})` : "";
 				lines.push(
-					`Filter group${label}: ${total} matched, ${unresolved.length} unresolved, ${excluded} excluded / ${run.results.length} total.`,
+					`Filter group${label}: ${total} matched, ${unresolved.length} unresolved, ${excluded} excluded / ${sourceRecords.length} source.`,
 				);
 				for (const entry of matched) {
 					retained.set(entry.record.id, {
@@ -353,19 +406,23 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			const matchedEntries = entries.filter((entry) => entry.status === "matched");
 			const unresolvedEntries = entries.filter((entry) => entry.status === "unresolved");
 			const filterResultId = await saveFilterResult(ctx.cwd, ctx.sessionManager?.getSessionId?.(), {
-				version: 1,
+				version: 2,
 				searchRunId: run.id,
+				parentFilterResultId,
 				runFingerprint: fingerprintSearchRun(run),
 				namespace,
 				corpusRoot,
+				rules: groups,
+				sourceCount: sourceRecords.length,
+				rootTotal: run.results.length,
 				entries,
 			});
 			lines.push(`filter_result_id=${filterResultId}`);
 			lines.push(
-				`Unique retained: ${entries.length} (${matchedEntries.length} matched, ${unresolvedEntries.length} unresolved, ${run.results.length - entries.length} excluded).`,
+				`Unique retained: ${entries.length} (${matchedEntries.length} matched, ${unresolvedEntries.length} unresolved, ${sourceRecords.length - entries.length} excluded this pass).`,
 				"Matched (all):",
 				...filterTableLines(matchedEntries),
-				"Unresolved (missing abstract; review before excluding; all):",
+				"Unresolved (passed title-only rules but has no abstract; all):",
 				...filterTableLines(unresolvedEntries),
 			);
 			return {
@@ -375,10 +432,14 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 					search_run_id: run.id,
 					filterResultId,
 					filter_result_id: filterResultId,
+					sourceFilterResultId: parentFilterResultId,
+					source_filter_result_id: parentFilterResultId,
 					totalResults: run.results.length,
+					rootTotal: run.results.length,
+					sourceCount: sourceRecords.length,
 					matched: matchedEntries.length,
 					unresolved: unresolvedEntries.length,
-					excluded: run.results.length - entries.length,
+					excludedThisPass: sourceRecords.length - entries.length,
 					retained: entries,
 					groups: details,
 				},
@@ -390,7 +451,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 		name: "collect_literature",
 		label: "Collect literature",
 		description:
-			"Search the selected corpus first, then run a bounded collection across the keyword-search providers arXiv, OpenAlex, Crossref, Semantic Scholar, DBLP, CORE, and Exa with filters, pagination, deduplication, partial-failure reporting, optional persistent caching, and provenance. DOI-only providers enrich records later and are not keyword-search choices.",
+			"Search the selected corpus first, then run a bounded collection across keyword-search providers with filters, pagination, deduplication, partial-failure reporting, optional persistent caching, and provenance. Missing abstracts with a DOI are then completed through configured Crossref, OpenAlex, and Semantic Scholar lookups before the Search Run is saved.",
 		promptSnippet: "Collect and deduplicate literature into a personal or team corpus",
 		promptGuidelines: [
 			"Review the deterministic acronym/hyphenation expansions, add explicit author/title or adjacent-term variants when useful, and preserve every executed query in the run manifest.",
@@ -423,6 +484,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 					resultCount: result.run.results.length,
 					sourceCounts: result.run.sourceCounts,
 					coverage: result.run.coverage,
+					abstractEnrichment: result.run.abstractEnrichment,
 					executions: result.run.executions,
 					failures: result.run.failures,
 					cached: result.cached,

@@ -71,7 +71,9 @@ export function providerFailureFromError(provider: LiteratureProvider, query: st
 			statusCode === 425 ||
 			statusCode === 429 ||
 			(statusCode !== undefined && statusCode >= 500) ||
-			/timed?\s*out|temporar|network|fetch failed|socket hang up|ECONN|ENOTFOUND|ETIMEDOUT/i.test(message),
+			/timed?\s*out|temporar|network|fetch failed|socket hang up|ECONN|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ETIMEDOUT/i.test(
+				message,
+			),
 		statusCode,
 		rateLimited: statusCode === 429,
 		retryAfter: error instanceof LiteratureProviderHttpError ? error.retryAfter : undefined,
@@ -131,8 +133,7 @@ export function passesFilters(record: PaperRecord, filters: SearchFilters | unde
 			!filters.types.some((type) => record.publicationType?.toLowerCase().includes(type.toLowerCase())))
 	)
 		return false;
-	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true))
-		return false;
+	if (filters.openAccess === true && !record.links.some((link) => link.openAccess === true)) return false;
 	return true;
 }
 

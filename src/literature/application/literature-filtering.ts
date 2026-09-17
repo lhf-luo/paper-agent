@@ -4,7 +4,7 @@ import type { PaperRecord, SearchRun } from "../domain/literature-types.ts";
 import type { FilterResultEntry } from "./literature-filter-result.ts";
 import type { LiteratureStore } from "./literature-store.ts";
 
-export interface FilterGroupOptions {
+export interface FilterRuleOptions {
 	includeTerms?: string[];
 	includeTermGroups?: string[][];
 	excludeTerms?: string[];
@@ -12,7 +12,12 @@ export interface FilterGroupOptions {
 	yearFrom?: number;
 	yearTo?: number;
 	venueRank?: "A" | "B" | "C";
-	limit?: number;
+}
+
+export interface FilterGroupOptions {
+	label?: string;
+	withAbstract: FilterRuleOptions;
+	withoutAbstract: Omit<FilterRuleOptions, "excludeScope">;
 }
 
 export interface FilteredRecord {
@@ -21,8 +26,24 @@ export interface FilteredRecord {
 	status: "matched" | "unresolved";
 }
 
+function normalizeRule(rule: FilterRuleOptions | Omit<FilterRuleOptions, "excludeScope">) {
+	const include = (rule.includeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
+	const includeGroups = (rule.includeTermGroups ?? [])
+		.map((group) => group.map((term) => term.trim().toLowerCase()).filter(Boolean))
+		.filter((group) => group.length > 0);
+	if (include.length && includeGroups.length) {
+		throw new Error("include_terms and include_term_groups cannot be used together");
+	}
+	return {
+		source: rule,
+		include,
+		includeGroups,
+		exclude: (rule.excludeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean),
+	};
+}
+
 export function filterGroup(
-	run: SearchRun,
+	source: SearchRun | PaperRecord[],
 	options: FilterGroupOptions,
 ): {
 	matched: FilteredRecord[];
@@ -30,40 +51,31 @@ export function filterGroup(
 	total: number;
 	excluded: number;
 } {
-	const include = (options.includeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
-	const includeGroups = (options.includeTermGroups ?? [])
-		.map((group) => group.map((term) => term.trim().toLowerCase()).filter(Boolean))
-		.filter((group) => group.length > 0);
-	if (include.length && includeGroups.length) {
-		throw new Error("include_terms and include_term_groups cannot be used together");
-	}
-	const exclude = (options.excludeTerms ?? []).map((term) => term.trim().toLowerCase()).filter(Boolean);
-	const excludeTitleOnly = options.excludeScope === "title";
+	const records = Array.isArray(source) ? source : source.results;
+	const withAbstract = normalizeRule(options.withAbstract);
+	const withoutAbstract = normalizeRule(options.withoutAbstract);
 	const matched: FilteredRecord[] = [];
 	const unresolved: FilteredRecord[] = [];
-	for (const record of run.results) {
+	for (const record of records) {
+		const hasAbstract = Boolean(record.abstract?.trim());
+		const rule = hasAbstract ? withAbstract : withoutAbstract;
+		if (!hasAbstract && rule.include.length === 0 && rule.includeGroups.length === 0) continue;
 		const title = record.title.toLowerCase();
 		const abstract = (record.abstract ?? "").toLowerCase();
-		const haystack = `${title}\n${abstract}`;
-		const excludeHaystack = excludeTitleOnly ? title : haystack;
-		if (exclude.some((term) => excludeHaystack.includes(term))) continue;
-		if (options.yearFrom && (record.year ?? 0) < options.yearFrom) continue;
-		if (options.yearTo && (record.year ?? 9999) > options.yearTo) continue;
-		if (options.venueRank && record.venueRank !== options.venueRank) continue;
-		if (include.length > 0 && !include.some((term) => haystack.includes(term))) continue;
-		const allGroupsMatch = includeGroups.every((group) => group.some((term) => haystack.includes(term)));
-		const matchedTerms = (includeGroups.length ? includeGroups.flat() : include).filter((term) =>
+		const haystack = hasAbstract ? `${title}\n${abstract}` : title;
+		const excludeHaystack = hasAbstract && options.withAbstract.excludeScope !== "title" ? haystack : title;
+		if (rule.exclude.some((term) => excludeHaystack.includes(term))) continue;
+		if (rule.source.yearFrom && (record.year ?? 0) < rule.source.yearFrom) continue;
+		if (rule.source.yearTo && (record.year ?? 9999) > rule.source.yearTo) continue;
+		if (rule.source.venueRank && record.venueRank !== rule.source.venueRank) continue;
+		if (rule.include.length > 0 && !rule.include.some((term) => haystack.includes(term))) continue;
+		const allGroupsMatch = rule.includeGroups.every((group) => group.some((term) => haystack.includes(term)));
+		const matchedTerms = (rule.includeGroups.length ? rule.includeGroups.flat() : rule.include).filter((term) =>
 			haystack.includes(term),
 		);
-		if (includeGroups.length && !allGroupsMatch) {
-			if (!record.abstract) unresolved.push({ record, matchedTerms, status: "unresolved" });
-			continue;
-		}
-		matched.push({
-			record,
-			matchedTerms,
-			status: "matched",
-		});
+		if (rule.includeGroups.length && !allGroupsMatch) continue;
+		if (hasAbstract) matched.push({ record, matchedTerms, status: "matched" });
+		else unresolved.push({ record, matchedTerms, status: "unresolved" });
 	}
 	const byCitations = (left: FilteredRecord, right: FilteredRecord) =>
 		(right.record.citationCount ?? 0) - (left.record.citationCount ?? 0);
@@ -73,7 +85,7 @@ export function filterGroup(
 		matched,
 		unresolved,
 		total: matched.length,
-		excluded: run.results.length - matched.length - unresolved.length,
+		excluded: records.length - matched.length - unresolved.length,
 	};
 }
 

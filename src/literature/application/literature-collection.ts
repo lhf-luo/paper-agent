@@ -13,6 +13,7 @@ import type {
 import { lookupCcfLevel } from "../infrastructure/ccf-ranking.ts";
 import { LiteratureProviderHttpError, searchProviderPage } from "../infrastructure/literature-providers.ts";
 import { LiteratureSearchCheckpoint } from "../infrastructure/literature-search-checkpoint.ts";
+import { enrichMissingAbstractsByDoi } from "./literature-abstract-enrichment.ts";
 import type { CollectionResult, CollectLiteratureOptions } from "./literature-collection-contracts.ts";
 import {
 	buildCandidatePaperTable,
@@ -128,7 +129,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 	const cacheKey = derivedCacheKey({
 		inputHashes: [queryFingerprint],
 		operation: "literature-search",
-		pipelineVersion: "4",
+		pipelineVersion: "5",
 		normalizedConfig: normalizedSearchConfig,
 	});
 	const root = resolveCorpusRoot(options.cwd, options.scope, options.namespace, options.corpusRoot);
@@ -296,7 +297,13 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		failures.push(...outcome.failures);
 	}
 	// 多源结果原本按 provider 块状拼接, 这里按查询相关性统一重排, 精确标题命中排到最前。
-	const results = rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
+	const initiallyDeduplicated = rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
+	const abstractEnrichment = await enrichMissingAbstractsByDoi(initiallyDeduplicated, options.cwd, {
+		signal: options.signal,
+		concurrency: 3,
+		lookup: options.abstractDoiLookup,
+	});
+	const results = rerankByQueryRelevance(deduplicatePaperRecords(abstractEnrichment.records), queries);
 	for (const record of results) {
 		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
 	}
@@ -386,6 +393,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		providerHealth,
 		executions,
 		coverage,
+		abstractEnrichment: abstractEnrichment.summary,
 		resumedFromCheckpoint: checkpoint?.resumed || undefined,
 		searchPlan: options.searchPlan ? { ...options.searchPlan, queryVariants: queries } : undefined,
 		runKind: "keyword",
@@ -409,7 +417,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 					paperId: "collection",
 					operation: "literature-search",
 					inputHashes: [queryFingerprint],
-					pipelineVersion: "4",
+					pipelineVersion: "5",
 					normalizedConfig: {
 						queries,
 						providers: options.providers,

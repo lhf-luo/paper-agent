@@ -8,6 +8,7 @@ import type {
 	SearchRun,
 } from "../domain/literature-types.ts";
 import type { searchProviderPage } from "../infrastructure/literature-providers.ts";
+import type { DoiProviderLookup } from "./literature-doi-enrichment.ts";
 
 export interface CollectLiteratureOptions {
 	queries: string[];
@@ -27,6 +28,7 @@ export interface CollectLiteratureOptions {
 	authorization?: OperationAuthorization;
 	checkpointPath?: string;
 	providerPageSearch?: typeof searchProviderPage;
+	abstractDoiLookup?: DoiProviderLookup;
 	searchPlan?: LiteratureSearchPlan;
 }
 

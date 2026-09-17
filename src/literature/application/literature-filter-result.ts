@@ -3,6 +3,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SearchRun } from "../domain/literature-types.ts";
 
+interface StoredFilterRule {
+	includeTerms?: string[];
+	includeTermGroups?: string[][];
+	excludeTerms?: string[];
+	excludeScope?: "title" | "title+abstract";
+	yearFrom?: number;
+	yearTo?: number;
+	venueRank?: "A" | "B" | "C";
+}
+
+interface StoredFilterGroup {
+	label?: string;
+	withAbstract: StoredFilterRule;
+	withoutAbstract: Omit<StoredFilterRule, "excludeScope">;
+}
+
 export interface FilterResultEntry {
 	paperId: string;
 	title: string;
@@ -10,11 +26,15 @@ export interface FilterResultEntry {
 }
 
 export interface StoredFilterResult {
-	version: 1;
+	version: 2;
 	searchRunId: string;
+	parentFilterResultId?: string;
 	runFingerprint: string;
 	namespace: string;
 	corpusRoot: string;
+	rules: StoredFilterGroup[];
+	sourceCount: number;
+	rootTotal: number;
 	entries: FilterResultEntry[];
 }
 
@@ -71,11 +91,14 @@ export async function readFilterResult(
 		throw new Error("Filter result is missing or invalid; run filter_search_run_results again");
 	}
 	if (
-		result?.version !== 1 ||
+		result?.version !== 2 ||
 		typeof result.searchRunId !== "string" ||
 		typeof result.runFingerprint !== "string" ||
 		typeof result.namespace !== "string" ||
 		typeof result.corpusRoot !== "string" ||
+		!Array.isArray(result.rules) ||
+		!Number.isInteger(result.sourceCount) ||
+		!Number.isInteger(result.rootTotal) ||
 		!Array.isArray(result.entries) ||
 		result.entries.some(
 			(entry) =>

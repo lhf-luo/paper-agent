@@ -130,6 +130,30 @@ describe("get_personal_library_paper", () => {
 		expect(result.content[0].text).toContain("Remote PDF download links: 1");
 		expect(result.content[0].text).toContain("https://example.org/uaf.pdf");
 		expect(result.content[0].text).toContain("Security / UAF");
+
+		const projected = await registeredTool().execute(
+			"query-paper-fields",
+			{
+				query: "paper-uaf",
+				fields: ["title", "abstract", "collections"],
+			},
+			undefined,
+			undefined,
+			{ cwd: root },
+		);
+		expect(projected.details).toEqual({
+			status: "found",
+			paper: {
+				id: "paper-uaf",
+				title: "Binary-level Directed Fuzzing for Use-After-Free Vulnerabilities",
+				abstract: "A directed binary fuzzing technique.",
+				collections: [{ id: child.id, name: "UAF", path: ["Security", "UAF"] }],
+			},
+		});
+		expect(projected.content[0].text).toContain("A directed binary fuzzing technique.");
+		expect(projected.content[0].text).not.toContain("Ada Researcher");
+		expect(projected.content[0].text).not.toContain("https://example.org/uaf.pdf");
+		expect(projected.content[0].text).not.toContain("Read evaluation section.");
 	});
 
 	it("does not turn an approximate title into a selected paper", async () => {
@@ -149,5 +173,18 @@ describe("get_personal_library_paper", () => {
 		expect(result.details).toMatchObject({ status: "not-found" });
 		expect(result.details.candidates).toHaveLength(1);
 		expect(result.content[0].text).toContain("retry with paper_id");
+
+		const projected = await registeredTool().execute(
+			"query-candidate-fields",
+			{ query: "Binary-level Directed Fuzzing", fields: ["abstract"] },
+			undefined,
+			undefined,
+			{ cwd: root },
+		);
+		expect(projected.details).toEqual({
+			status: "not-found",
+			candidates: [{ id: "paper-uaf", title: "Binary-level Directed Fuzzing for Use-After-Free Vulnerabilities" }],
+		});
+		expect(projected.content[0].text).not.toContain("A directed binary fuzzing technique.");
 	});
 });

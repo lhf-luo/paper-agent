@@ -252,6 +252,36 @@ export interface SearchCoverage {
 	status: "complete" | "partial";
 }
 
+export interface AbstractEnrichmentProviderStatus {
+	status:
+		| "healthy"
+		| "disabled-auth"
+		| "disabled-rate-limit"
+		| "disabled-timeout"
+		| "disabled-network"
+		| "disabled-server";
+	attempted: number;
+	filled: number;
+	notFound: number;
+	failed: number;
+	skippedAfterCircuit: number;
+	message?: string;
+	statusCode?: number;
+	retryAfter?: string;
+}
+
+export interface AbstractEnrichmentSummary {
+	status: "complete" | "partial";
+	alreadyPresent: number;
+	attempted: number;
+	filled: number;
+	notFound: number;
+	failed: number;
+	skippedWithoutDoi: number;
+	providers: Partial<Record<LiteratureProvider, AbstractEnrichmentProviderStatus>>;
+	warnings: Array<{ recordId?: string; doi?: string; provider: string; message: string }>;
+}
+
 export interface PaperIdentityDecision {
 	leftId: string;
 	rightId: string;
@@ -340,6 +370,7 @@ export interface SearchRun {
 	providerHealth?: Partial<Record<LiteratureProvider, ProviderHealthSnapshot>>;
 	executions?: SearchExecution[];
 	coverage?: SearchCoverage;
+	abstractEnrichment?: AbstractEnrichmentSummary;
 	resumedFromCheckpoint?: boolean;
 	searchPlan?: LiteratureSearchPlan;
 	runKind?: "keyword" | "citation-expansion";

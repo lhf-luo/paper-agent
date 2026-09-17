@@ -150,6 +150,24 @@ describe("collection tool mutation consent", () => {
 			);
 		expect(selected.content[0].text).toContain("Second abstract");
 		expect(selected.content[0].text).not.toContain("First abstract");
+
+		const projected = await tools
+			.get("get_search_run_papers")
+			.execute(
+				"read-paper-fields",
+				{ search_run_id: "run-a", paper_ids: ["paper-b", "missing"], fields: ["title", "abstract"] },
+				undefined,
+				undefined,
+				context(root),
+			);
+		expect(projected.details).toEqual({
+			searchRunId: "run-a",
+			records: [{ id: "paper-b", title: second.title, abstract: "Second abstract" }],
+			missingPaperIds: ["missing"],
+		});
+		expect(projected.content[0].text).toContain("Second abstract");
+		expect(projected.content[0].text).not.toContain("Ada Researcher");
+		expect(projected.content[0].text).not.toContain("https://example.org/paper-b");
 	});
 
 	it("returns every retained Paper ID and lets update_literature_sidebar build the full list", async () => {
@@ -169,8 +187,12 @@ describe("collection tool mutation consent", () => {
 			"filter",
 			{
 				search_run_id: "run-filter",
-				include_term_groups: [["linux"], ["uaf", "use after free"]],
-				limit: 1,
+				groups: [
+					{
+						with_abstract: { include_term_groups: [["linux"], ["uaf", "use after free"]] },
+						without_abstract: { include_terms: ["linux"] },
+					},
+				],
 			},
 			undefined,
 			undefined,
@@ -186,7 +208,7 @@ describe("collection tool mutation consent", () => {
 		expect(result.details).not.toHaveProperty("mdUrl");
 		expect(result.content[0].text).toContain("paper_id=paper-a | title=Linux UAF A");
 		expect(result.content[0].text).toContain("paper_id=paper-b | title=Linux UAF B");
-		expect(result.content[0].text).toContain("Unresolved (missing abstract; review before excluding; all):");
+		expect(result.content[0].text).toContain("Unresolved (passed title-only rules but has no abstract; all):");
 		expect(result.content[0].text).toContain("paper_id=paper-c | title=Linux candidate");
 		await expect(stat(join(root, ".paper-agent", "web-agent-memory", "results"))).rejects.toThrow();
 
@@ -208,6 +230,67 @@ describe("collection tool mutation consent", () => {
 		expect(metadata.rows?.map((row) => row.screening_status)).toEqual(["matched", "matched", "unresolved"]);
 		expect(metadata.rows?.[0].annotation_basis).toBe("title");
 		expect(content).not.toContain("kernel use after free");
+	});
+
+	it("narrows a saved filter result without creating a child Search Run", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-filter-chain-"));
+		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		await store.saveSearchRun(
+			searchRun("run-chain", [
+				{ ...paper("paper-a"), title: "Linux UAF", abstract: "kernel use after free" },
+				{ ...paper("paper-b"), title: "Linux scheduler", abstract: "kernel scheduling" },
+				{ ...paper("paper-c"), title: "Linux UAF candidate" },
+				{ ...paper("paper-d"), title: "Mathematical kernel" },
+			]),
+		);
+		const tools = registeredTools();
+		const sessionContext = { ...context(root), sessionManager: { getSessionId: () => "chain-session" } };
+		const first = await tools.get("filter_search_run_results").execute(
+			"first",
+			{
+				search_run_id: "run-chain",
+				groups: [
+					{
+						with_abstract: { include_terms: ["kernel", "linux"] },
+						without_abstract: { include_terms: ["kernel", "linux"] },
+					},
+				],
+			},
+			undefined,
+			undefined,
+			sessionContext,
+		);
+		const second = await tools.get("filter_search_run_results").execute(
+			"second",
+			{
+				source_filter_result_id: first.details.filterResultId,
+				groups: [
+					{
+						with_abstract: { include_term_groups: [["linux"], ["uaf", "use after free"]] },
+						without_abstract: { include_term_groups: [["linux"], ["uaf", "use after free"]] },
+					},
+				],
+			},
+			undefined,
+			undefined,
+			sessionContext,
+		);
+
+		expect(second.details).toMatchObject({
+			searchRunId: "run-chain",
+			sourceFilterResultId: first.details.filterResultId,
+			rootTotal: 4,
+			sourceCount: 4,
+			matched: 1,
+			unresolved: 1,
+			excludedThisPass: 2,
+		});
+		expect(second.details.retained.map((entry: { paperId: string }) => entry.paperId)).toEqual([
+			"paper-a",
+			"paper-c",
+		]);
+		expect(await store.getSearchRun(second.details.filterResultId)).toBeUndefined();
 	});
 
 	it("keeps all unique papers beyond 500 across overlapping groups and rejects invalid annotations", async () => {
@@ -243,19 +326,26 @@ describe("collection tool mutation consent", () => {
 			"filter",
 			{
 				search_run_id: "run-large",
-				limit: 1,
 				groups: [
-					{ label: "A", include_term_groups: [["linux"], ["uaf"]], limit: 1 },
-					{ label: "B", include_terms: ["linux"], limit: 1 },
+					{
+						label: "A",
+						with_abstract: { include_term_groups: [["linux"], ["uaf"]] },
+						without_abstract: { include_term_groups: [["linux"], ["uaf"]] },
+					},
+					{
+						label: "B",
+						with_abstract: { include_terms: ["linux", "os"] },
+						without_abstract: { include_terms: ["linux", "os"] },
+					},
 				],
 			},
 			undefined,
 			undefined,
 			sessionContext,
 		);
-		expect(filtered.details).toMatchObject({ totalResults: 520, matched: 511, unresolved: 4, excluded: 5 });
+		expect(filtered.details).toMatchObject({ totalResults: 520, matched: 1, unresolved: 514, excludedThisPass: 5 });
 		expect(filtered.details.retained).toHaveLength(515);
-		expect(filtered.details.groups[0].paperIds).toHaveLength(515);
+		expect(filtered.details.groups[0].paperIds).toHaveLength(501);
 		expect(filtered.content[0].text).toContain("paper_id=paper-0514 | title=OS candidate 514");
 		expect(filtered.content[0].text).not.toContain("paper_id=paper-0515");
 		expect(filtered.content[0].text.match(/paper_id=paper-0000 \| title=/g)).toHaveLength(1);
@@ -271,7 +361,7 @@ describe("collection tool mutation consent", () => {
 			undefined,
 			sessionContext,
 		);
-		expect(sidebar.details).toMatchObject({ rowCount: 515, unannotatedCount: 514, matched: 511, unresolved: 4 });
+		expect(sidebar.details).toMatchObject({ rowCount: 515, unannotatedCount: 514, matched: 1, unresolved: 514 });
 		const markdown = await readFile(sidebar.details.mdPath, "utf8");
 		const rows = parseSidebarResultMetadata(markdown).rows ?? [];
 		expect(rows).toHaveLength(515);

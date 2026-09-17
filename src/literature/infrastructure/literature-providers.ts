@@ -1,10 +1,6 @@
 import type { LiteratureProvider, PaperRecord, ProviderPage } from "../domain/literature-types.ts";
+import { ACL_ANTHOLOGY_VENUES, aclAnthologyConstraintError, searchAclAnthologyPage } from "./provider-acl-anthology.ts";
 import { searchArxivPage } from "./provider-arxiv.ts";
-import {
-	ACL_ANTHOLOGY_VENUES,
-	aclAnthologyConstraintError,
-	searchAclAnthologyPage,
-} from "./provider-acl-anthology.ts";
 import { searchCorePage, searchDblpPage } from "./provider-bibliography.ts";
 import {
 	LiteratureProviderHttpError,
@@ -21,18 +17,17 @@ import { searchUsenixPage } from "./provider-usenix.ts";
 
 export { LiteratureProviderHttpError, setProviderCredentials };
 export type { ProviderCredentials, ProviderSearchOptions };
-export { searchArxivPage } from "./provider-arxiv.ts";
 export {
 	ACL_ANTHOLOGY_VENUES,
 	aclAnthologyConstraintError,
 	aclAnthologyFiltersForRecord,
 	searchAclAnthologyPage,
 } from "./provider-acl-anthology.ts";
+export { searchArxivPage } from "./provider-arxiv.ts";
 export { searchCorePage, searchDblpPage } from "./provider-bibliography.ts";
 export { searchCrossrefByDoi, searchCrossrefPage } from "./provider-crossref.ts";
 export { searchOpenCitationsPage, searchUnpaywallPage } from "./provider-doi-enrichment.ts";
 export { searchExaPage } from "./provider-exa.ts";
-export { searchUsenixPage } from "./provider-usenix.ts";
 export {
 	fetchOpenAlexWorks,
 	searchOpenAlexByDoi,
@@ -44,10 +39,12 @@ export {
 	searchSemanticScholarCitations,
 	searchSemanticScholarPage,
 } from "./provider-semantic-scholar.ts";
+export { searchUsenixPage } from "./provider-usenix.ts";
 
 export type LiteratureProviderCapability =
 	| "keyword-search"
 	| "doi-enrichment"
+	| "abstract-enrichment"
 	| "citation-enrichment"
 	| "open-access"
 	| "preprint-discovery";
@@ -96,7 +93,7 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		id: "openalex",
 		label: "OpenAlex",
 		description: "Broad scholarly graph and citations",
-		capabilities: ["keyword-search", "doi-enrichment", "citation-enrichment", "open-access"],
+		capabilities: ["keyword-search", "doi-enrichment", "abstract-enrichment", "citation-enrichment", "open-access"],
 		search: searchOpenAlexPage,
 		lookupByDoi: (doi, options) => searchOpenAlexByDoi(doi, { ...options, queryLabel: doi }),
 	},
@@ -104,7 +101,7 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		id: "crossref",
 		label: "Crossref",
 		description: "DOI registration metadata",
-		capabilities: ["keyword-search", "doi-enrichment"],
+		capabilities: ["keyword-search", "doi-enrichment", "abstract-enrichment"],
 		search: searchCrossrefPage,
 		lookupByDoi: searchCrossrefByDoi,
 	},
@@ -112,7 +109,14 @@ export const literatureProviderDefinitions: readonly LiteratureProviderDefinitio
 		id: "semanticscholar",
 		label: "Semantic Scholar",
 		description: "Scholarly search and citation graph",
-		capabilities: ["keyword-search", "doi-enrichment", "citation-enrichment", "open-access", "preprint-discovery"],
+		capabilities: [
+			"keyword-search",
+			"doi-enrichment",
+			"abstract-enrichment",
+			"citation-enrichment",
+			"open-access",
+			"preprint-discovery",
+		],
 		search: searchSemanticScholarPage,
 		lookupByDoi: searchSemanticScholarByDoi,
 	},

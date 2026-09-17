@@ -83,6 +83,11 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 					`Search coverage: ${run.coverage.status}; planned=${run.coverage.plannedQueryCount}; executed=${run.coverage.executedQueryCount}; failed=${run.coverage.failedExecutionCount}; skipped=${run.coverage.skippedExecutionCount}`,
 				]
 			: []),
+		...(run.abstractEnrichment
+			? [
+					`DOI abstract enrichment: ${run.abstractEnrichment.status}; already_present=${run.abstractEnrichment.alreadyPresent}; attempted=${run.abstractEnrichment.attempted}; filled=${run.abstractEnrichment.filled}; not_found=${run.abstractEnrichment.notFound}; failed=${run.abstractEnrichment.failed}; skipped_without_doi=${run.abstractEnrichment.skippedWithoutDoi}`,
+				]
+			: []),
 		`Source counts: ${run.providers.map((provider) => `${provider}=${run.sourceCounts[provider] ?? 0}`).join(", ")}`,
 		`Mode: ${run.scope}/${run.mode}/${run.namespace}`,
 		`Cache: ${result.cached ? "hit (no repeated API search)" : "miss"}`,
@@ -153,7 +158,7 @@ export function collectionParameters() {
 				minItems: 1,
 				maxItems: 10,
 				description:
-					"Keyword-search providers. Default: arxiv, openalex, crossref, semanticscholar, dblp, core, exa. ACL Anthology requires one exact year and one ACL-family venue. USENIX searches official conference pages. DOI enrichment runs separately when selected records are saved.",
+					"Keyword-search providers. Default: arxiv, openalex, crossref, semanticscholar, dblp, core, exa. ACL Anthology requires one exact year and one ACL-family venue. USENIX searches official conference pages. Missing abstracts with a DOI are completed automatically after search.",
 			}),
 		),
 		year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
