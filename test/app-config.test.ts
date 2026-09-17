@@ -891,7 +891,7 @@ describe("Paper Agent local configuration", () => {
 		}
 	});
 
-	it("reports restartRequired when a configuration write changes the available models", async () => {
+	it("requires a restart only for storage changes, not for model list changes", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-restart-"));
 		const application = new PaperAgentApplication({ projectRoot: root });
 		try {
@@ -916,10 +916,19 @@ describe("Paper Agent local configuration", () => {
 					},
 				],
 			};
+			// 模型列表变化不再要求重启：Web Agent 会在读取配置视图与切换模型时重新
+			// 对齐磁盘上的 models.json，设置页的增删立即反映到对话页。
 			const next = await application.prepareConfigurationWrite(withModel);
 			const nextGrant = await application.confirmOperation(next.operationId, next.manifestFingerprint);
-			// Agent 对话在启动时读取一次模型列表，因此新增模型必须提示重启。
 			await expect(application.writeConfiguration(withModel, nextGrant)).resolves.toMatchObject({
+				restartRequired: false,
+			});
+
+			// 存储路径变化仍然要求重启，避免把两种情形混为一谈。
+			const movedStorage = { ...withModel, storage: { ...withModel.storage, defaultNamespace: "renamed" } };
+			const moved = await application.prepareConfigurationWrite(movedStorage);
+			const movedGrant = await application.confirmOperation(moved.operationId, moved.manifestFingerprint);
+			await expect(application.writeConfiguration(movedStorage, movedGrant)).resolves.toMatchObject({
 				restartRequired: true,
 			});
 		} finally {

@@ -160,7 +160,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 			setDirty(false);
 			setMessage(
 				result.restartRequired
-					? "已保存。存储路径或模型列表有变化，请重启 Paper Agent 使其生效。"
+					? "已保存。存储路径或 namespace 有变化，请重启 Paper Agent 使其生效。"
 					: "已保存并立即生效。",
 			);
 			await load();

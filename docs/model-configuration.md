@@ -24,7 +24,7 @@ For `openai-completions` and `openai-responses`, **Load model list (`读取模�
 
 The provider block lets you **Set as chat model (`设为对话模型`)** for Agent chat, and remove a single model or a whole provider; those edits save immediately. Removing the current chat model also clears that selection. Reconfiguring a provider replaces its previous model entries, but models whose API and Base URL are unchanged keep their declared context window, input modalities, and stored capability probes.
 
-**Restart the Web service after adding or removing models.** The Web Agent reads the configured model list once at startup, so new entries only appear in the Agent chat selector after a restart. Changing just the current chat model takes effect on the next message.
+The Web Agent re-reads `models.json` whenever the settings page reads the configuration view or you switch the chat model, so providers you add or remove appear in the Agent chat selector immediately; switching the current model takes effect once the in-flight reply finishes.
 
 The `/models` endpoint usually does not report capabilities reliably. Newly discovered models default to `reasoning: true`; use `--no-reasoning` on the CLI to override that for every discovered model. Existing declarations are preserved on a same-endpoint refresh unless a reasoning flag is provided. Reasoning tokens alone do not guarantee that the relay returns visible reasoning content.
 

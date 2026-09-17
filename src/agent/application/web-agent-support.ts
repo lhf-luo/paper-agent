@@ -1,5 +1,10 @@
 import type { AgentSession, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { ModelApiKind, ModelInputModality, PiBuiltinToolName } from "../../config/application/config-service.ts";
+import type {
+	ModelApiKind,
+	ModelInputModality,
+	PaperAgentModelConfig,
+	PiBuiltinToolName,
+} from "../../config/application/config-service.ts";
 
 export const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const SUPPORTED_APIS = new Set<ModelApiKind>([
@@ -61,6 +66,46 @@ export interface WebAgentEndpointConfig {
 	thinkingLevelMap?: Record<string, string | null>;
 	apiKeyEnvironmentVariable?: string;
 	headers?: Record<string, string>;
+}
+
+/** 已配置模型在界面与配置中的稳定标识。 */
+export function configuredModelKey(model: Pick<PaperAgentModelConfig, "providerId" | "modelId">): string {
+	return `${model.providerId}/${model.modelId}`;
+}
+
+/** 未选择任何模型时的运行端点；`configured` 由空 provider/model 判定。 */
+export function emptyEndpointConfig(): WebAgentEndpointConfig {
+	return {
+		providerId: "",
+		modelId: "",
+		baseUrl: "",
+		api: "openai-completions",
+		input: ["text"],
+		reasoning: false,
+		contextWindow: 128_000,
+		maxTokens: 16_384,
+	};
+}
+
+/**
+ * 把持久化的模型声明映射为运行端点。会话在每次发消息时惰性读取端点，因此这份映射
+ * 可以在不重启服务的情况下随配置更新。
+ */
+export function endpointFromConfiguredModel(model: PaperAgentModelConfig): WebAgentEndpointConfig {
+	return {
+		providerId: model.providerId,
+		modelId: model.modelId,
+		baseUrl: model.baseUrl,
+		api: model.api,
+		input: model.input,
+		reasoning: model.reasoning,
+		contextWindow: model.contextWindow,
+		maxTokens: model.maxTokens,
+		compat: model.compat,
+		thinkingLevelMap: model.thinkingLevelMap,
+		apiKeyEnvironmentVariable: model.apiKeyEnvironmentVariable,
+		headers: model.headers,
+	};
 }
 
 export interface PendingUIRequest {

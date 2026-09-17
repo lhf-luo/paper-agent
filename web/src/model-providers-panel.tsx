@@ -227,7 +227,7 @@ export function ModelProvidersPanel({ config, saveNow, onSaved, busy }: ModelPro
 			)}
 
 			<p className="form-hint">
-				新增或删除模型需要重启 Paper Agent 后才会出现在 Agent 对话的模型选择器里；修改当前模型会在下次发送消息时生效。
+				新增或删除模型会立即反映到 Agent 对话的模型选择器里；切换当前模型时，正在生成的回答结束后生效。
 			</p>
 
 			{editing && (

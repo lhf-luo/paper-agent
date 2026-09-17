@@ -311,12 +311,12 @@ describe("WebAgentService", () => {
 			const snapshot = service.getSession(active.id);
 			expect(snapshot.messages.at(-1)).toMatchObject({ role: "assistant", content: "echo:hello streaming" });
 			expect(events.some((event) => event.type === "message_delta")).toBe(true);
-			expect(service.getConfig()).toMatchObject({
+			expect(await service.getConfig()).toMatchObject({
 				configured: true,
 				credentialsAvailable: true,
 				credentialSource: "memory",
 			});
-			const exposed = JSON.stringify({ config: service.getConfig(), snapshot, events });
+			const exposed = JSON.stringify({ config: await service.getConfig(), snapshot, events });
 			expect(exposed).not.toContain(secret);
 			const failing = service.createSession({ mode: "once" });
 			await service.sendMessage(failing.id, { message: "provider-error" });
@@ -555,7 +555,7 @@ describe("WebAgentService", () => {
 
 			await service.clearKey();
 			expect(service.listSessions()).toHaveLength(2);
-			expect(service.getConfig()).toMatchObject({ credentialsAvailable: false, credentialSource: "none" });
+			expect(await service.getConfig()).toMatchObject({ credentialsAvailable: false, credentialSource: "none" });
 
 			await service.updateConfig({
 				providerId: "fake-provider",
@@ -572,7 +572,7 @@ describe("WebAgentService", () => {
 				api: "openai-completions",
 			});
 			expect(service.listSessions()).toHaveLength(3);
-			expect(service.getConfig().credentialsAvailable).toBe(false);
+			expect((await service.getConfig()).credentialsAvailable).toBe(false);
 			await service.close();
 			const viewFiles = await readdir(join(root, ".paper-agent", "web-agent-memory", "session-views"));
 			expect(viewFiles.filter((file) => file.endsWith(".json"))).toHaveLength(3);
@@ -695,7 +695,7 @@ describe("WebAgentService", () => {
 			});
 			const service = await WebAgentService.create({ projectRoot: root });
 			services.push(service);
-			expect(service.getConfig()).toMatchObject({
+			expect(await service.getConfig()).toMatchObject({
 				credentialsAvailable: true,
 				credentialSource: "environment",
 				apiKeyEnvironmentVariable: environmentName,
@@ -706,8 +706,8 @@ describe("WebAgentService", () => {
 				baseUrl: provider.baseUrl,
 				api: "openai-completions",
 			});
-			expect(service.getConfig()).toMatchObject({ credentialsAvailable: false, credentialSource: "none" });
-			expect(service.getConfig().apiKeyEnvironmentVariable).toBeUndefined();
+			expect(await service.getConfig()).toMatchObject({ credentialsAvailable: false, credentialSource: "none" });
+			expect((await service.getConfig()).apiKeyEnvironmentVariable).toBeUndefined();
 			const rawConfig = await readFile(resolvePaperAgentConfigPaths(root).modelsFile, "utf8");
 			expect(rawConfig).not.toContain(secret);
 		} finally {
@@ -754,7 +754,7 @@ describe("WebAgentService", () => {
 			});
 			const service = await WebAgentService.create({ projectRoot: root });
 			services.push(service);
-			const config = service.getConfig();
+			const config = await service.getConfig();
 			expect(config.configuredModels).toHaveLength(2);
 			expect(config.configuredModels[0]).toMatchObject({
 				key: "alpha/alpha-model",
@@ -772,7 +772,7 @@ describe("WebAgentService", () => {
 			expect(config).toMatchObject({ providerId: "alpha", modelId: "alpha-model", input: ["text", "image"] });
 			// 应用第二个模型: 端点切换, 其 env var 未设置 → 凭据不可用
 			await service.applyConfiguredModel("beta/beta-model");
-			const applied = service.getConfig();
+			const applied = await service.getConfig();
 			expect(applied).toMatchObject({
 				providerId: "beta",
 				modelId: "beta-model",
@@ -782,7 +782,7 @@ describe("WebAgentService", () => {
 			});
 			// 应用第一个模型: 其 env var 已设置 → 凭据来自环境变量
 			await service.applyConfiguredModel("alpha/alpha-model");
-			expect(service.getConfig()).toMatchObject({
+			expect(await service.getConfig()).toMatchObject({
 				providerId: "alpha",
 				modelId: "alpha-model",
 				credentialSource: "environment",
@@ -814,8 +814,110 @@ describe("WebAgentService", () => {
 		});
 		const service = await WebAgentService.create({ projectRoot: root });
 		services.push(service);
-		expect(service.getConfig()).toMatchObject({ configured: false, configuredModels: [{ key: "relay/vision" }] });
+		expect(await service.getConfig()).toMatchObject({ configured: false, configuredModels: [{ key: "relay/vision" }] });
 		await service.applyConfiguredModel("relay/vision");
-		expect(service.getConfig()).toMatchObject({ configured: true, modelId: "vision", input: ["text", "image"] });
+		expect(await service.getConfig()).toMatchObject({ configured: true, modelId: "vision", input: ["text", "image"] });
+	});
+
+	it("picks up providers added or removed on disk without a service restart", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-reload-"));
+		temporaryPaths.push(root);
+		const base = {
+			...defaultPaperAgentConfig(),
+			model: {
+				providerId: "alpha",
+				modelId: "alpha-model",
+				api: "openai-completions" as const,
+				baseUrl: "https://alpha.example.com/v1",
+				reasoning: false,
+				input: ["text"] as const,
+				contextWindow: 128_000,
+				maxTokens: 16_384,
+				apiKey: "alpha-key",
+			},
+			models: [
+				{
+					providerId: "alpha",
+					modelId: "alpha-model",
+					api: "openai-completions" as const,
+					baseUrl: "https://alpha.example.com/v1",
+					reasoning: false,
+					input: ["text"] as const,
+					contextWindow: 128_000,
+					maxTokens: 16_384,
+					apiKey: "alpha-key",
+				},
+			],
+		};
+		await savePaperAgentConfig(root, base);
+		const service = await WebAgentService.create({ projectRoot: root });
+		services.push(service);
+		expect((await service.getConfig()).configuredModels.map((model) => model.key)).toEqual(["alpha/alpha-model"]);
+
+		// 模拟设置页新增供应商后写盘：无需重启，读取配置视图即应看到新模型。
+		await savePaperAgentConfig(root, {
+			...base,
+			models: [
+				...base.models,
+				{
+					providerId: "beta",
+					modelId: "beta-model",
+					api: "openai-completions" as const,
+					baseUrl: "https://beta.example.com/v1",
+					reasoning: true,
+					input: ["text", "image"] as const,
+					contextWindow: 200_000,
+					maxTokens: 32_000,
+					apiKey: "beta-key",
+				},
+			],
+		});
+		expect((await service.getConfig()).configuredModels.map((model) => model.key)).toEqual([
+			"alpha/alpha-model",
+			"beta/beta-model",
+		]);
+		// 新模型可直接切换，且带来自己的元数据与凭据。
+		const applied = await service.applyConfiguredModel("beta/beta-model");
+		expect(applied).toMatchObject({
+			providerId: "beta",
+			modelId: "beta-model",
+			baseUrl: "https://beta.example.com/v1",
+			credentialsAvailable: true,
+			credentialSource: "config",
+			input: ["text", "image"],
+		});
+
+		// 删除当前使用的模型后，端点回到"未选择"而不是继续指向已删除的声明。
+		await savePaperAgentConfig(root, { ...base, model: undefined, models: [] });
+		const cleared = await service.getConfig();
+		expect(cleared).toMatchObject({ configured: false, configuredModels: [], credentialsAvailable: false });
+
+		// 用户显式切换过的模型被删除时才清空；删除其他模型不影响当前选择。
+		await savePaperAgentConfig(root, { ...base, model: undefined, models: base.models });
+		await service.applyConfiguredModel("alpha/alpha-model");
+		await savePaperAgentConfig(root, {
+			...base,
+			model: undefined,
+			models: [
+				...base.models,
+				{
+					providerId: "gamma",
+					modelId: "gamma-model",
+					api: "openai-completions" as const,
+					baseUrl: "https://gamma.example.com/v1",
+					reasoning: false,
+					input: ["text"] as const,
+					contextWindow: 64_000,
+					maxTokens: 8_000,
+					apiKey: "gamma-key",
+				},
+			],
+		});
+		const kept = await service.getConfig();
+		expect(kept).toMatchObject({ providerId: "alpha", modelId: "alpha-model", configured: true });
+		expect(kept.configuredModels.map((model) => model.key)).toEqual([
+			"alpha/alpha-model",
+			"gamma/gamma-model",
+		]);
 	});
 });

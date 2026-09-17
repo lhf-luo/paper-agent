@@ -97,7 +97,7 @@ Create and revise Markdown research notes from blank, skim, close-reading, compa
 
 ### Settings & diagnostics
 
-Configure the default namespace, data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity, and namespace, then writes the connection to a Git-ignored local access file. The **Model providers** block manages the endpoints Agent chat can use: add a provider, load its model list, choose the current chat model, and remove models or providers. Adding or removing models requires a service restart before the Agent chat selector reflects it. Unsaved changes on the rest of the page are marked by the save action.
+Configure the default namespace, data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity, and namespace, then writes the connection to a Git-ignored local access file. The **Model providers** block manages the endpoints Agent chat can use: add a provider, load its model list, choose the current chat model, and remove models or providers. Added or removed models appear in the Agent chat selector immediately; switching the current model takes effect once the in-flight reply finishes. Unsaved changes on the rest of the page are marked by the save action.
 
 Automatic capability probing is available for `openai-completions` and `openai-responses` endpoints, from the **Probe** button in the **Model providers** block. It may consume a small amount of provider quota and therefore requires confirmation. `anthropic-messages` and `google-generative-ai` configurations are accepted by Pi, but Paper Agent clearly requires a real tool-using Pi session for their capability check instead of reporting an unimplemented automatic probe as a model failure.
 
@@ -130,6 +130,6 @@ The gate is implemented in the operation code rather than relying only on agent 
 - **A team section is hidden:** the connection is valid, but the identity lacks the required role.
 - **A model has no credential after restart:** open **Settings & diagnostics** and check the provider's badge; supply a key or set the environment variable named by that provider, then restart Paper Agent.
 - **Agent chat rejects an HTTP Base URL:** use HTTPS except for a local test endpoint on `localhost`, `127.0.0.1`, or `::1`.
-- **A newly added model is missing from Agent chat:** restart Paper Agent; the model list is read once at service startup.
+- **A newly added model is missing from Agent chat:** reopen the Agent chat page; the selector refetches the configuration when the page loads.
 - **Model probe is disabled:** probes need a saved `openai-completions` or `openai-responses` provider with a usable credential; confirm the API key or that the environment variable is visible to the current process. Anthropic Messages and Google Generative AI configurations require a real tool-using Pi session instead of the automatic probe.
 

@@ -57,7 +57,7 @@ Back in the **Model providers** block:
 - **Remove model** and **Remove provider** save immediately; removing the current chat model also clears that selection;
 - Reconfiguring the same provider replaces its previous model entries, while models whose API and Base URL are unchanged keep their existing context window and input capability declarations.
 
-**Restart Paper Agent after adding or removing models** so the new entries appear in the Agent chat model selector. Changing only the current chat model takes effect on the next message.
+Adding or removing models updates the Agent chat model selector immediately; changing only the current chat model takes effect once the in-flight reply finishes.
 
 Every model under one provider shares a single credential, so a new key requires reconfiguring that whole provider.
 
