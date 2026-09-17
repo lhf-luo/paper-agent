@@ -275,30 +275,37 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 	/**
 	 * Recover reasoning text from a completed assistant message for providers that stream no
 	 * `thinking_delta` events. Relay APIs disagree on both the block type and the field name
-	 * (`thinking`, `reasoning`, `reasoning_content`, `analysis`), so accept any of them.
+	 * (`thinking`, `reasoning`, `reasoning_content`, `reasoning_text`, `analysis`), so accept any of them.
 	 */
 	protected projectedThinking(message: unknown): string | undefined {
 		if (!message || typeof message !== "object") return undefined;
 		const source = message as {
 			reasoning?: unknown;
 			reasoning_content?: unknown;
+			reasoning_text?: unknown;
 			thinking?: unknown;
 			analysis?: unknown;
 			content?: unknown;
 		};
 		const parts: string[] = [];
-		for (const key of ["thinking", "reasoning", "reasoning_content", "analysis"] as const) {
+		for (const key of ["thinking", "reasoning", "reasoning_content", "reasoning_text", "analysis"] as const) {
 			const value = source[key];
 			if (typeof value === "string" && value.trim()) parts.push(value);
 		}
 		if (Array.isArray(source.content)) {
 			for (const entry of source.content) {
 				if (!entry || typeof entry !== "object") continue;
-				const block = entry as { type?: unknown; thinking?: unknown; text?: unknown; reasoning?: unknown };
+				const block = entry as {
+					type?: unknown;
+					thinking?: unknown;
+					text?: unknown;
+					reasoning?: unknown;
+					reasoning_text?: unknown;
+				};
 				const isThinkingBlock =
 					block.type === "thinking" || block.type === "reasoning" || block.type === "analysis";
 				if (!isThinkingBlock) continue;
-				for (const value of [block.thinking, block.text, block.reasoning]) {
+				for (const value of [block.thinking, block.text, block.reasoning, block.reasoning_text]) {
 					if (typeof value === "string" && value.trim()) {
 						parts.push(value);
 						break;

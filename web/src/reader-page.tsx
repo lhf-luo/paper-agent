@@ -6,13 +6,8 @@ import { BrowserPdfReader } from "./browser-pdf-reader";
 import { formatFileSize } from "./components";
 import { MineruControl } from "./mineru-control";
 import { PdfTranslationControl } from "./pdf-translation-control";
-import {
-	readerTabsStorageKey,
-	readerVersionName,
-	readerVersionState,
-	restoredReaderTabs,
-} from "./reader-state";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
+import { readerTabsStorageKey, readerVersionName, readerVersionState, restoredReaderTabs } from "./reader-state";
 import type {
 	PaperRecord,
 	PaperVersionView,
@@ -28,18 +23,26 @@ export { readerVersionName, readerVersionState };
 export interface ReaderPageProps {
 	reader: ReaderState;
 	onBack: () => void;
+	initialPrompt?: string;
+	onPromptConsumed?: () => void;
+	focusSessionId?: string;
 }
 
-export function ReaderPage({ reader, onBack }: ReaderPageProps) {
+export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, focusSessionId }: ReaderPageProps) {
 	const restored = useRef(restoredReaderTabs(reader));
+	const focusAgent = Boolean(focusSessionId || initialPrompt);
 	const [activeReader, setActiveReader] = useState(reader);
 	const [versions, setVersions] = useState<PaperVersionView[]>([]);
 	const [paper, setPaper] = useState<PaperRecord>();
 	const [linkedNotes, setLinkedNotes] = useState<ResearchNoteSummary[]>([]);
-	const [tabs, setTabs] = useState<ReaderWorkspaceTab[]>(restored.current.tabs);
-	const [activeTabId, setActiveTabId] = useState<string | undefined>(restored.current.activeId);
+	const [tabs, setTabs] = useState<ReaderWorkspaceTab[]>(() =>
+		focusAgent && !restored.current.tabs.some((tab) => tab.kind === "agent")
+			? [{ id: "agent", kind: "agent", title: "AI 对话" }, ...restored.current.tabs]
+			: restored.current.tabs,
+	);
+	const [activeTabId, setActiveTabId] = useState<string | undefined>(focusAgent ? "agent" : restored.current.activeId);
 	const [railMenu, setRailMenu] = useState<"notes" | "versions">();
-	const [mobilePane, setMobilePane] = useState<"pdf" | "workspace">("pdf");
+	const [mobilePane, setMobilePane] = useState<"pdf" | "workspace">(focusAgent ? "workspace" : "pdf");
 	const [readerWorkspaceWidth, setReaderWorkspaceWidth] = useState(() => {
 		const saved = Number(window.localStorage.getItem("paper-agent-reader-pane-width"));
 		return Number.isFinite(saved) && saved >= 320 ? saved : 420;
@@ -329,7 +332,14 @@ export function ReaderPage({ reader, onBack }: ReaderPageProps) {
 							: undefined
 					}
 				/>
-				<a className="paper-reader-open" href={activeReader.url} target="_blank" rel="noreferrer" aria-label="在新标签页打开" title="在新标签页打开">
+				<a
+					className="paper-reader-open"
+					href={activeReader.url}
+					target="_blank"
+					rel="noreferrer"
+					aria-label="在新标签页打开"
+					title="在新标签页打开"
+				>
 					在新标签页打开 <ExternalLink size={13} style={{ display: "inline", verticalAlign: "middle" }} />
 				</a>
 			</header>
@@ -406,7 +416,13 @@ export function ReaderPage({ reader, onBack }: ReaderPageProps) {
 							<div className="reader-tab-content">
 								{tabs.some((tab) => tab.kind === "agent") && (
 									<div className="reader-workspace-view" hidden={activeTabId !== "agent"}>
-										<AgentPage embedded paperContext={paperContext} />
+										<AgentPage
+											embedded
+											paperContext={paperContext}
+											focusSessionId={focusSessionId}
+											initialPrompt={initialPrompt}
+											onPromptConsumed={onPromptConsumed}
+										/>
 									</div>
 								)}
 								{tabs

@@ -127,17 +127,18 @@ function AppShell() {
 
 	// Deep-link rebuild: `?page=reader&paper=<id>` must survive a refresh, where the in-memory reader state is gone.
 	const readerPaperId = router.params.paper;
+	const readerNamespace = router.params.namespace || namespace;
 	useEffect(() => {
 		if (page !== "reader" || reader || !readerPaperId) return;
 		let cancelled = false;
 		void (async () => {
 			try {
 				const details = await api<{ paper: PaperRecord; versions: PaperVersionView[] }>(
-					`/api/papers/${encodeURIComponent(readerPaperId)}?namespace=${encodeURIComponent(namespace)}`,
+					`/api/papers/${encodeURIComponent(readerPaperId)}?namespace=${encodeURIComponent(readerNamespace)}`,
 				);
 				if (cancelled) return;
 				const version = details.versions.find((item) => item.isPreferred) ?? details.versions[0];
-				if (version) setReader(readerVersionState(details.paper, namespace, version));
+				if (version) setReader(readerVersionState(details.paper, readerNamespace, version));
 				else navigate("library", {}, true);
 			} catch {
 				if (!cancelled) navigate("library", {}, true);
@@ -146,7 +147,7 @@ function AppShell() {
 		return () => {
 			cancelled = true;
 		};
-	}, [page, reader, readerPaperId, namespace, navigate]);
+	}, [page, reader, readerPaperId, readerNamespace, navigate]);
 
 	const go = useCallback(
 		(next: Page) => {
@@ -159,7 +160,10 @@ function AppShell() {
 	const openReader = useCallback(
 		(state: ReaderState) => {
 			setReader(state);
-			navigate("reader", state.paperId ? { paper: state.paperId } : {});
+			navigate(
+				"reader",
+				state.paperId ? { paper: state.paperId, ...(state.namespace ? { namespace: state.namespace } : {}) } : {},
+			);
 		},
 		[navigate],
 	);
@@ -303,15 +307,30 @@ function AppShell() {
 										onTask={trackTask}
 										toolbarTarget={libraryToolbarTarget}
 										onOpenResearchNote={openResearchNote}
-										onAgentSession={(sessionId, draft) => {
+										onAgentSession={(sessionId, draft, target) => {
 											setAgentDraft(draft ? { sessionId, text: draft } : undefined);
-											navigate("agent", { session: sessionId });
+											setReader(undefined);
+											navigate("reader", {
+												paper: target.paperId,
+												namespace: target.namespace,
+												session: sessionId,
+											});
 										}}
 									/>
 								)}
 								{page === "tasks" && <TasksPage />}
 								{page === "pdf" && <PdfWorkspacePage onTask={trackTask} />}
-								{page === "reader" && reader && <ReaderPage reader={reader} onBack={() => go("library")} />}
+								{page === "reader" && reader && (
+									<ReaderPage
+										reader={reader}
+										onBack={() => go("library")}
+										focusSessionId={params.session}
+										initialPrompt={
+											agentDraft && agentDraft.sessionId === params.session ? agentDraft.text : undefined
+										}
+										onPromptConsumed={() => setAgentDraft(undefined)}
+									/>
+								)}
 								{page === "team" && <TeamPage />}
 								{page === "research" && <ResearchNotesPage target={researchTarget} />}
 								{page === "wiki" && <WikiPage defaultNamespace={status?.defaultNamespace ?? "default"} />}
