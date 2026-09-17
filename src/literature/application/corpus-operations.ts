@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { sha256Text } from "../domain/literature-identifiers.ts";
 import type { PaperRecord, ScreeningStatus } from "../domain/literature-types.ts";
+import { withCleanMetadata } from "../domain/paper-title.ts";
 import type { LiteratureStore } from "./literature-store.ts";
 
 export type CorpusExportFormat = "markdown" | "csv" | "bibtex" | "json";
@@ -69,6 +70,41 @@ export function corpusAnnotationPlan(
 				JSON.stringify([...records].sort((left, right) => left.id.localeCompare(right.id))),
 			),
 			annotation: input,
+		},
+	};
+}
+
+/**
+ * 批量清洗已保存论文的标题与摘要。仅在确有改动时返回计划，否则返回 undefined，
+ * 避免对没有脏数据的语料库要求确认。
+ */
+export function corpusTitleRepairPlan(
+	store: LiteratureStore,
+	records: PaperRecord[],
+	author: string | undefined,
+): OperationPlan | undefined {
+	const changed = records
+		.map((record) => {
+			const cleaned = withCleanMetadata(record);
+			return {
+				id: record.id,
+				from: record.title,
+				to: cleaned.title,
+				abstractChanged: cleaned.abstract !== record.abstract,
+			};
+		})
+		.filter((entry) => entry.to !== entry.from || entry.abstractChanged);
+	if (!changed.length) return undefined;
+	return {
+		kind: "personal-corpus-write",
+		summary: `Clean metadata of ${changed.length} personal literature record(s)`,
+		actor: author,
+		targets: changed.map((entry) => ({ label: "personal-paper", value: entry.id, risk: "low" })),
+		details: {
+			corpusPath: store.root,
+			namespace: store.namespace,
+			recordIds: changed.map((entry) => entry.id),
+			titles: changed,
 		},
 	};
 }

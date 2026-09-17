@@ -8,8 +8,8 @@ import {
 	type WebAgentPermissionMode,
 	WebAgentServiceError,
 	type WebAgentSessionContext,
-	type WebAgentSessionSnapshot,
 	type WebAgentSessionFilter,
+	type WebAgentSessionSnapshot,
 	type WebAgentSessionSummary,
 	type WebAgentThinkingLevel,
 	type WebAgentToolView,
@@ -84,6 +84,12 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 						(!filter.paperId || session.context.paperId === filter.paperId)
 					);
 				}
+				if (filter.scope === "personal") {
+					return (
+						session.context?.kind === "paper" &&
+						(!filter.namespace || session.context.namespace === filter.namespace)
+					);
+				}
 				return !session.context;
 			})
 			.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -151,10 +157,7 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 	): Promise<WebAgentSessionSnapshot> {
 		this.assertOpen();
 		const session = this.managedSession(id);
-		if (
-			input.thinkingLevel === undefined &&
-			input.permissionMode === undefined
-		) {
+		if (input.thinkingLevel === undefined && input.permissionMode === undefined) {
 			throw new WebAgentServiceError(400, "请提供 thinkingLevel 或 permissionMode 之一");
 		}
 		if (input.thinkingLevel !== undefined) session.thinkingLevel = input.thinkingLevel;
@@ -269,13 +272,41 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 		return message;
 	}
 
+	/**
+	 * Recover reasoning text from a completed assistant message for providers that stream no
+	 * `thinking_delta` events. Relay APIs disagree on both the block type and the field name
+	 * (`thinking`, `reasoning`, `reasoning_content`, `analysis`), so accept any of them.
+	 */
 	protected projectedThinking(message: unknown): string | undefined {
 		if (!message || typeof message !== "object") return undefined;
-		const source = message as { content?: Array<{ type?: string; thinking?: unknown }> };
-		const thinking = (source.content ?? [])
-			.filter((entry) => entry?.type === "thinking" && typeof entry.thinking === "string")
-			.map((entry) => entry.thinking as string)
-			.join("");
+		const source = message as {
+			reasoning?: unknown;
+			reasoning_content?: unknown;
+			thinking?: unknown;
+			analysis?: unknown;
+			content?: unknown;
+		};
+		const parts: string[] = [];
+		for (const key of ["thinking", "reasoning", "reasoning_content", "analysis"] as const) {
+			const value = source[key];
+			if (typeof value === "string" && value.trim()) parts.push(value);
+		}
+		if (Array.isArray(source.content)) {
+			for (const entry of source.content) {
+				if (!entry || typeof entry !== "object") continue;
+				const block = entry as { type?: unknown; thinking?: unknown; text?: unknown; reasoning?: unknown };
+				const isThinkingBlock =
+					block.type === "thinking" || block.type === "reasoning" || block.type === "analysis";
+				if (!isThinkingBlock) continue;
+				for (const value of [block.thinking, block.text, block.reasoning]) {
+					if (typeof value === "string" && value.trim()) {
+						parts.push(value);
+						break;
+					}
+				}
+			}
+		}
+		const thinking = parts.join("");
 		return thinking ? this.redact(thinking).slice(0, MAX_MESSAGE_CHARACTERS) : undefined;
 	}
 

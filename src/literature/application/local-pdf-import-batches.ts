@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ConfirmationGrant, OperationPlan, PreparedOperation } from "../../shared/application/operation-consent.ts";
-import type { OperationConsentManager } from "../../shared/application/operation-consent.ts";
+import type {
+	ConfirmationGrant,
+	OperationConsentManager,
+	OperationPlan,
+	PreparedOperation,
+} from "../../shared/application/operation-consent.ts";
 import type { CommandExecutor } from "../../shared/infrastructure/command-executor.ts";
 import {
 	findPossibleDuplicates,
@@ -11,9 +15,10 @@ import {
 	samePaperIdentity,
 } from "../domain/literature-identifiers.ts";
 import type { PaperCollection, PaperRecord } from "../domain/literature-types.ts";
-import type { LiteratureStore } from "./literature-store.ts";
+import { withCleanMetadata } from "../domain/paper-title.ts";
 import type { PdfMetadataNeedsReview, PdfMetadataWarning } from "./literature-import-contracts.ts";
 import { preparePdfImport } from "./literature-import-metadata.ts";
+import type { LiteratureStore } from "./literature-store.ts";
 
 export const LOCAL_PDF_IMPORT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const LOCAL_PDF_IMPORT_MAX_BATCH_BYTES = 500 * 1024 * 1024;
@@ -82,7 +87,8 @@ interface LocalPdfImportBatchManagerOptions {
 
 function sanitizedUploadName(value: string): string {
 	const filename = value.trim().replace(/[\u0000-\u001f]/g, "");
-	if (!filename || filename.length > 500) throw new LocalPdfImportError("PDF filename must contain at most 500 characters");
+	if (!filename || filename.length > 500)
+		throw new LocalPdfImportError("PDF filename must contain at most 500 characters");
 	if (!filename.toLowerCase().endsWith(".pdf")) throw new LocalPdfImportError("Only PDF files can be imported");
 	return filename;
 }
@@ -206,9 +212,7 @@ export class LocalPdfImportBatchManager {
 		await writeFile(path, data, { flag: "wx" });
 		try {
 			const prepared = await preparePdfImport(path, this.executor, this.projectRoot);
-			const needsMetadata = prepared.needsMetadata
-				? { ...prepared.needsMetadata, source: filename }
-				: undefined;
+			const needsMetadata = prepared.needsMetadata ? { ...prepared.needsMetadata, source: filename } : undefined;
 			const file: StagedLocalPdf = {
 				id: fileId,
 				filename,
@@ -236,9 +240,14 @@ export class LocalPdfImportBatchManager {
 		const records: PaperRecord[] = [];
 		for (const file of batch.files) {
 			if (!file.record) continue;
-			const candidate = batch.collection
-				? { ...file.record, collectionIds: [...new Set([...(file.record.collectionIds ?? []), batch.collection.id])] }
-				: file.record;
+			const candidate = withCleanMetadata(
+				batch.collection
+					? {
+							...file.record,
+							collectionIds: [...new Set([...(file.record.collectionIds ?? []), batch.collection.id])],
+						}
+					: file.record,
+			);
 			const existing = working.find(
 				(record) => samePaperIdentity(record, candidate) || sameLocalPdfMetadataIdentity(record, candidate),
 			);
@@ -313,7 +322,9 @@ export class LocalPdfImportBatchManager {
 			files: batch.files.map(publicFile),
 			acceptedCount: records.length,
 			needsMetadataCount: batch.files.length - records.length,
-			providerWarnings: batch.files.flatMap((file) => file.warnings.filter((warning) => warning.stage === "provider")),
+			providerWarnings: batch.files.flatMap((file) =>
+				file.warnings.filter((warning) => warning.stage === "provider"),
+			),
 			possibleDuplicates: batch.possibleDuplicates,
 			operation: batch.operation,
 		};
@@ -330,10 +341,13 @@ export class LocalPdfImportBatchManager {
 				const stillExists = (await this.storeForNamespace(batch.namespace).listCollections()).some(
 					(collection) => collection.id === batch.collection?.id,
 				);
-				if (!stillExists) throw new LocalPdfImportError("The target collection changed; prepare the import again", 409);
+				if (!stillExists)
+					throw new LocalPdfImportError("The target collection changed; prepare the import again", 409);
 			}
 			await this.consent.consume(grant, batch.plan);
-			const ready = batch.files.filter((file): file is StagedLocalPdf & { record: PaperRecord } => Boolean(file.record));
+			const ready = batch.files.filter((file): file is StagedLocalPdf & { record: PaperRecord } =>
+				Boolean(file.record),
+			);
 			const inputs = await Promise.all(
 				ready.map(async (file) => {
 					const body = await readFile(file.path);

@@ -7087,7 +7087,7 @@ body.paper-reader-resizing .browser-pdf-frame {
 	overflow: auto;
 }
 
-/* 璇︽儏闈㈡澘(5.png 椋庢牸: 鐐瑰嚮鏉ユ簮琛屽睍寮€鍒板彸渚? */
+/* 详情面板(5.png 风格: 点击来源行展开到右侧) */
 .agent-result-detail {
 	width: 320px;
 	flex-shrink: 0;
@@ -7097,6 +7097,24 @@ body.paper-reader-resizing .browser-pdf-frame {
 	overflow: hidden;
 	border-left: 1px solid var(--brand-200);
 	background: var(--surface-base);
+}
+
+/* Below the shell's narrow breakpoint a fixed 320px pane would crowd out the result list,
+   so let it shrink instead of holding its width. */
+@media (max-width: 1120px) {
+	.agent-result-detail {
+		width: min(320px, 45%);
+	}
+}
+
+@media (max-width: 800px) {
+	.agent-result-detail {
+		width: auto;
+		flex: 0 0 auto;
+		max-height: 50%;
+		border-left: 0;
+		border-top: 1px solid var(--brand-200);
+	}
 }
 
 .agent-result-detail-head {
@@ -7588,6 +7606,15 @@ body.paper-reader-resizing .browser-pdf-frame {
 	color: var(--brand-800);
 	text-decoration: underline;
 	text-decoration-color: var(--brand-600);
+	/* Long URLs must wrap instead of forcing the transcript wider than the viewport. */
+	overflow-wrap: anywhere;
+}
+
+/* A wide markdown table scrolls in place rather than stretching the chat column. */
+.agent-message-text table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
 }
 
 /* Literature collection sidebar */
@@ -8600,6 +8627,34 @@ body.paper-reader-resizing .browser-pdf-frame {
 	padding: 0 10px;
 }
 
+.research-note-search-wrap {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 0 12px 10px;
+	padding: 0 10px;
+	height: 34px;
+	border: 1px solid var(--brand-300);
+	border-radius: 5px;
+	background: var(--surface-base);
+}
+
+.research-note-search-wrap > svg {
+	flex: 0 0 auto;
+	color: var(--muted);
+}
+
+.research-note-search-wrap input {
+	min-width: 0;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--ink);
+}
+
 .research-new-menu-wrap,
 .research-tree-menu-wrap {
 	position: relative;
@@ -8615,83 +8670,73 @@ body.paper-reader-resizing .browser-pdf-frame {
 	min-height: 0;
 	flex: 1;
 	overflow-y: auto;
+	padding: 8px 8px 18px;
 	border-top: 1px solid var(--line);
 	overscroll-behavior: contain;
 }
 
-.research-note-tree-note,
-.research-folder-row {
+/* Wiki-style tree: rows are compact single lines, indentation and connector lines come
+   from nesting `.research-tree-branch`, so no inline padding is needed. */
+.research-tree-node {
 	display: flex;
 	width: 100%;
 	min-width: 0;
 	align-items: center;
-	border-bottom: 1px solid var(--brand-200);
-	background: transparent;
 }
 
-.research-note-tree-note:hover,
-.research-folder-row:hover {
-	background: var(--brand-50);
-}
-
-.research-note-tree-note.active {
-	background: var(--brand-50);
-	box-shadow: inset 3px 0 0 var(--green-700);
-}
-
-.research-note-tree-main,
-.research-folder-main {
+.research-tree-row {
 	display: flex;
 	min-width: 0;
 	flex: 1;
 	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
 	border: 0;
+	border-radius: 4px;
 	background: transparent;
 	color: var(--ink);
+	font-size: 12px;
 	text-align: left;
 	cursor: pointer;
 }
 
-.research-note-tree-main {
-	min-height: 58px;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 6px;
-	padding: 10px 4px 10px 0;
+.research-tree-row:hover {
+	background: var(--surface-hover);
 }
 
-.research-folder-main {
-	min-height: 38px;
-	gap: 6px;
-	padding: 6px 2px 6px 0;
-}
-
-.research-folder-main > svg:first-child {
+.research-tree-row > svg {
 	flex: 0 0 auto;
-	transition: transform 120ms ease;
-}
-
-.research-folder-main > svg:first-child.open {
-	transform: rotate(90deg);
-}
-
-.research-folder-icon {
-	display: inline-flex;
-	color: var(--brand-700);
-}
-
-.research-note-tree-main strong {
-	display: -webkit-box;
-	overflow: hidden;
-	font-size: 13px;
-	line-height: 1.35;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-}
-
-.research-note-tree-main span {
 	color: var(--muted);
-	font-size: 11px;
+}
+
+.research-tree-row > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.research-tree-row.folder > span {
+	font-weight: 600;
+}
+
+.research-tree-node.active > .research-tree-row,
+.research-tree-node.active > .research-tree-row:hover {
+	background: var(--brand-50);
+	box-shadow: inset 3px 0 0 var(--green-700);
+}
+
+/* A folder containing the open note is highlighted so the current path stays visible. */
+.research-tree-node.active-ancestor > .research-tree-row {
+	background: var(--brand-50);
+	color: var(--brand-900);
+}
+
+.research-tree-branch {
+	display: grid;
+	margin-left: 14px;
+	border-left: 1px solid var(--brand-200);
+	padding-left: 4px;
 }
 
 .research-tree-menu-wrap > .icon-button {
@@ -8701,8 +8746,7 @@ body.paper-reader-resizing .browser-pdf-frame {
 	opacity: 0;
 }
 
-.research-note-tree-note:hover .research-tree-menu-wrap > .icon-button,
-.research-folder-row:hover .research-tree-menu-wrap > .icon-button,
+.research-tree-node:hover .research-tree-menu-wrap > .icon-button,
 .research-tree-menu-wrap:focus-within > .icon-button {
 	opacity: 1;
 }

@@ -1,10 +1,22 @@
-import { ChevronRight, Folder, FolderOpen, MoreHorizontal, Plus, RefreshCw, X } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	FileText,
+	Folder,
+	FolderOpen,
+	MoreHorizontal,
+	Plus,
+	RefreshCw,
+	Search,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, jsonBody } from "./api";
 import { AccessibleModal, ConsentCard, confirmOperation, EmptyState, LoadingBlock } from "./components";
 import { useAutomaticOperationConfirmation } from "./confirmation-policy";
+import { useRouterContext } from "./router";
 import type {
 	ConfirmationGrant,
 	PaperRecord,
@@ -90,6 +102,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	const mutationBusy = useRef(false);
 	const refreshBusy = useRef(false);
 	const targetHandled = useRef<string | undefined>(undefined);
+	const { updateParams } = useRouterContext();
 
 	const loadIndex = useCallback(async () => {
 		const [noteResult, folderResult] = await Promise.all([
@@ -152,25 +165,35 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				} catch {
 					setExpanded(new Set());
 				}
-				const targetKey = targetNamespace
-					? `${targetNamespace}:${targetNoteId ?? "new"}:${targetPaperId ?? ""}`
-					: "";
-				if (targetNoteId && validIds.has(targetNoteId) && targetHandled.current !== targetKey) {
-					targetHandled.current = targetKey;
-					setOpenNoteIds((ids) => (ids.includes(targetNoteId) ? ids : [...ids, targetNoteId]));
-					setActiveId(targetNoteId);
-				} else if (targetPaperId && targetHandled.current !== targetKey) {
-					targetHandled.current = targetKey;
-					setNewPaperIds(new Set([targetPaperId]));
-					setCreateOpen(true);
-				}
 			})
 			.catch((reason) => !cancelled && setError(reason instanceof Error ? reason.message : String(reason)))
 			.finally(() => !cancelled && setLoading(false));
 		return () => {
 			cancelled = true;
 		};
-	}, [loadIndex, namespace, targetNamespace, targetNoteId, targetPaperId]);
+	}, [loadIndex, namespace]);
+
+	// Deep-link handling is keyed on the loaded index rather than folded into the load effect,
+	// so that syncing `noteId` back into the URL does not re-fetch the whole index on every click.
+	useEffect(() => {
+		if (loading) return;
+		const targetKey = targetNamespace ? `${targetNamespace}:${targetNoteId ?? "new"}:${targetPaperId ?? ""}` : "";
+		if (!targetKey || targetHandled.current === targetKey) return;
+		const validIds = new Set(notes.map((note) => note.id));
+		if (targetNoteId) {
+			targetHandled.current = targetKey;
+			if (validIds.has(targetNoteId)) {
+				setOpenNoteIds((ids) => (ids.includes(targetNoteId) ? ids : [...ids, targetNoteId]));
+				setActiveId(targetNoteId);
+			} else {
+				setError("要打开的笔记不存在，可能已被删除或不属于当前命名空间。");
+			}
+		} else if (targetPaperId) {
+			targetHandled.current = targetKey;
+			setNewPaperIds(new Set([targetPaperId]));
+			setCreateOpen(true);
+		}
+	}, [loading, notes, targetNamespace, targetNoteId, targetPaperId]);
 
 	useEffect(() => {
 		if (!activeId) {
@@ -325,9 +348,17 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	}, [active, draftMarkdown, saveDraftNow]);
 
 	const openNote = async (noteId: string) => {
-		if (activeId === noteId || !(await saveDraftNow())) return;
+		if (activeId === noteId) return;
+		if (!(await saveDraftNow())) {
+			// A concurrent autosave or a rejected PATCH blocks the switch; say so instead of
+			// dropping the click, which otherwise reads as "the note won't open".
+			setMessage("");
+			setError((current) => current || "当前笔记尚未保存成功，请先处理保存问题再切换笔记。");
+			return;
+		}
 		setOpenNoteIds((ids) => (ids.includes(noteId) ? ids : [...ids, noteId]));
 		setActiveId(noteId);
+		updateParams({ noteId });
 		setCreateOpen(false);
 	};
 
@@ -336,7 +367,11 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		setOpenNoteIds((ids) => {
 			const index = ids.indexOf(noteId);
 			const next = ids.filter((id) => id !== noteId);
-			if (noteId === activeId) setActiveId(next[Math.min(index, next.length - 1)]);
+			if (noteId === activeId) {
+				const nextActive = next[Math.min(index, next.length - 1)];
+				setActiveId(nextActive);
+				updateParams({ noteId: nextActive });
+			}
 			return next;
 		});
 	};
@@ -537,6 +572,27 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 			? notes.filter((note) => `${note.title} ${note.folderPath ?? ""}`.toLocaleLowerCase().includes(query))
 			: [];
 	}, [noteQuery, notes]);
+	// Folder ancestors of the open note, so the path to it stays highlighted like a Wiki目录.
+	const activeAncestorIds = useMemo(() => {
+		const ids = new Set<string>();
+		let folderId = notes.find((note) => note.id === activeId)?.folderId;
+		while (folderId) {
+			ids.add(folderId);
+			folderId = folderById.get(folderId)?.parentId;
+		}
+		return ids;
+	}, [activeId, folderById, notes]);
+
+	// Opening a note that lives in a collapsed folder must reveal it, otherwise the highlight
+	// would land on a row the user cannot see.
+	useEffect(() => {
+		if (loading || !activeAncestorIds.size) return;
+		setExpanded((current) => {
+			const missing = [...activeAncestorIds].filter((id) => !current.has(id));
+			if (!missing.length) return current;
+			return new Set([...current, ...missing]);
+		});
+	}, [activeAncestorIds, loading]);
 
 	const folderOptions = (excludedId?: string) => {
 		const excluded = new Set<string>();
@@ -563,17 +619,16 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		return names.join(" / ");
 	};
 
-	const noteRow = (note: ResearchNoteSummary, depth = 0) => (
-		<div
-			className={`research-note-tree-note${activeId === note.id ? " active" : ""}`}
-			key={note.id}
-			style={{ paddingLeft: 14 + depth * 16 }}
-		>
-			<button type="button" className="research-note-tree-main" onClick={() => void openNote(note.id)}>
-				<strong>{note.title}</strong>
-				<span>
-					{note.papers.length} 篇论文 · {formatUpdatedAt(note.updatedAt)}
-				</span>
+	const noteRow = (note: ResearchNoteSummary) => (
+		<div className={`research-tree-node${activeId === note.id ? " active" : ""}`} key={note.id}>
+			<button
+				type="button"
+				className="research-tree-row page"
+				title={`${note.title} · ${note.papers.length} 篇论文 · ${formatUpdatedAt(note.updatedAt)}`}
+				onClick={() => void openNote(note.id)}
+			>
+				<FileText size={14} />
+				<span>{note.title}</span>
 			</button>
 			<div className="research-tree-menu-wrap">
 				<button
@@ -599,7 +654,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		</div>
 	);
 
-	const folderRows = (parentId = "root", depth = 0): React.ReactNode => (
+	const folderRows = (parentId = "root"): React.ReactNode => (
 		<>
 			{(folderChildren.get(parentId) ?? []).map((folder) => {
 				const open = expanded.has(folder.id);
@@ -607,10 +662,11 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 					(folderChildren.get(folder.id)?.length ?? 0) + (notesByFolder.get(folder.id)?.length ?? 0) > 0;
 				return (
 					<div className="research-folder-branch" key={folder.id}>
-						<div className="research-folder-row" style={{ paddingLeft: 7 + depth * 16 }}>
+						<div className={`research-tree-node${activeAncestorIds.has(folder.id) ? " active-ancestor" : ""}`}>
 							<button
 								type="button"
-								className="research-folder-main"
+								className="research-tree-row folder"
+								aria-expanded={hasChildren ? open : undefined}
 								onClick={() =>
 									setExpanded((current) => {
 										const next = new Set(current);
@@ -619,9 +675,9 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 									})
 								}
 							>
-								<ChevronRight className={open ? "open" : undefined} size={15} />
+								{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 								<span className="research-folder-icon">
-									{open ? <FolderOpen size={16} /> : <Folder size={16} />}
+									{open ? <FolderOpen size={15} /> : <Folder size={15} />}
 								</span>
 								<span>{folder.name}</span>
 							</button>
@@ -669,9 +725,9 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 							</div>
 						</div>
 						{open && hasChildren && (
-							<div>
-								{folderRows(folder.id, depth + 1)}
-								{(notesByFolder.get(folder.id) ?? []).map((note) => noteRow(note, depth + 1))}
+							<div className="research-tree-branch">
+								{folderRows(folder.id)}
+								{(notesByFolder.get(folder.id) ?? []).map((note) => noteRow(note))}
 							</div>
 						)}
 					</div>
@@ -762,12 +818,15 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 							</div>
 						</div>
 					</header>
-					<input
-						className="research-note-search"
-						value={noteQuery}
-						onChange={(event) => setNoteQuery(event.target.value)}
-						placeholder="搜索笔记"
-					/>
+					<label className="research-note-search-wrap">
+						<Search size={15} />
+						<input
+							value={noteQuery}
+							onChange={(event) => setNoteQuery(event.target.value)}
+							placeholder="搜索笔记"
+							aria-label="搜索笔记"
+						/>
+					</label>
 					<div className="research-note-list">
 						{loading ? (
 							<LoadingBlock text="正在加载笔记" />

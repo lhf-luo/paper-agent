@@ -75,7 +75,12 @@ export interface WebAgentToolView {
 }
 
 export interface WebAgentSessionFilter {
-	scope?: "general" | "paper";
+	/**
+	 * `general` — sessions with no paper context.
+	 * `paper` — sessions bound to one paper (requires namespace and paperId).
+	 * `personal` — any session bound to a paper in the given personal namespace, across papers.
+	 */
+	scope?: "general" | "paper" | "personal";
 	namespace?: string;
 	paperId?: string;
 }

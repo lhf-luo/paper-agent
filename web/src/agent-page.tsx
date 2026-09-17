@@ -551,11 +551,14 @@ function AgentResultSidebar({
 									{loadedAbstract?.key === `${detailPaper.meta.search_run_id}:${detailPaper.meta.paper_id}` &&
 									loadedAbstract.loading ? (
 										<p className="agent-result-detail-abstract muted">摘要加载中……</p>
-									) : loadedAbstract?.key === `${detailPaper.meta.search_run_id}:${detailPaper.meta.paper_id}` &&
+									) : loadedAbstract?.key ===
+											`${detailPaper.meta.search_run_id}:${detailPaper.meta.paper_id}` &&
 										loadedAbstract.error ? (
 										<p className="agent-result-detail-abstract muted">摘要加载失败：{loadedAbstract.error}</p>
 									) : detailPaper.abstract || loadedAbstract?.value ? (
-										<p className="agent-result-detail-abstract">{detailPaper.abstract ?? loadedAbstract?.value}</p>
+										<p className="agent-result-detail-abstract">
+											{detailPaper.abstract ?? loadedAbstract?.value}
+										</p>
 									) : (
 										<p className="agent-result-detail-abstract muted">
 											暂无摘要（该来源未提供摘要，可点击论文页查看）。
@@ -847,6 +850,8 @@ export function AgentPage({
 		Array<{ name: string; description: string; disableModelInvocation: boolean }>
 	>([]);
 	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
+	// Mirrors the CSS shell breakpoints so layout decisions do not fight the stylesheet.
+	const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1920 : window.innerWidth));
 	const [activeResultUrl, setActiveResultUrl] = useState<string>();
 	const [resultRowCounts, setResultRowCounts] = useState<Record<string, number>>({});
 	const [sidebarTables, setSidebarTables] = useState<ParsedLiteratureTable[]>([]);
@@ -1050,6 +1055,7 @@ export function AgentPage({
 	useEffect(() => {
 		if (initialPrompt) {
 			setPrompt(initialPrompt);
+			setNotice("自动研究任务已填入输入框，确认或修改后手动发送。");
 			onPromptConsumed?.();
 		}
 	}, [initialPrompt, onPromptConsumed]);
@@ -1109,6 +1115,19 @@ export function AgentPage({
 		const timer = window.setTimeout(() => setError(""), 6_000);
 		return () => window.clearTimeout(timer);
 	}, [error]);
+	// Server notices describe the session they came from; drop them when the user switches away.
+	const activeSessionId = active?.id;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed only on session identity.
+	useEffect(() => {
+		setNotice((current) => (modelNoticeTimer.current === undefined ? "" : current));
+	}, [activeSessionId]);
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const update = () => setViewportWidth(window.innerWidth);
+		update();
+		window.addEventListener("resize", update);
+		return () => window.removeEventListener("resize", update);
+	}, []);
 
 	const applyConfigured = useCallback(
 		async (key: string) => {
@@ -1562,13 +1581,27 @@ export function AgentPage({
 					embedded
 						? undefined
 						: ({
-								gridTemplateColumns: sidebarOpen
-									? resultPanelOpen
-										? `250px minmax(0, 1fr) ${resultPanelWidth}px`
-										: "250px minmax(0, 1fr)"
-									: resultPanelOpen
-										? `0px minmax(0, 1fr) ${resultPanelWidth}px`
-										: "0px minmax(0, 1fr)",
+								// Below 800px the CSS switches this container to a column flex layout, so the inline
+								// grid must stand down. Between 801 and 1120px two fixed tracks would squeeze the
+								// transcript, so the panes become shrinkable instead of pinned pixel widths.
+								gridTemplateColumns:
+									viewportWidth <= 800
+										? undefined
+										: viewportWidth <= 1120
+											? sidebarOpen
+												? resultPanelOpen
+													? `minmax(0, 230px) minmax(0, 1fr) minmax(220px, ${resultPanelWidth}px)`
+													: "minmax(0, 230px) minmax(0, 1fr)"
+												: resultPanelOpen
+													? `0px minmax(0, 1fr) minmax(220px, ${resultPanelWidth}px)`
+													: "0px minmax(0, 1fr)"
+											: sidebarOpen
+												? resultPanelOpen
+													? `250px minmax(0, 1fr) ${resultPanelWidth}px`
+													: "250px minmax(0, 1fr)"
+												: resultPanelOpen
+													? `0px minmax(0, 1fr) ${resultPanelWidth}px`
+													: "0px minmax(0, 1fr)",
 							} as React.CSSProperties)
 				}
 			>

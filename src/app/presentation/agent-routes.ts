@@ -1,23 +1,23 @@
 import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import { normalizePermissionMode, normalizeThinkingLevel } from "../../agent/application/web-agent-support.ts";
 import type {
 	WebAgentConfigUpdate,
 	WebAgentEvent,
 	WebAgentMode,
+	WebAgentServiceApi,
 	WebAgentSessionContext,
 	WebAgentSessionFilter,
-	WebAgentServiceApi,
 } from "../../agent/domain/web-agent-contracts.ts";
-import { normalizePermissionMode, normalizeThinkingLevel } from "../../agent/application/web-agent-support.ts";
-import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import {
+	type AutomatedResearchDepth,
+	type AutomatedResearchPlan,
 	automatedResearchDepth,
 	automatedResearchPrompt,
 	automatedResearchThinkingLevel,
-	type AutomatedResearchDepth,
-	type AutomatedResearchPlan,
 } from "../../research/application/research-automation.ts";
+import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import { ApiError, json, readJson } from "./web-http.ts";
 
 export interface AgentRouteContext {
@@ -52,10 +52,7 @@ export async function handleAgentResearchLaunch(
 		.filter((candidate) => candidate.versionKind !== "translation")
 		.sort((left, right) => right.retrievedAt.localeCompare(left.retrievedAt))[0];
 	if (!version) {
-		throw new ApiError(
-			409,
-			"这篇论文还没有本地 PDF。请先在个人库获取 PDF 原文，等待任务完成后再开始自动研究。",
-		);
+		throw new ApiError(409, "这篇论文还没有本地 PDF。请先在个人库获取 PDF 原文，等待任务完成后再开始自动研究。");
 	}
 	const pdfFile = await stat(version.blobPath).catch(() => undefined);
 	if (!pdfFile?.isFile()) {
@@ -93,26 +90,40 @@ export async function handleAgentResearchLaunch(
 		throw new ApiError(400, error instanceof Error ? error.message : String(error));
 	}
 	// 思考强度：请求可显式指定；否则按研究深度给默认（quick→low、methods→medium、full/reproduce→high）。
-	const thinkingLevel =
-		normalizeThinkingLevel(body.thinkingLevel) ?? automatedResearchThinkingLevel(depth);
-	// 不带 paper 作用域 context：general 会话列表会过滤掉带 context 的会话，
-	// 导致从个人库跳转后再回到 Agent 页时看不到研究会话。
-	const session = await agentService.createSession({
-		mode: "persistent",
-		title: `自动研究 · ${details.paper.title}`.slice(0, 120),
-		thinkingLevel,
-	});
-	try {
-		const started = await agentService.sendMessage(session.id, { message: automation.prompt });
-		json(response, 202, { session: started, plan: automation.plan, thinkingLevel });
-	} catch (error) {
-		await Promise.resolve(agentService.deleteSession(session.id)).catch(() => undefined);
-		throw error;
+	const thinkingLevel = normalizeThinkingLevel(body.thinkingLevel) ?? automatedResearchThinkingLevel(depth);
+	// 复用已有会话，避免每次自动研究都新建会话；只有确实没有可用会话时才新建。
+	// 优先同一篇论文关联的会话，其次才回退到该个人库内最近的其它会话。
+	// listSessions 按 updatedAt 倒序，因此每条候选中第一条即为最近一次。
+	// 不自动发送：研究指令只作为待发送草稿返回，由用户确认后手动发送。
+	const usableSessions = (await Promise.resolve(agentService.listSessions({ scope: "personal", namespace }))).filter(
+		(candidate) => candidate.status !== "running" && candidate.status !== "stopping",
+	);
+	const reusableSession =
+		usableSessions.find((candidate) => candidate.context?.paperId === paperId) ?? usableSessions[0];
+	let session: Awaited<ReturnType<WebAgentServiceApi["createSession"]>>;
+	if (reusableSession) {
+		session = await agentService.getSession(reusableSession.id);
+	} else {
+		session = await agentService.createSession({
+			mode: "persistent",
+			title: `自动研究 · ${details.paper.title}`.slice(0, 120),
+			thinkingLevel,
+			// 绑定当前论文作用域，使该会话能被个人库范围检索到并在下次自动研究时复用。
+			context: { kind: "paper", namespace, paperId },
+		});
 	}
+	json(response, 200, {
+		session,
+		plan: automation.plan,
+		thinkingLevel,
+		draft: automation.prompt,
+		reusedExistingSession: Boolean(reusableSession),
+	});
 	return true;
 }
 
-export async function handleAgentRoutes(context: AgentRouteContext): Promise<void> {	const { request, response, url, agentService } = context;
+export async function handleAgentRoutes(context: AgentRouteContext): Promise<void> {
+	const { request, response, url, agentService } = context;
 	if (!agentService) throw new ApiError(503, "Web Agent service is unavailable");
 	if (request.method === "GET" && url.pathname === "/api/agent/config") {
 		json(response, 200, await agentService.getConfig());
@@ -168,8 +179,14 @@ export async function handleAgentRoutes(context: AgentRouteContext): Promise<voi
 function sessionFilter(url: URL): WebAgentSessionFilter {
 	const scope = url.searchParams.get("scope");
 	if (!scope || scope === "general") return { scope: "general" };
-	if (scope !== "paper") throw new ApiError(400, "scope must be general or paper");
+	if (scope !== "paper" && scope !== "personal") {
+		throw new ApiError(400, "scope must be general, paper, or personal");
+	}
 	const namespace = url.searchParams.get("namespace")?.trim();
+	if (scope === "personal") {
+		if (!namespace) throw new ApiError(400, "personal scope requires namespace");
+		return { scope: "personal", namespace };
+	}
 	const paperId = url.searchParams.get("paperId")?.trim();
 	if (!namespace || !paperId) throw new ApiError(400, "paper scope requires namespace and paperId");
 	return { scope: "paper", namespace, paperId };
@@ -271,9 +288,14 @@ async function handleSessionEvents(context: AgentRouteContext, agentService: Web
 	const match = /^\/api\/agent\/sessions\/([^/]+)\/events$/.exec(url.pathname);
 	if (request.method !== "GET" || !match) return false;
 	let writeEvent = (_event: string, _value: unknown, _eventId?: number) => undefined;
-	const subscription = agentService.subscribeSession(decodeURIComponent(match[1]), (event: WebAgentEvent) =>
-		writeEvent(event.type, event, event.id),
-	);
+	// Events can arrive between subscribing and the socket being writable. Dropping them would
+	// silently lose reasoning/message deltas on every reconnect, so hold and replay them in order.
+	const buffered: Array<[string, unknown, number | undefined]> = [];
+	let writable = false;
+	const subscription = agentService.subscribeSession(decodeURIComponent(match[1]), (event: WebAgentEvent) => {
+		if (writable) writeEvent(event.type, event, event.id);
+		else buffered.push([event.type, event, event.id]);
+	});
 	response.writeHead(200, {
 		"content-type": "text/event-stream; charset=utf-8",
 		"cache-control": "no-store",
@@ -286,6 +308,8 @@ async function handleSessionEvents(context: AgentRouteContext, agentService: Web
 		response.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
 	};
 	writeEvent("snapshot", subscription.snapshot);
+	writable = true;
+	for (const [event, value, eventId] of buffered.splice(0)) writeEvent(event, value, eventId);
 	const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 20_000);
 	request.once("close", () => {
 		clearInterval(heartbeat);

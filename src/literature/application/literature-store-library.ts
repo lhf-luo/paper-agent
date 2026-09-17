@@ -3,6 +3,7 @@ import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { collectionDescendantIds, validateCollectionParent } from "../domain/collection-hierarchy.ts";
 import type { PaperCollection, PaperRecord } from "../domain/literature-types.ts";
+import { withCleanMetadata } from "../domain/paper-title.ts";
 
 import { pathExists, readJson, writeJsonAtomic } from "./literature-store-support.ts";
 import { LiteratureStoreWrite } from "./literature-store-write.ts";
@@ -147,6 +148,47 @@ export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 			await this.searchIndex.upsert(updated);
 		});
 		return updated;
+	}
+
+	/**
+	 * 批量清洗已保存论文的标题与摘要杂质，返回被修正的记录及原标题。
+	 * 传入 paperIds 限定范围，省略则处理整个语料库。
+	 */
+	async repairPaperMetadata(paperIds?: string[]): Promise<
+		Array<{
+			id: string;
+			previousTitle: string;
+			title: string;
+			abstractChanged: boolean;
+		}>
+	> {
+		await this.initialize();
+		const scope = paperIds ? new Set(paperIds) : undefined;
+		const candidates = (await this.listPapers()).filter((record) => !scope || scope.has(record.id));
+		const repairs = candidates
+			.map((record) => ({ record, cleaned: withCleanMetadata(record) }))
+			.filter((entry) => entry.cleaned !== entry.record);
+		if (!repairs.length) return [];
+		const describe = ({ record, cleaned }: (typeof repairs)[number]) => ({
+			id: record.id,
+			previousTitle: record.title,
+			title: cleaned.title,
+			abstractChanged: cleaned.abstract !== record.abstract,
+		});
+		if (this.personalDatabase) {
+			// savePaper also renames the on-disk PDF to match the corrected title.
+			for (const { cleaned } of repairs) await this.personalDatabase.savePaper(cleaned);
+			return repairs.map(describe);
+		}
+		await this.withWriteLock(async () => {
+			for (const { cleaned } of repairs) {
+				await writeJsonAtomic(this.recordPath(cleaned.id), cleaned);
+				await this.searchIndex.upsert(cleaned);
+			}
+			await this.refreshManifestUnlocked();
+			await this.markSearchIndexCurrent();
+		});
+		return repairs.map(describe);
 	}
 
 	async updatePaperCollectionMembership(

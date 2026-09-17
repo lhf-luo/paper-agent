@@ -115,6 +115,23 @@ async function startFakeModelServer(options: { secret: string; toolPath?: string
 			return;
 		}
 		const answer = hasToolResult ? "write decision received" : `echo:${userText}`;
+		// Relays advertise reasoning under different field names; the fallback should recover
+		// reasoning even when the streaming parser never emits a thinking block.
+		if (userText.includes("with-unknown-reasoning-field")) {
+			chunk([{ index: 0, delta: { role: "assistant", analysis: "hidden analysis" }, finish_reason: null }]);
+			chunk([{ index: 0, delta: { content: answer }, finish_reason: null }]);
+			chunk([{ index: 0, delta: {}, finish_reason: "stop" }]);
+			response.end("data: [DONE]\n\n");
+			return;
+		}
+		if (userText.includes("with-reasoning-content")) {
+			chunk([{ index: 0, delta: { role: "assistant", reasoning_content: "step one " }, finish_reason: null }]);
+			chunk([{ index: 0, delta: { reasoning_content: "step two" }, finish_reason: null }]);
+			chunk([{ index: 0, delta: { content: answer }, finish_reason: null }]);
+			chunk([{ index: 0, delta: {}, finish_reason: "stop" }]);
+			response.end("data: [DONE]\n\n");
+			return;
+		}
 		chunk([{ index: 0, delta: { role: "assistant", content: answer.slice(0, 5) }, finish_reason: null }]);
 		chunk([{ index: 0, delta: { content: answer.slice(5) }, finish_reason: null }]);
 		chunk([{ index: 0, delta: {}, finish_reason: "stop" }]);
@@ -361,6 +378,60 @@ describe("WebAgentService", () => {
 			expect(restoredMessages).toContain("context-after-restart-marker");
 			expect(restoredMessages.includes("context-first-marker")).toBe(mode === "persistent");
 			expect(restoredMessages.includes("context-second-marker")).toBe(mode === "persistent");
+		} finally {
+			await provider.close();
+		}
+	});
+
+	it("surfaces relay reasoning and reports when a provider returns none", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-reasoning-"));
+		temporaryPaths.push(root);
+		const secret = "synthetic-reasoning-test-key";
+		const provider = await startFakeModelServer({ secret });
+		try {
+			const service = await WebAgentService.create({ projectRoot: root });
+			services.push(service);
+			await service.updateConfig({
+				providerId: "fake-provider",
+				modelId: "fake-model",
+				baseUrl: provider.baseUrl,
+				api: "openai-completions",
+				apiKey: secret,
+			});
+
+			// `reasoning_content` is understood by the streaming parser directly.
+			const streamed = service.createSession({ mode: "once" });
+			const streamedEvents: WebAgentEvent[] = [];
+			const subscription = service.subscribeSession(streamed.id, (event) => streamedEvents.push(event));
+			await service.sendMessage(streamed.id, { message: "with-reasoning-content" });
+			await waitFor(() => service.getSession(streamed.id).status !== "running");
+			const streamedSnapshot = service.getSession(streamed.id);
+			expect(streamedSnapshot.messages.at(-1)?.thinking).toBe("step one step two");
+			expect(streamedEvents.some((event) => event.type === "thinking_delta")).toBe(true);
+			// Reasoning arrived, so no degradation notice should be emitted.
+			expect(
+				streamedEvents.some((event) => event.type === "notice" && event.message.includes("未提供详细推理内容")),
+			).toBe(false);
+			subscription.unsubscribe();
+
+			// An unknown field name yields no reasoning; the answer must still render and the
+			// session must say so rather than showing an unexplained blank.
+			const unknown = service.createSession({ mode: "once" });
+			const unknownEvents: WebAgentEvent[] = [];
+			const unknownSubscription = service.subscribeSession(unknown.id, (event) => unknownEvents.push(event));
+			await service.sendMessage(unknown.id, { message: "with-unknown-reasoning-field" });
+			await waitFor(() => service.getSession(unknown.id).status !== "running");
+			const unknownSnapshot = service.getSession(unknown.id);
+			expect(unknownSnapshot.messages.at(-1)).toMatchObject({
+				role: "assistant",
+				content: "echo:with-unknown-reasoning-field",
+				status: "complete",
+			});
+			expect(unknownSnapshot.status).toBe("idle");
+			expect(
+				unknownEvents.some((event) => event.type === "notice" && event.message.includes("未提供详细推理内容")),
+			).toBe(true);
+			unknownSubscription.unsubscribe();
 		} finally {
 			await provider.close();
 		}

@@ -6,6 +6,7 @@ import type {
 	PaperRecord,
 	PossibleDuplicate,
 } from "./literature-types.ts";
+import { cleanPaperText, cleanPaperTitle } from "./paper-title.ts";
 
 const linkKindPriority: Record<PaperLink["kind"], number> = {
 	other: 0,
@@ -337,18 +338,24 @@ export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperR
 		const key = [item.provider, item.query, item.providerRecordId ?? "", item.rawUrl ?? ""].join("|");
 		if (!provenance.has(key)) provenance.set(key, item);
 	}
+	// Clean before choosing so a dirty variant never wins the length comparison,
+	// and so merging also repairs records that were already stored unclean.
+	const leftTitle = cleanPaperTitle(left.title);
+	const rightTitle = cleanPaperTitle(right.title);
+	const leftAbstract = typeof left.abstract === "string" ? cleanPaperText(left.abstract) : undefined;
+	const rightAbstract = typeof right.abstract === "string" ? cleanPaperText(right.abstract) : undefined;
 	const merged: PaperRecord = {
 		id: left.id,
 		title:
-			normalizeTitle(left.title) === normalizeTitle(right.title) &&
-			hasLayoutSpacedTitlePrefix(left.title) !== hasLayoutSpacedTitlePrefix(right.title)
-				? hasLayoutSpacedTitlePrefix(left.title)
-					? right.title
-					: left.title
-				: left.title.length >= right.title.length
-					? left.title
-					: right.title,
-		abstract: (left.abstract?.length ?? 0) >= (right.abstract?.length ?? 0) ? left.abstract : right.abstract,
+			normalizeTitle(leftTitle) === normalizeTitle(rightTitle) &&
+			hasLayoutSpacedTitlePrefix(leftTitle) !== hasLayoutSpacedTitlePrefix(rightTitle)
+				? hasLayoutSpacedTitlePrefix(leftTitle)
+					? rightTitle
+					: leftTitle
+				: leftTitle.length >= rightTitle.length
+					? leftTitle
+					: rightTitle,
+		abstract: (leftAbstract?.length ?? 0) >= (rightAbstract?.length ?? 0) ? leftAbstract : rightAbstract,
 		authors: left.authors.length >= right.authors.length ? left.authors : right.authors,
 		year: left.year ?? right.year,
 		venue: left.venue ?? right.venue,
