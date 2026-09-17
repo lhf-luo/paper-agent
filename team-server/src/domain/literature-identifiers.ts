@@ -3,6 +3,7 @@ import type {
 	PaperCuration,
 	PaperDiscoveryPath,
 	PaperLink,
+	PaperMetadataConflicts,
 	PaperRecord,
 	PossibleDuplicate,
 } from "../protocol/literature-types.ts";
@@ -318,8 +319,52 @@ function mergeCuration(left: PaperCuration | undefined, right: PaperCuration | u
 	};
 }
 
+const METADATA_CONFLICT_FIELDS = ["authors", "year", "venue", "publicationType", "citedByApiUrl"] as const;
+
+function metadataSources(record: PaperRecord): string[] {
+	return uniqueStrings(record.provenance.map((item) => item.provider));
+}
+
+function normalizedMetadataValue(value: string | number | string[]): string {
+	if (Array.isArray(value)) return JSON.stringify(value.map((item) => item.trim().toLowerCase()));
+	return typeof value === "string" ? value.trim().toLowerCase() : String(value);
+}
+
+function mergeMetadataConflicts(left: PaperRecord, right: PaperRecord): PaperMetadataConflicts | undefined {
+	const merged: PaperMetadataConflicts = {};
+	const add = (
+		field: (typeof METADATA_CONFLICT_FIELDS)[number],
+		value: string | number | string[] | undefined,
+		sources: string[],
+	) => {
+		if (value === undefined || (typeof value === "string" && !value.trim())) return;
+		const bucket = merged[field] ?? [];
+		const key = normalizedMetadataValue(value);
+		const existing = bucket.find((item) => normalizedMetadataValue(item.value) === key);
+		if (existing) existing.sources = uniqueStrings([...existing.sources, ...sources]);
+		else bucket.push({ value: Array.isArray(value) ? [...value] : value, sources });
+		merged[field] = bucket;
+	};
+	for (const record of [left, right]) {
+		for (const field of METADATA_CONFLICT_FIELDS) {
+			for (const conflict of record.metadataConflicts?.[field] ?? []) add(field, conflict.value, conflict.sources);
+		}
+	}
+	for (const field of METADATA_CONFLICT_FIELDS) {
+		const leftValue = left[field];
+		const rightValue = right[field];
+		if (leftValue === undefined || rightValue === undefined) continue;
+		if (normalizedMetadataValue(leftValue) === normalizedMetadataValue(rightValue)) continue;
+		add(field, leftValue, metadataSources(left));
+		add(field, rightValue, metadataSources(right));
+	}
+	return Object.keys(merged).length ? merged : undefined;
+}
+
 export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperRecord {
 	const identifiers = {
+		...right.identifiers,
+		...left.identifiers,
 		doi: normalizeDoi(left.identifiers.doi) ?? normalizeDoi(right.identifiers.doi),
 		arxivId: normalizeArxivId(left.identifiers.arxivId) ?? normalizeArxivId(right.identifiers.arxivId),
 		openAlexId: left.identifiers.openAlexId ?? right.identifiers.openAlexId,
@@ -332,6 +377,8 @@ export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperR
 		if (!provenance.has(key)) provenance.set(key, item);
 	}
 	const merged: PaperRecord = {
+		...right,
+		...left,
 		id: left.id,
 		title:
 			normalizeTitle(left.title) === normalizeTitle(right.title) &&
@@ -346,7 +393,9 @@ export function mergePaperRecords(left: PaperRecord, right: PaperRecord): PaperR
 		authors: left.authors.length >= right.authors.length ? left.authors : right.authors,
 		year: left.year ?? right.year,
 		venue: left.venue ?? right.venue,
+		venueRank: left.venueRank ?? right.venueRank,
 		publicationType: left.publicationType ?? right.publicationType,
+		metadataConflicts: mergeMetadataConflicts(left, right),
 		identifiers,
 		links,
 		materialHashes: uniqueStrings([...(left.materialHashes ?? []), ...(right.materialHashes ?? [])]),
@@ -402,9 +451,15 @@ export function deduplicatePaperRecords(records: PaperRecord[]): PaperRecord[] {
 			for (const url of paperPdfUrls(acceptedRecord)) byPdfUrl.set(url, acceptedRecord);
 		}
 	};
-	for (const record of records) {
-		record.identifiers.doi = normalizeDoi(record.identifiers.doi);
-		record.identifiers.arxivId = normalizeArxivId(record.identifiers.arxivId);
+	for (const inputRecord of records) {
+		const record: PaperRecord = {
+			...inputRecord,
+			identifiers: {
+				...inputRecord.identifiers,
+				doi: normalizeDoi(inputRecord.identifiers.doi),
+				arxivId: normalizeArxivId(inputRecord.identifiers.arxivId),
+			},
+		};
 		record.id = paperRecordId(record);
 		const matches = new Set<PaperRecord>();
 		const doiMatch = record.identifiers.doi ? byDoi.get(record.identifiers.doi) : undefined;

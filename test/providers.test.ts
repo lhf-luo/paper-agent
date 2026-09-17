@@ -4,6 +4,7 @@ import {
 	fetchOpenAlexWorks,
 	literatureProviderDefinitions,
 	searchArxivPage,
+	searchCorePage,
 	searchCrossrefByDoi,
 	searchOpenAlexByDoi,
 	searchOpenAlexPage,
@@ -11,6 +12,8 @@ import {
 	searchSemanticScholarCitations,
 	searchSemanticScholarPage,
 } from "../src/literature/infrastructure/literature-providers.ts";
+import { passesFilters } from "../src/literature/infrastructure/provider-common.ts";
+import type { PaperRecord } from "../src/literature/domain/literature-types.ts";
 
 describe("literature providers", () => {
 	it("separates keyword-search providers from DOI-only enrichment providers", () => {
@@ -220,4 +223,47 @@ describe("literature providers", () => {
 		expect(new URL(requestUrls[0]).searchParams.get("per-page")).toBe("50");
 		expect(new URL(requestUrls[1]).searchParams.get("filter")).toBe("ids.openalex:W51");
 	});
+	it("requires explicit open-access evidence instead of treating every PDF as OA", () => {
+		const record: PaperRecord = {
+			id: "paper",
+			title: "Paywalled PDF",
+			authors: [],
+			identifiers: {},
+			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf", openAccess: false }],
+			provenance: [],
+			mergedFrom: [],
+		};
+		expect(passesFilters(record, { openAccess: true })).toBe(false);
+		expect(
+			passesFilters({ ...record, links: [{ ...record.links[0], openAccess: true }] }, { openAccess: true }),
+		).toBe(true);
+	});
+
+	it("advances capped Semantic Scholar and CORE pages by the effective request limit", async () => {
+		let semanticUrl = "";
+		const semantic = await searchSemanticScholarPage({
+			query: "fuzzing",
+			limit: 300,
+			fetcher: async (input) => {
+				semanticUrl = String(input);
+				return Response.json({ total: 500, data: [] });
+			},
+		});
+		expect(new URL(semanticUrl).searchParams.get("limit")).toBe("100");
+		expect(semantic.nextCursor).toBe("100");
+
+		let coreUrl = "";
+		const core = await searchCorePage({
+			query: "fuzzing",
+			limit: 300,
+			coreApiKey: "test-key",
+			fetcher: async (input) => {
+				coreUrl = String(input);
+				return Response.json({ totalHits: 500, results: [{ id: "core-1", title: "Paper" }] });
+			},
+		});
+		expect(new URL(coreUrl).searchParams.get("limit")).toBe("100");
+		expect(core.nextCursor).toBe("100");
+	});
+
 });

@@ -205,6 +205,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 									Math.min(pageSize, remaining) * (hasClientSideFilters(provider, options.filters) ? 3 : 1),
 								);
 								await throttleProviderRequest(provider, options.signal);
+								const requestCursor = cursor;
 								const response = await providerPageSearch(provider, {
 									query,
 									limit: requested,
@@ -220,6 +221,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 										.map((record) => withProviderDiscoveryPath(record, provider, query, discoveredAt)),
 								);
 								cursor = response.nextCursor;
+								const cursorStalled = Boolean(cursor && cursor === requestCursor);
 								pagesCompleted = page + 1;
 								await checkpoint?.update({
 									provider,
@@ -227,10 +229,10 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 									records,
 									cursor,
 									pagesCompleted,
-									done: !cursor || records.length >= options.maxResultsPerProvider,
+									done: !cursor || cursorStalled || records.length >= options.maxResultsPerProvider,
 									failures: partialFailures,
 								});
-								if (!cursor) break;
+								if (!cursor || cursorStalled) break;
 							}
 							await checkpoint?.update({
 								provider,

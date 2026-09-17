@@ -392,4 +392,39 @@ describe("literature identifiers and corpus", () => {
 			records.map((record) => record.id).sort(),
 		);
 	});
+	it("preserves conflicting provider metadata and does not mutate input records", () => {
+		const left = paper({
+			authors: ["Ada Example", "Bob Example"],
+			year: 2024,
+			venue: "Conference Venue",
+			publicationType: "Conference",
+			identifiers: { doi: "DOI:10.1000/Conflict", dblpKey: "conf/test" },
+			citedByApiUrl: "https://one.example/citations",
+			provenance: [{ provider: "crossref", query: "test", retrievedAt: "2026-01-01T00:00:00Z" }],
+		});
+		const right = paper({
+			authors: ["Ada Example", "Carol Example"],
+			year: 2025,
+			venue: "Journal Venue",
+			publicationType: "Journal",
+			identifiers: { doi: "10.1000/conflict", coreId: "core-1" },
+			citedByApiUrl: "https://two.example/citations",
+			provenance: [{ provider: "core", query: "test", retrievedAt: "2026-01-02T00:00:00Z" }],
+		});
+		const originalDoi = left.identifiers.doi;
+		const [merged] = deduplicatePaperRecords([left, right]);
+		expect(left.identifiers.doi).toBe(originalDoi);
+		expect(merged.identifiers).toMatchObject({ doi: "10.1000/conflict", dblpKey: "conf/test", coreId: "core-1" });
+		expect(merged.metadataConflicts?.year).toEqual(
+			expect.arrayContaining([
+				{ value: 2024, sources: ["crossref"] },
+				{ value: 2025, sources: ["core"] },
+			]),
+		);
+		expect(merged.metadataConflicts?.authors).toHaveLength(2);
+		expect(merged.metadataConflicts?.venue).toHaveLength(2);
+		expect(merged.metadataConflicts?.publicationType).toHaveLength(2);
+		expect(merged.metadataConflicts?.citedByApiUrl).toHaveLength(2);
+	});
+
 });

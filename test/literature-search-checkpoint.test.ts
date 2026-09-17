@@ -106,4 +106,33 @@ describe("literature search checkpoint", () => {
 		expect(resumed.run.results.map((record) => record.title).sort()).toEqual(["First page", "Second page"]);
 		await expect(access(checkpointPath)).rejects.toMatchObject({ code: "ENOENT" });
 	});
+	it("stops when a provider repeats the same cursor", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-stalled-cursor-"));
+		const cursors: Array<string | undefined> = [];
+		const result = await collectLiterature({
+			queries: ["fuzzing"],
+			providers: ["dblp"],
+			filters: {},
+			pagesPerProvider: 5,
+			maxResultsPerProvider: 10,
+			scope: "personal",
+			mode: "once",
+			namespace: "default",
+			cwd: root,
+			reuseCorpus: false,
+			providerPageSearch: (async (_provider: "dblp", options: { cursor?: string }) => {
+				cursors.push(options.cursor);
+				return {
+					provider: "dblp",
+					query: "fuzzing",
+					records: [paper(`paper-${cursors.length}`, `Paper ${cursors.length}`)],
+					nextCursor: "same",
+					requestUrl: "https://dblp.example/page",
+				};
+			}) as never,
+		});
+		expect(cursors).toEqual([undefined, "same"]);
+		expect(result.run.results).toHaveLength(2);
+	});
+
 });

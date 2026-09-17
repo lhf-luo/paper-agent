@@ -66,7 +66,9 @@ export async function handleSearchRoutes(
 		const providers = boundedStringArray(body.providers, "providers", 20, 64);
 		if (providers?.length === 0) throw new ApiError(400, "Select at least one literature provider");
 		const catalog = application.providerCatalog();
-		const supportedProviders = new Set<string>(catalog.map((provider) => provider.id));
+		const supportedProviders = new Set<string>(
+			catalog.filter((provider) => provider.capabilities.includes("keyword-search")).map((provider) => provider.id),
+		);
 		const unsupportedProviders = (providers ?? []).filter((provider) => !supportedProviders.has(provider));
 		if (unsupportedProviders.length) {
 			throw new ApiError(400, `Unsupported literature provider(s): ${unsupportedProviders.join(", ")}`);
