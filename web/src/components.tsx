@@ -246,6 +246,9 @@ export function PaperCard({
 	collections,
 	onAddToCollection,
 	onMoveToCollection,
+	onEnrichMetadata,
+	metadataEnriching,
+	metadataBusy,
 	onLoadLocalPdf,
 	localPdfUploading,
 	localPdfBusy,
@@ -268,6 +271,9 @@ export function PaperCard({
 	collections?: PaperCollection[];
 	onAddToCollection?: (paperId: string, collectionId: string) => void;
 	onMoveToCollection?: (paperId: string, collectionId: string | null) => void;
+	onEnrichMetadata?: (paper: PaperRecord) => void;
+	metadataEnriching?: boolean;
+	metadataBusy?: boolean;
 	onLoadLocalPdf?: (paper: PaperRecord) => void;
 	localPdfUploading?: boolean;
 	localPdfBusy?: boolean;
@@ -376,6 +382,7 @@ export function PaperCard({
 					</button>
 				)}
 				{((collections && onAddToCollection && onMoveToCollection) ||
+					onEnrichMetadata ||
 					onLoadLocalPdf ||
 					onDelete ||
 					onCreateResearchNote) && (
@@ -420,6 +427,20 @@ export function PaperCard({
 													移动到
 												</button>
 											</>
+										)}
+										{onEnrichMetadata && (
+											<button
+												className="paper-card-menu-item"
+												type="button"
+												disabled={metadataBusy}
+												onClick={() => {
+													setMenuOpen(false);
+													setMenuMode(null);
+													onEnrichMetadata(paper);
+												}}
+											>
+												{metadataEnriching ? "正在补充…" : "补充元数据"}
+											</button>
 										)}
 										{onLoadLocalPdf && (
 											<button

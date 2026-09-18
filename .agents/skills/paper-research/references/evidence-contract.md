@@ -1,54 +1,56 @@
 # Paper Research Evidence Contract
 
-## Evidence Classes
+## Evidence classes
 
-- **`[论文]`**: cite the physical PDF page and, when available, section plus figure, table, algorithm, or equation.
-- **`[代码]`**: cite source URL, exact commit, and `path:line`. State when the worktree is dirty or a value is only a default or example.
-- **`[公开资料]`**: cite the final accessible URL for an author page, official documentation, dataset, or release.
-- **`[推断]`**: name the supporting evidence and the reasoning step not directly stated by a source.
-- **`[未知]`**: identify missing, unreadable, conflicting, or unreported evidence. Do not fill it from convention or model memory.
+- **`[论文]`**：给出原始 PDF 物理页码，并尽量附章节、图、表、算法或公式。
+- **`[代码]`**：给出来源 URL、精确 commit 和 `path:line`，说明 dirty worktree、默认值或示例值。
+- **`[公开资料]`**：给出作者主页、正式文档、数据集或 release 的最终可访问 URL。
+- **`[推断]`**：写明支撑材料和材料未直接陈述的推理步骤。
+- **`[未知]`**：指出缺失、不可读、冲突或未报告的证据，不用惯例或模型记忆补齐。
 
-Provider metadata, citation counts, snippets, MinerU output, OCR, and generated summaries are discovery or navigation aids, not technical-claim evidence.
+Provider 元数据、引用数、搜索片段和已有摘要只用于发现来源。当前 MinerU 包是论文正文的主要阅读层：可以用于理解论文、恢复结构、检索细节和形成候选结论，但关键证据仍按下述规则回到原始 PDF 定点核验。
 
-## PDF Identity And Coverage
+## 身份、版本与覆盖
 
-Record the PDF path or source, SHA-256 when available, title and authors, version or date, total physical pages, inspected ranges, and missing or unreadable ranges. A truncated read does not count as coverage.
+记录 paper ID、namespace、标题、作者、首选 PDF 来源或路径、SHA-256、版本或日期、总物理页数，以及 MinerU source SHA。两者不一致时材料过期，不得继续使用。
 
-MinerU may identify relevant sections and page ranges. Key claims, numbers, equations, figures, tables, quotations, and limitations must be verified against the original PDF. A paper-wide conclusion requires `read_pdf` coverage of every physical page in small ranges, including appendices and references, followed by `paper_progress` to reveal gaps.
+`overview` 只建立导航，不计正文覆盖。完整论文覆盖满足以下任一条件：
 
-## Major-Claim Visual Evidence
+- `pages` 覆盖全部 MinerU 物理页且每页内容未留在未续读的截断结果中；
+- `markdown` 从起点开始按不透明 `next_cursor` 遍历到 `none`，中间无缺口。
 
-For each figure, table, algorithm, or listing that supports a major claim:
+章节阅读用于略读、方法精读和定向比较。任何 `truncated=true` 且未继续的读取都必须披露，不得计为完整范围。
 
-1. locate it with `list_paper_assets`;
-2. inspect the rendered region or reconstruct the table with the appropriate PDF tool;
-3. confirm object boundary, caption, physical page, section, and body mention context;
-4. check subfigure labels, axes, units, legends, row and column headers, direction arrows, emphasis, error bars, footnotes, and caption conditions;
-5. retain ambiguous crop, caption, mention, section, subfigure, and continuation mappings as unresolved rather than forcing a match.
+## 原始 PDF 定点核验
 
-When extracted text conflicts with the visible page, use the visible page and disclose the parsing ambiguity. Human crop corrections are authoritative.
+下列内容必须核对原始 PDF：关键数字及条件、逐字引语、核心公式、支撑主要 claim 的图表、材料之间的冲突、关键局限和决定性结论。使用 `read_pdf`、页面渲染、区域提取或表格提取，并保留物理页码和对象定位。
 
-## Challenge-Evidence Ledger
+全文研究不要求再次用 `read_pdf` 覆盖每一物理页。MinerU 提供完整正文覆盖，原 PDF 负责高价值证据和歧义复核。若提取文本与可见页面冲突，以可见原页为准并说明冲突。
 
-For each major claim, record:
+## 视觉证据
 
-- the failure condition in prior systems;
-- the paper's mechanism and the assumption it depends on;
-- the experiment question, data, comparison, budget, metric, and hardware when reported;
-- the observed result with a primary locator;
-- the claim it supports;
-- alternative explanations the experiment does not exclude.
+先从 MinerU overview 取得语义 asset ID，再用 `read_mineru_material` 的 `assets` 模式直接查看图片。表格同时读取 HTML、caption、footnote 和图片。
 
-Keep paper algorithms, code abstractions, default configuration, example commands, and reported experimental settings distinct. Check whether data represents the target scenario, baselines receive comparable budgets, metrics measure the stated goal, and ablations or counterexamples isolate the proposed mechanism.
+对每个支撑重大结论的 figure、chart、table、algorithm 或 listing：
 
-## Artifact And Reproduction Evidence
+1. 确认页码、章节、caption 和正文 mention；
+2. 检查子图、坐标轴、单位、图例、行列标题、方向、强调、误差和脚注；
+3. crop 完整且语义清楚时可先据此理解；
+4. 重大 claim、裁剪不完整、冲突或歧义时，用原 PDF 页面或对象区域复核；
+5. 映射不确定时保留 unresolved，不强行配对 MinerU 与 PDF asset ID。
 
-Discovery establishes only that a candidate link exists in paper context. Acquisition establishes retrievable bytes or a Git commit plus provenance. Neither establishes correctness, safety, license permission, or successful reproduction.
+## Challenge-evidence ledger
 
-Audit redirects, hashes, Git remote and commit, license hints, entry points, configs, datasets, checkpoints, scripts, and paper-to-code mappings. Compare Artifact requirements and behavior with the paper's claims. Revalidate cached hashes and Git state before reuse. Do not execute, install, build, initialize submodules, or auto-extract acquired material.
+每个主要 claim 记录：prior system 的失败条件、论文机制及依赖假设、实验问题、数据、对照、预算、指标、硬件（若报告）、观测结果、证据定位、支持的 claim，以及未排除的替代解释。
 
-For reproduction preparation, separate settings reported by the paper, effective values traced from code, examples or defaults that may not match the paper, proposed choices requiring user approval, and `[未知]` values that block or weaken reproduction.
+区分论文算法、代码抽象、默认配置、示例命令和真实实验设置。检查数据是否代表目标场景、baseline 是否获得可比预算、指标是否测量声明目标，以及消融或反例是否真正隔离机制。
 
-## Human Authority
+## Artifact 与复现
 
-Human notes, crop corrections, screening decisions, experiment choices, and conclusions take precedence over AI drafts. The Agent may expose fragile assumptions and falsifiable questions, but final relevance, novelty, risk, execution, and research conclusions belong to the user.
+发现链接只证明候选材料存在；获取只证明取得字节或 Git commit。两者都不证明正确、安全、许可允许或可复现。
+
+复现准备检查重定向、hash、remote、commit、license 提示、入口、配置、数据、checkpoint、脚本和 paper-to-code 映射。区分论文报告值、代码生效值、默认/示例值、需用户决定的建议值和 `[未知]`。不得自动执行、安装或构建第三方内容。
+
+## 人工权威
+
+人工笔记、crop 修正、筛选决定、实验选择和最终结论优先于 AI 草稿。Agent 可以暴露脆弱假设和可证伪问题，但最终相关性、新颖性、风险和研究判断由用户决定。

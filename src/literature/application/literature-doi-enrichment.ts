@@ -1,6 +1,7 @@
 import { loadPaperAgentConfigSync } from "../../config/application/config-service.ts";
 import {
 	mergePaperMetadataConflicts,
+	normalizeArxivId,
 	normalizeDoi,
 	uniquePaperLinks,
 	withCanonicalPaperLinks,
@@ -27,6 +28,7 @@ export interface DoiEnrichmentWarning {
 	doi?: string;
 	provider: string;
 	message: string;
+	code?: "identity-conflict";
 }
 
 export interface DoiEnrichmentResult {
@@ -35,6 +37,14 @@ export interface DoiEnrichmentResult {
 	warnings: DoiEnrichmentWarning[];
 	skippedWithoutDoi: number;
 	skippedComplete: number;
+}
+
+export interface DoiEnrichmentOptions {
+	signal?: AbortSignal;
+	concurrency?: number;
+	lookup?: DoiProviderLookup;
+	refreshExisting?: boolean;
+	refreshIdentityFields?: boolean;
 }
 
 function uniqueBy<T>(values: T[], key: (value: T) => string): T[] {
@@ -74,6 +84,152 @@ export function mergeMissingPaperMetadata(record: PaperRecord, candidate: PaperR
 			(item) => `${item.provider}\u0000${item.providerRecordId ?? ""}\u0000${item.rawUrl ?? ""}`,
 		),
 	};
+}
+
+type RefreshField =
+	| "title"
+	| "authors"
+	| "abstract"
+	| "year"
+	| "venue"
+	| "venueRank"
+	| "publicationType"
+	| "citationCount"
+	| "referencedWorks"
+	| "citedByApiUrl"
+	| keyof PaperRecord["identifiers"];
+
+function usefulValue(value: unknown): boolean {
+	if (value === undefined || value === null) return false;
+	if (typeof value === "string") return Boolean(value.trim());
+	if (Array.isArray(value)) return value.length > 0;
+	return true;
+}
+
+function fieldValue(record: PaperRecord, field: RefreshField): string | number | string[] | undefined {
+	if (field in record.identifiers) return record.identifiers[field as keyof PaperRecord["identifiers"]];
+	const value = record[field as keyof PaperRecord];
+	return typeof value === "string" || typeof value === "number" || Array.isArray(value)
+		? (value as string | number | string[])
+		: undefined;
+}
+
+function normalizedValue(value: string | number | string[]): string {
+	if (Array.isArray(value)) return JSON.stringify(value.map((item) => item.trim().toLowerCase()));
+	return typeof value === "string" ? value.trim().toLowerCase() : String(value);
+}
+
+function addRefreshConflicts(
+	base: PaperRecord["metadataConflicts"],
+	records: PaperRecord[],
+	fields: RefreshField[],
+): PaperRecord["metadataConflicts"] {
+	const conflicts = structuredClone(base ?? {});
+	const add = (field: RefreshField, value: string | number | string[], sources: string[]) => {
+		const bucket = conflicts[field] ?? [];
+		const existing = bucket.find((entry) => normalizedValue(entry.value) === normalizedValue(value));
+		if (existing) existing.sources = [...new Set([...existing.sources, ...sources])];
+		else bucket.push({ value: Array.isArray(value) ? [...value] : value, sources: [...sources] });
+		conflicts[field] = bucket;
+	};
+	for (const record of records) {
+		for (const field of fields) {
+			for (const item of record.metadataConflicts?.[field] ?? []) add(field, item.value, item.sources);
+		}
+	}
+	for (const field of fields) {
+		const values = records
+			.map((record) => ({ value: fieldValue(record, field), sources: metadataSources(record) }))
+			.filter((item): item is { value: string | number | string[]; sources: string[] } => usefulValue(item.value));
+		if (new Set(values.map((item) => normalizedValue(item.value))).size < 2) continue;
+		for (const item of values) add(field, item.value, item.sources);
+	}
+	return Object.keys(conflicts).length ? conflicts : undefined;
+}
+
+function metadataSources(record: PaperRecord): string[] {
+	return [...new Set(record.provenance.map((item) => item.provider))];
+}
+
+function firstValue<T>(candidates: PaperRecord[], read: (candidate: PaperRecord) => T | undefined): T | undefined {
+	for (const candidate of candidates) {
+		const value = read(candidate);
+		if (usefulValue(value)) return value;
+	}
+	return undefined;
+}
+
+/** Refreshes provider-owned metadata while preserving personal curation and stable paper identity. */
+export function mergeRefreshedPaperMetadata(
+	record: PaperRecord,
+	candidates: PaperRecord[],
+	options: { refreshIdentityFields?: boolean } = {},
+): PaperRecord {
+	if (!candidates.length) return withCanonicalPaperLinks(record);
+	const refreshIdentity = options.refreshIdentityFields === true;
+	const title = refreshIdentity ? firstValue(candidates, (candidate) => candidate.title) ?? record.title : record.title;
+	const authors = refreshIdentity
+		? firstValue(candidates, (candidate) => candidate.authors) ?? record.authors
+		: record.authors.length
+			? record.authors
+			: firstValue(candidates, (candidate) => candidate.authors) ?? record.authors;
+	const identifiers = {
+		doi: record.identifiers.doi ?? firstValue(candidates, (candidate) => candidate.identifiers.doi),
+		arxivId: record.identifiers.arxivId ?? firstValue(candidates, (candidate) => candidate.identifiers.arxivId),
+		openAlexId: firstValue(candidates, (candidate) => candidate.identifiers.openAlexId) ?? record.identifiers.openAlexId,
+		semanticScholarId:
+			firstValue(candidates, (candidate) => candidate.identifiers.semanticScholarId) ??
+			record.identifiers.semanticScholarId,
+		dblpKey: firstValue(candidates, (candidate) => candidate.identifiers.dblpKey) ?? record.identifiers.dblpKey,
+		coreId: firstValue(candidates, (candidate) => candidate.identifiers.coreId) ?? record.identifiers.coreId,
+		openCitationsId:
+			firstValue(candidates, (candidate) => candidate.identifiers.openCitationsId) ??
+			record.identifiers.openCitationsId,
+	};
+	const conflictFields: RefreshField[] = [
+		...(refreshIdentity ? (["title", "authors"] as const) : []),
+		"abstract",
+		"year",
+		"venue",
+		"venueRank",
+		"publicationType",
+		"citationCount",
+		"referencedWorks",
+		"citedByApiUrl",
+		"doi",
+		"arxivId",
+		"openAlexId",
+		"semanticScholarId",
+		"dblpKey",
+		"coreId",
+		"openCitationsId",
+	];
+	return withCanonicalPaperLinks({
+		...record,
+		title,
+		authors,
+		abstract: firstValue(candidates, (candidate) => candidate.abstract) ?? record.abstract,
+		year: firstValue(candidates, (candidate) => candidate.year) ?? record.year,
+		venue: firstValue(candidates, (candidate) => candidate.venue) ?? record.venue,
+		venueRank: firstValue(candidates, (candidate) => candidate.venueRank) ?? record.venueRank,
+		publicationType:
+			firstValue(candidates, (candidate) => candidate.publicationType) ?? record.publicationType,
+		metadataConflicts: addRefreshConflicts(
+			record.metadataConflicts,
+			[record, ...candidates],
+			conflictFields,
+		),
+		identifiers,
+		links: uniquePaperLinks([record, ...candidates].flatMap((candidate) => candidate.links)),
+		citationCount: firstValue(candidates, (candidate) => candidate.citationCount) ?? record.citationCount,
+		referencedWorks:
+			firstValue(candidates, (candidate) => candidate.referencedWorks) ?? record.referencedWorks,
+		citedByApiUrl: firstValue(candidates, (candidate) => candidate.citedByApiUrl) ?? record.citedByApiUrl,
+		provenance: uniqueBy(
+			[record, ...candidates].flatMap((candidate) => candidate.provenance),
+			(item) => `${item.provider}\u0000${item.providerRecordId ?? ""}\u0000${item.rawUrl ?? ""}`,
+		),
+	});
 }
 
 function missingBibliographicMetadata(record: PaperRecord): boolean {
@@ -139,14 +295,17 @@ async function enrichRecord(
 	providers: LiteratureProvider[],
 	options: ProviderDoiLookupOptions,
 	lookup: DoiProviderLookup,
+	refreshExisting = false,
+	refreshIdentityFields = false,
 ): Promise<{ record: PaperRecord; attempts: DoiEnrichmentAttempt[]; warnings: DoiEnrichmentWarning[] }> {
 	const doi = normalizeDoi(record.identifiers.doi);
 	if (!doi) return { record, attempts: [], warnings: [] };
-	let enriched = withCanonicalPaperLinks(record);
+	let enriched = refreshExisting ? record : withCanonicalPaperLinks(record);
+	const candidates: PaperRecord[] = [];
 	const attempts: DoiEnrichmentAttempt[] = [];
 	const warnings: DoiEnrichmentWarning[] = [];
 	for (const provider of providers) {
-		if (!paperNeedsDoiProvider(enriched, provider)) continue;
+		if (!refreshExisting && !paperNeedsDoiProvider(enriched, provider)) continue;
 		try {
 			const candidate = await lookup(provider, doi, options);
 			if (!candidate) {
@@ -156,9 +315,21 @@ async function enrichRecord(
 				continue;
 			}
 			if (normalizeDoi(candidate.identifiers.doi) !== doi) {
-				throw new Error("Provider returned a record with a different or missing DOI");
+				const message = "Provider returned a record with a different or missing DOI";
+				attempts.push({ recordId: record.id, doi, provider, status: "failed", message });
+				warnings.push({ recordId: record.id, doi, provider, message, code: "identity-conflict" });
+				continue;
 			}
-			enriched = mergeMissingPaperMetadata(enriched, candidate);
+			const existingArxivId = normalizeArxivId(record.identifiers.arxivId);
+			const candidateArxivId = normalizeArxivId(candidate.identifiers.arxivId);
+			if (refreshExisting && existingArxivId && candidateArxivId && existingArxivId !== candidateArxivId) {
+				const message = "Provider returned a record with a conflicting arXiv ID";
+				attempts.push({ recordId: record.id, doi, provider, status: "failed", message });
+				warnings.push({ recordId: record.id, doi, provider, message, code: "identity-conflict" });
+				continue;
+			}
+			if (refreshExisting) candidates.push(candidate);
+			else enriched = mergeMissingPaperMetadata(enriched, candidate);
 			attempts.push({ recordId: record.id, doi, provider, status: "matched" });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -166,13 +337,16 @@ async function enrichRecord(
 			warnings.push({ recordId: record.id, doi, provider, message });
 		}
 	}
+	if (refreshExisting) {
+		enriched = mergeRefreshedPaperMetadata(enriched, candidates, { refreshIdentityFields });
+	}
 	return { record: enriched, attempts, warnings };
 }
 
 export async function enrichRecordsByDoi(
 	records: PaperRecord[],
 	projectRoot: string,
-	options: { signal?: AbortSignal; concurrency?: number; lookup?: DoiProviderLookup } = {},
+	options: DoiEnrichmentOptions = {},
 ): Promise<DoiEnrichmentResult> {
 	const configured = configuredProviders(projectRoot);
 	const output = [...records];
@@ -188,7 +362,10 @@ export async function enrichRecordsByDoi(
 		Array.from({ length: concurrency }, async () => {
 			while (nextIndex < queue.length) {
 				const item = queue[nextIndex++];
-				if (!configured.providers.some((provider) => paperNeedsDoiProvider(item.record, provider))) {
+				if (
+					!options.refreshExisting &&
+					!configured.providers.some((provider) => paperNeedsDoiProvider(item.record, provider))
+				) {
 					output[item.index] = withCanonicalPaperLinks(item.record);
 					skippedComplete++;
 					continue;
@@ -198,6 +375,8 @@ export async function enrichRecordsByDoi(
 					configured.providers,
 					lookupOptions(projectRoot, options.signal),
 					options.lookup ?? enrichProviderByDoi,
+					options.refreshExisting,
+					options.refreshIdentityFields,
 				);
 				output[item.index] = result.record;
 				attempts.push(...result.attempts);

@@ -7,7 +7,28 @@ export interface PaperRecord {
 	venue?: string;
 	venueRank?: "A" | "B" | "C";
 	publicationType?: string;
-	metadataConflicts?: Partial<Record<"authors" | "year" | "venue" | "publicationType" | "citedByApiUrl", Array<{ value: string | number | string[]; sources: string[] }>>>;
+	metadataConflicts?: Partial<
+		Record<
+			| "title"
+			| "authors"
+			| "abstract"
+			| "year"
+			| "venue"
+			| "venueRank"
+			| "publicationType"
+			| "citationCount"
+			| "referencedWorks"
+			| "citedByApiUrl"
+			| "doi"
+			| "arxivId"
+			| "openAlexId"
+			| "semanticScholarId"
+			| "dblpKey"
+			| "coreId"
+			| "openCitationsId",
+			Array<{ value: string | number | string[]; sources: string[] }>
+		>
+	>;
 	identifiers: {
 		doi?: string;
 		arxivId?: string;

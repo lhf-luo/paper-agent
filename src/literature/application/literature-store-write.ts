@@ -146,6 +146,29 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 		});
 	}
 
+	/** Replaces one existing record after a caller has already preserved personal fields and verified identity. */
+	async replacePaperMetadata(record: PaperRecord): Promise<"updated" | "unchanged"> {
+		await this.initialize();
+		record = withCleanMetadata(record);
+		if (this.personalDatabase) {
+			const existing = await this.personalDatabase.getPaper(record.id);
+			if (!existing) throw new Error(`Paper not found in corpus: ${record.id}`);
+			if (JSON.stringify(existing) === JSON.stringify(record)) return "unchanged";
+			await this.personalDatabase.savePaper(record, existing.id);
+			return "updated";
+		}
+		return this.withWriteLock(async () => {
+			const existing = await readJson<PaperRecord>(this.recordPath(record.id));
+			if (!existing) throw new Error(`Paper not found in corpus: ${record.id}`);
+			if (JSON.stringify(existing) === JSON.stringify(record)) return "unchanged";
+			await writeJsonAtomic(this.recordPath(record.id), record);
+			await this.searchIndex.upsert(record);
+			await this.refreshManifestUnlocked();
+			await this.markSearchIndexCurrent();
+			return "updated";
+		});
+	}
+
 	async upsertPapers(
 		records: PaperRecord[],
 	): Promise<Array<{ record: PaperRecord; status?: "created" | "updated" | "unchanged"; error?: string }>> {

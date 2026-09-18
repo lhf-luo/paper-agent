@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import { registerProgressTool } from "../src/app/presentation/progress-tools.ts";
+import type { PaperAsset } from "../src/pdf/domain/pdf-types.ts";
 import {
 	attachSubfigureRegions,
 	augmentPaperAssetsWithOcr,
@@ -15,8 +17,6 @@ import {
 	refineSubfigureRegionsFromGrayImage,
 	registerPdfAssetTools,
 } from "../src/pdf/presentation/pdf-asset-tools.ts";
-import type { PaperAsset } from "../src/pdf/domain/pdf-types.ts";
-import { registerProgressTool } from "../src/app/presentation/progress-tools.ts";
 
 const tsv = [
 	"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
@@ -244,7 +244,7 @@ describe("paper-agent PDF asset parsing", () => {
 		expect(assets[0]).toMatchObject({ id: "figure-9-p1", caption: "Figure 9: Comparison of classifiers" });
 	});
 
-		it("links captionless continuation pages by repeated table headers", () => {
+	it("links captionless continuation pages by repeated table headers", () => {
 		const rows = [
 			"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
 			"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
@@ -277,96 +277,98 @@ describe("paper-agent PDF asset parsing", () => {
 		const [table] = detectPaperAssets(parsePdfTsv(rows.join("\n")));
 
 		expect(table).toMatchObject({ id: "table-5-p1", type: "table", identifier: "5" });
-			expect(table.continuationRegions?.map((region) => region.page)).toEqual([2, 3]);
-		});
+		expect(table.continuationRegions?.map((region) => region.page)).toEqual([2, 3]);
+	});
 
-		it("links a continued table without a repeated header when row geometry remains stable", () => {
-			const rows = [
-				"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
-				"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
-				"3\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###FLOW###",
-				"4\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###LINE###",
-				"5\t1\t0\t0\t0\t0\t70\t70\t30\t10\t100\tTable",
-				"5\t1\t0\t0\t0\t1\t105\t70\t10\t10\t100\t7:",
-				"5\t1\t0\t0\t0\t2\t125\t70\t90\t10\t100\tMeasurements",
-			];
-			const addDataPage = (page: number, firstY: number, count: number, valueOffset = 0) => {
-				if (page > 1) rows.push(`1\t${page}\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###`);
-				for (let row = 0; row < count; row++) {
-					const y = firstY + row * 32;
-					for (const [column, value] of [
-						`method-${row + valueOffset}`,
-						`${70 + row + valueOffset}.1`,
-						`${80 + row + valueOffset}.2`,
-					].entries()) {
-						const x = [80, 260, 420][column];
-						rows.push(`3\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###FLOW###`);
-						rows.push(`4\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###LINE###`);
-						rows.push(`5\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t70\t10\t100\t${value}`);
-					}
-				}
-			};
-			addDataPage(1, 130, 19);
-			addDataPage(2, 55, 10, 20);
-
-			const [table] = detectPaperAssets(parsePdfTsv(rows.join("\n")));
-			expect(table).toMatchObject({ id: "table-7-p1", type: "table", identifier: "7" });
-			expect(table.continuationRegions?.map((region) => region.page)).toEqual([2]);
-			expect(table.continuationRegions?.[0].confidence).toBe("medium");
-		});
-
-		it("does not treat ordinary next-page prose as a headerless table continuation", () => {
-			const rows = [
-				"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
-				"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
-				"3\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###FLOW###",
-				"4\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###LINE###",
-				"5\t1\t0\t0\t0\t0\t70\t70\t30\t10\t100\tTable",
-				"5\t1\t0\t0\t0\t1\t105\t70\t10\t10\t100\t8:",
-			];
-			for (let row = 0; row < 19; row++) {
-				const y = 130 + row * 32;
-				for (const [column, value] of [`item-${row}`, `${row}`, `${row + 1}`].entries()) {
+	it("links a continued table without a repeated header when row geometry remains stable", () => {
+		const rows = [
+			"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+			"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
+			"3\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###FLOW###",
+			"4\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###LINE###",
+			"5\t1\t0\t0\t0\t0\t70\t70\t30\t10\t100\tTable",
+			"5\t1\t0\t0\t0\t1\t105\t70\t10\t10\t100\t7:",
+			"5\t1\t0\t0\t0\t2\t125\t70\t90\t10\t100\tMeasurements",
+		];
+		const addDataPage = (page: number, firstY: number, count: number, valueOffset = 0) => {
+			if (page > 1) rows.push(`1\t${page}\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###`);
+			for (let row = 0; row < count; row++) {
+				const y = firstY + row * 32;
+				for (const [column, value] of [
+					`method-${row + valueOffset}`,
+					`${70 + row + valueOffset}.1`,
+					`${80 + row + valueOffset}.2`,
+				].entries()) {
 					const x = [80, 260, 420][column];
-					rows.push(`3\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###FLOW###`);
-					rows.push(`4\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###LINE###`);
-					rows.push(`5\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t70\t10\t100\t${value}`);
+					rows.push(`3\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###FLOW###`);
+					rows.push(`4\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###LINE###`);
+					rows.push(`5\t${page}\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t70\t10\t100\t${value}`);
 				}
 			}
-			rows.push("1\t2\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###");
-			for (let line = 0; line < 12; line++) {
-				const y = 60 + line * 18;
-				rows.push(`3\t2\t${line}\t0\t0\t0\t60\t${y}\t492\t10\t-1\t###FLOW###`);
-				rows.push(`4\t2\t${line}\t0\t0\t0\t60\t${y}\t492\t10\t-1\t###LINE###`);
-				for (const [wordIndex, value] of "This paragraph continues the ordinary discussion on the next page".split(" ").entries()) {
-					rows.push(`5\t2\t${line}\t0\t0\t${wordIndex}\t${60 + wordIndex * 48}\t${y}\t42\t10\t100\t${value}`);
-				}
+		};
+		addDataPage(1, 130, 19);
+		addDataPage(2, 55, 10, 20);
+
+		const [table] = detectPaperAssets(parsePdfTsv(rows.join("\n")));
+		expect(table).toMatchObject({ id: "table-7-p1", type: "table", identifier: "7" });
+		expect(table.continuationRegions?.map((region) => region.page)).toEqual([2]);
+		expect(table.continuationRegions?.[0].confidence).toBe("medium");
+	});
+
+	it("does not treat ordinary next-page prose as a headerless table continuation", () => {
+		const rows = [
+			"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+			"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
+			"3\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###FLOW###",
+			"4\t1\t0\t0\t0\t0\t70\t70\t460\t10\t-1\t###LINE###",
+			"5\t1\t0\t0\t0\t0\t70\t70\t30\t10\t100\tTable",
+			"5\t1\t0\t0\t0\t1\t105\t70\t10\t10\t100\t8:",
+		];
+		for (let row = 0; row < 19; row++) {
+			const y = 130 + row * 32;
+			for (const [column, value] of [`item-${row}`, `${row}`, `${row + 1}`].entries()) {
+				const x = [80, 260, 420][column];
+				rows.push(`3\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###FLOW###`);
+				rows.push(`4\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t90\t10\t-1\t###LINE###`);
+				rows.push(`5\t1\t${row + 1}\t${column}\t0\t0\t${x}\t${y}\t70\t10\t100\t${value}`);
 			}
+		}
+		rows.push("1\t2\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###");
+		for (let line = 0; line < 12; line++) {
+			const y = 60 + line * 18;
+			rows.push(`3\t2\t${line}\t0\t0\t0\t60\t${y}\t492\t10\t-1\t###FLOW###`);
+			rows.push(`4\t2\t${line}\t0\t0\t0\t60\t${y}\t492\t10\t-1\t###LINE###`);
+			for (const [wordIndex, value] of "This paragraph continues the ordinary discussion on the next page"
+				.split(" ")
+				.entries()) {
+				rows.push(`5\t2\t${line}\t0\t0\t${wordIndex}\t${60 + wordIndex * 48}\t${y}\t42\t10\t100\t${value}`);
+			}
+		}
 
-			const [table] = detectPaperAssets(parsePdfTsv(rows.join("\n")));
-			expect(table.continuationRegions).toBeUndefined();
-		});
+		const [table] = detectPaperAssets(parsePdfTsv(rows.join("\n")));
+		expect(table.continuationRegions).toBeUndefined();
+	});
 
-		it("detects Chinese figure captions and body mentions", () => {
-			const chineseTsv = [
-				"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
-				"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
-				"3\t1\t0\t0\t0\t0\t60\t100\t300\t10\t-1\t###FLOW###",
-				"4\t1\t0\t0\t0\t0\t60\t100\t300\t10\t-1\t###LINE###",
-				"5\t1\t0\t0\t0\t0\t60\t100\t40\t10\t100\t如图",
-				"5\t1\t0\t0\t0\t1\t105\t100\t10\t10\t100\t2",
-				"5\t1\t0\t0\t0\t2\t120\t100\t120\t10\t100\t所示，系统包含三层。",
-				"1\t2\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
-				"3\t2\t0\t0\t0\t0\t70\t300\t360\t10\t-1\t###FLOW###",
-				"4\t2\t0\t0\t0\t0\t70\t300\t360\t10\t-1\t###LINE###",
-				"5\t2\t0\t0\t0\t0\t70\t300\t20\t10\t100\t图",
-				"5\t2\t0\t0\t0\t1\t95\t300\t10\t10\t100\t2：",
-				"5\t2\t0\t0\t0\t2\t110\t300\t100\t10\t100\t系统结构",
-			].join("\n");
-			const [figure] = detectPaperAssets(parsePdfTsv(chineseTsv));
-			expect(figure).toMatchObject({ type: "figure", identifier: "2", page: 2 });
-			expect(figure.mentions.map((mention) => mention.page)).toEqual([1]);
-		});
+	it("detects Chinese figure captions and body mentions", () => {
+		const chineseTsv = [
+			"level\tpage_num\tpar_num\tblock_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+			"1\t1\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
+			"3\t1\t0\t0\t0\t0\t60\t100\t300\t10\t-1\t###FLOW###",
+			"4\t1\t0\t0\t0\t0\t60\t100\t300\t10\t-1\t###LINE###",
+			"5\t1\t0\t0\t0\t0\t60\t100\t40\t10\t100\t如图",
+			"5\t1\t0\t0\t0\t1\t105\t100\t10\t10\t100\t2",
+			"5\t1\t0\t0\t0\t2\t120\t100\t120\t10\t100\t所示，系统包含三层。",
+			"1\t2\t0\t0\t0\t0\t0\t0\t612\t792\t-1\t###PAGE###",
+			"3\t2\t0\t0\t0\t0\t70\t300\t360\t10\t-1\t###FLOW###",
+			"4\t2\t0\t0\t0\t0\t70\t300\t360\t10\t-1\t###LINE###",
+			"5\t2\t0\t0\t0\t0\t70\t300\t20\t10\t100\t图",
+			"5\t2\t0\t0\t0\t1\t95\t300\t10\t10\t100\t2：",
+			"5\t2\t0\t0\t0\t2\t110\t300\t100\t10\t100\t系统结构",
+		].join("\n");
+		const [figure] = detectPaperAssets(parsePdfTsv(chineseTsv));
+		expect(figure).toMatchObject({ type: "figure", identifier: "2", page: 2 });
+		expect(figure.mentions.map((mention) => mention.page)).toEqual([1]);
+	});
 
 	it("rejects a caption-shaped reference inside a normal body block", () => {
 		const bodyReferenceTsv = [
@@ -478,7 +480,7 @@ describe("paper-agent PDF asset parsing", () => {
 		}
 	});
 
-	it("audits split asset indexes without double-counting repeated PDF objects", async () => {
+	it("separates MinerU reading coverage from targeted original-PDF verification", async () => {
 		let progressTool: ToolDefinition | undefined;
 		registerProgressTool({
 			registerTool(tool: ToolDefinition) {
@@ -488,6 +490,73 @@ describe("paper-agent PDF asset parsing", () => {
 		expect(progressTool).toBeDefined();
 		if (!progressTool) return;
 		const branch = [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					isError: false,
+					toolName: "read_mineru_material",
+					details: {
+						mode: "overview",
+						truncated: false,
+						material: { paperId: "paper-1", sourceSha256: "abc", pageCount: 2 },
+						manifest: { assets: [{ id: "figure-1-p1" }, { id: "table-1-p2" }] },
+						selectedSectionIds: [],
+						pageBlocks: [],
+						assetResults: [],
+					},
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					isError: false,
+					toolName: "read_mineru_material",
+					details: {
+						mode: "markdown",
+						truncated: true,
+						material: { paperId: "paper-1", sourceSha256: "abc", pageCount: 2 },
+						cursorRange: { start: 0, end: 2, total: 4, key: "markdown" },
+						selectedSectionIds: [],
+						pageBlocks: [],
+						assetResults: [],
+					},
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					isError: false,
+					toolName: "read_mineru_material",
+					details: {
+						mode: "markdown",
+						truncated: false,
+						material: { paperId: "paper-1", sourceSha256: "abc", pageCount: 2 },
+						cursorRange: { start: 2, end: 4, total: 4, key: "markdown" },
+						selectedSectionIds: [],
+						pageBlocks: [],
+						assetResults: [],
+					},
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					isError: false,
+					toolName: "read_mineru_material",
+					details: {
+						mode: "assets",
+						truncated: false,
+						material: { paperId: "paper-1", sourceSha256: "abc", pageCount: 2 },
+						selectedSectionIds: [],
+						pageBlocks: [],
+						assetResults: [{ id: "figure-1-p1" }],
+					},
+				},
+			},
 			{
 				type: "message",
 				message: {
@@ -559,23 +628,21 @@ describe("paper-agent PDF asset parsing", () => {
 			sessionManager: { getBranch: () => branch },
 		} as never);
 		const details = result.details as {
-			pdfs: Array<{
-				assetIndexedPages: number[];
-				semanticAssetCount: number;
-				embeddedImageCount: number;
-			}>;
+			mineru: Array<{ fullMarkdownComplete: boolean; discoveredAssetIds: string[]; viewedAssetIds: string[] }>;
+			pdfs: Array<{ readPages: number[]; verifiedAssetIds: string[] }>;
 		};
+		expect(details.mineru[0]).toMatchObject({
+			fullMarkdownComplete: true,
+			discoveredAssetIds: ["figure-1-p1", "table-1-p2"],
+			viewedAssetIds: ["figure-1-p1"],
+		});
 		expect(details.pdfs[0]).toMatchObject({
-			assetIndexedPages: [1, 2],
-			semanticAssetCount: 2,
-			embeddedImageCount: 1,
+			readPages: [1, 2],
+			verifiedAssetIds: ["figure-1-p1"],
 		});
 		const text = result.content.find((item) => item.type === "text");
-		expect(text?.type === "text" ? text.text : "").toContain(
-			"[x] Every physical PDF page included in an untruncated asset index",
-		);
-		expect(text?.type === "text" ? text.text : "").toContain(
-			"[x] At least one indexed asset per PDF checked at object level with asset_id",
-		);
+		expect(text?.type === "text" ? text.text : "").toContain("full.md traversal: complete");
+		expect(text?.type === "text" ? text.text : "").toContain("Original PDF verification:");
+		expect(text?.type === "text" ? text.text : "").not.toContain("Every physical PDF page read");
 	});
 });

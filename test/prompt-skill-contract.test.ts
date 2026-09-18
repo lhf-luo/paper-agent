@@ -32,7 +32,9 @@ describe("prompt and skill contracts", () => {
 			expect(skill).toContain(`**${researchContract}**`);
 		}
 		expect(skill).toContain("用户说“精读”“精读论文”“深度阅读”“完整分析”“全文研究”");
-		expect(skill).toContain("覆盖全部物理页");
+		expect(skill).toContain("通过 MinerU pages 或 Markdown cursor 完成完整正文覆盖");
+		expect(skill).toContain("全文研究不要求用 `read_pdf` 重读每一页");
+		expect(skill).toContain("模型具备图像输入能力，应直接检查图片");
 		expect(skill).toContain("paper_progress");
 		expect(skill).toContain("challenge -> design -> evaluation");
 		expect(skill).toContain("不得合并、缺省或用其他章节替代");
@@ -52,7 +54,7 @@ describe("prompt and skill contracts", () => {
 		expect(skill.split(/\r?\n/).length).toBeLessThan(500);
 		expect(frontmatter.match(/^[a-z_]+:/gm)?.sort()).toEqual(["description:", "name:"]);
 		expect(skill).toContain("Use paper-agent tools as the single implementation");
-		expect(skill).toContain("does not replace human deep reading");
+		expect(skill).toContain("Paper reading and research-note authoring belong to the paper-research skill");
 		expect(skill).toContain("search_literature_corpus");
 		expect(skill).toContain("get_personal_library_paper");
 		expect(skill).toContain("manage_literature_memory");

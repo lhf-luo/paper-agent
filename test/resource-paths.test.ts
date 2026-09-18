@@ -34,8 +34,9 @@ describe("runtime resource paths", () => {
 			readFile(resolve(skillRoot, "references", "subtask-contracts.md"), "utf8"),
 		]);
 		expect(skill).toContain("## 选择研究方式");
-		expect(skill).toContain("MinerU Markdown、OCR、layout 和 model 输出是派生导航材料");
-		expect(skill).toContain("不会截断的小页段覆盖全部物理页");
+		expect(skill).toContain("MinerU 是正文阅读、导航、搜索和候选结论的主要材料");
+		expect(skill).toContain("全文研究不要求用 `read_pdf` 重读每一页");
+		expect(skill).toContain("按 `next_cursor` 逐块遍历精确 `full.md`");
 		expect(skill).toContain("12. **非增量 follow-up idea**");
 		expect(evidence).toContain("`[论文]`");
 		expect(evidence).toContain("`[未知]`");
@@ -50,10 +51,11 @@ describe("runtime resource paths", () => {
 		expect(lookupCcfLevel("OSDI")).toBe("A");
 	});
 	it("includes CCF data in npm and release artifacts", async () => {
-		const packageJson = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as { files: string[] };
+		const packageJson = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as {
+			files: string[];
+		};
 		expect(packageJson.files).toContain("data");
 		const releaseWorkflow = await readFile(resolve(process.cwd(), ".github", "workflows", "release.yml"), "utf8");
 		expect(releaseWorkflow).toContain("cp -R .github data deployment");
 	});
-
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type {
 	ArtifactManifest,
@@ -150,6 +150,32 @@ export abstract class LiteratureStoreMaterials extends LiteratureStoreRecords {
 		return ((await readJson<PaperVersion[]>(path)) ?? []).sort((left, right) =>
 			right.retrievedAt.localeCompare(left.retrievedAt),
 		);
+	}
+
+	async deletePaperVersion(paperId: string, sha256: string) {
+		if (!this.personalDatabase) throw new Error("PDF version deletion requires a personal SQLite corpus");
+		const result = await this.personalDatabase.deletePaperVersion(paperId, sha256);
+		const warnings: string[] = [];
+		try {
+			await unlink(result.version.blobPath);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+				warnings.push(error instanceof Error ? error.message : String(error));
+			}
+		}
+		if (result.materialPath) {
+			try {
+				await rm(result.materialPath, { recursive: true, force: true });
+			} catch (error) {
+				warnings.push(`MinerU material: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		return {
+			deleted: result.version,
+			preferredSha256: result.preferredSha256,
+			mineruMaterialDeleted: Boolean(result.materialPath),
+			warnings,
+		};
 	}
 
 	async readPaperVersionBlob(paperId: string, sha256: string): Promise<Buffer> {

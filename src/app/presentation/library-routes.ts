@@ -9,7 +9,9 @@ import type {
 	PaperAgentApplication,
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
+	PersonalMetadataEnrichmentInput,
 	PersonalPaperRemovalInput,
+	PersonalPdfVersionRemovalInput,
 	PersonalTitleRepairInput,
 } from "../application/paper-agent-application.ts";
 import { sendPdfResponse } from "./pdf-response.ts";
@@ -253,6 +255,30 @@ export async function handleLibraryRoutes(
 		);
 		return;
 	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/library/pdf-versions/remove/prepare" ||
+			url.pathname === "/api/library/pdf-versions/remove/execute")
+	) {
+		const body = await readJson(request);
+		if (typeof body.paperId !== "string" || typeof body.sha256 !== "string") {
+			throw new ApiError(400, "paperId and sha256 are required");
+		}
+		const input: PersonalPdfVersionRemovalInput = {
+			paperId: body.paperId,
+			sha256: body.sha256,
+			namespace: namespaceValue(body.namespace),
+			author: typeof body.author === "string" ? body.author : undefined,
+		};
+		json(
+			response,
+			200,
+			url.pathname.endsWith("/prepare")
+				? await application.preparePersonalPdfVersionRemoval(input)
+				: await application.removePersonalPdfVersion(input, grantFromBody(body)),
+		);
+		return;
+	}
 	const artifactFolderRoute = /^\/api\/papers\/([^/]+)\/artifacts\/open$/.exec(url.pathname);
 	if (request.method === "POST" && artifactFolderRoute) {
 		json(
@@ -339,6 +365,28 @@ export async function handleLibraryRoutes(
 				namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 				collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 			}),
+		);
+		return;
+	}
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/library/metadata/prepare" || url.pathname === "/api/library/metadata/execute")
+	) {
+		const body = await readJson(request);
+		if (typeof body.paperId !== "string" || !body.paperId.trim()) {
+			throw new ApiError(400, "paperId is required");
+		}
+		const input: PersonalMetadataEnrichmentInput = {
+			paperId: body.paperId,
+			namespace: namespaceValue(body.namespace),
+			author: typeof body.author === "string" ? body.author : undefined,
+		};
+		json(
+			response,
+			200,
+			url.pathname.endsWith("/prepare")
+				? await application.preparePersonalMetadataEnrichment(input)
+				: await application.enrichPersonalPaperMetadata(input, grantFromBody(body)),
 		);
 		return;
 	}

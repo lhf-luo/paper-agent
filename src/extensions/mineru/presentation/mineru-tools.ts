@@ -93,47 +93,87 @@ export function registerMineruTools(pi: ExtensionAPI): void {
 		name: "read_mineru_material",
 		label: "Read MinerU material",
 		description:
-			"Read a saved MinerU package by outline, physical PDF pages, or text search. It can also return one extracted image or table asset.",
-		promptSnippet: "Read structured, page-aware paper content from an existing MinerU package",
+			"Use a current MinerU package as the primary paper-reading layer: navigate sections, traverse exact Markdown, read typed physical-page content, search every specialized field, or inspect extracted figures and tables as images.",
+		promptSnippet: "Read complete, page-aware paper content and visual assets from MinerU",
 		promptGuidelines: [
-			"Use overview first, then request only relevant pages or search terms.",
-			"Page numbers are physical PDF pages. Verify critical claims against the original PDF tools.",
-			"Do not treat OCR or table extraction as authoritative when the original PDF disagrees.",
+			"Start with overview, then use section IDs, page ranges, search queries, or the Markdown cursor without guessing paths.",
+			"For full-paper research, finish every MinerU page or traverse full.md until next_cursor is none.",
+			"Inspect relevant MinerU figure and table images. Verify decisive claims, numbers, equations, quotations, conflicts, and ambiguous crops against the original PDF.",
 		],
 		parameters: Type.Object({
 			paper_id: Type.String(),
 			namespace: Type.Optional(Type.String()),
 			corpus_root: Type.Optional(Type.String()),
-			mode: Type.Optional(Type.Union([Type.Literal("overview"), Type.Literal("pages"), Type.Literal("search")])),
-			pages: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20 })),
-			query: Type.Optional(Type.String()),
-			asset_path: Type.Optional(Type.String()),
+			mode: Type.Union([
+				Type.Literal("overview"),
+				Type.Literal("sections"),
+				Type.Literal("markdown"),
+				Type.Literal("pages"),
+				Type.Literal("search"),
+				Type.Literal("assets"),
+			]),
+			section_ids: Type.Optional(
+				Type.Array(Type.String(), {
+					minItems: 1,
+					maxItems: 12,
+					description: "Required only for sections mode",
+				}),
+			),
+			pages: Type.Optional(
+				Type.Array(Type.Integer({ minimum: 1 }), {
+					minItems: 1,
+					maxItems: 20,
+					description: "Required only for pages mode; values are physical PDF pages",
+				}),
+			),
+			queries: Type.Optional(
+				Type.Array(Type.String(), {
+					minItems: 1,
+					maxItems: 8,
+					description: "Required only for search mode",
+				}),
+			),
+			asset_ids: Type.Optional(
+				Type.Array(Type.String(), {
+					minItems: 1,
+					maxItems: 8,
+					description: "Required only for assets mode",
+				}),
+			),
+			context_blocks: Type.Optional(Type.Integer({ minimum: 0, maximum: 3, default: 1 })),
+			max_matches: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
+			cursor: Type.Optional(Type.String()),
 			max_characters: Type.Optional(Type.Integer({ minimum: 1000, maximum: 80000 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const namespace = params.namespace ?? "default";
 			const { service } = await createMineruService(pi, ctx, namespace, params.corpus_root);
-			if (params.asset_path) {
-				const asset = await service.readAsset(params.paper_id, namespace, params.asset_path);
+			const result = await service.read(params.paper_id, namespace, {
+				mode: params.mode,
+				sectionIds: params.section_ids,
+				pages: params.pages,
+				queries: params.queries,
+				assetIds: params.asset_ids,
+				contextBlocks: params.context_blocks,
+				maxMatches: params.max_matches,
+				cursor: params.cursor,
+				maxCharacters: params.max_characters,
+			});
+			const content: Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> = [
+				{ type: "text", text: result.text },
+			];
+			for (const item of result.assetResults) {
+				if (!item.path) continue;
+				const asset = await service.readAsset(params.paper_id, namespace, item.path);
 				const mimeType = (
 					{ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" } as Record<
 						string,
 						string
 					>
 				)[extname(asset.path).toLowerCase()];
-				if (!mimeType) throw new Error("Only PNG, JPEG, and WebP MinerU assets can be returned as images");
-				return {
-					content: [{ type: "image", mimeType, data: asset.body.toString("base64") }],
-					details: { path: asset.path },
-				};
+				if (mimeType) content.push({ type: "image", mimeType, data: asset.body.toString("base64") });
 			}
-			const result = await service.read(params.paper_id, namespace, {
-				mode: params.mode,
-				pages: params.pages,
-				query: params.query,
-				maxCharacters: params.max_characters,
-			});
-			return { content: [{ type: "text", text: result.text }], details: result };
+			return { content, details: result };
 		},
 	});
 }

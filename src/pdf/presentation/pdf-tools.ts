@@ -101,10 +101,10 @@ export function registerPdfTools(pi: ExtensionAPI): void {
 		name: "read_pdf",
 		label: "Read PDF",
 		description:
-			"Extract text from selected PDF pages with explicit page markers. Defaults to pages 1-4. Read every page range, including appendices, before producing a full paper review. If a figure, table, equation, or scanned page is unclear, use render_pdf_page. Requires Poppler commands pdftotext and pdfinfo.",
+			"Extract text from selected original-PDF pages with explicit physical-page markers. Defaults to pages 1-4. Use it to verify decisive claims, values, quotations, equations, conflicts, and limitations located through MinerU, or as the reading fallback when no current MinerU package exists. Requires Poppler commands pdftotext and pdfinfo.",
 		promptSnippet: "Read page ranges and metadata from a PDF paper",
 		promptGuidelines: [
-			"Use read_pdf in bounded page ranges and cover the complete paper before making paper-wide claims.",
+			"Use bounded page ranges for targeted original-PDF verification. When current MinerU material is unavailable, cover the required PDF scope directly before making paper-wide claims.",
 			"Cite PDF evidence with the physical PDF page number reported by read_pdf, plus section, figure, or table identifiers when available.",
 		],
 		parameters: Type.Object({

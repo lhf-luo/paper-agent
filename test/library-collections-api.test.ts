@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
-import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
+import type { PaperRecord, PaperVersion, SearchRun } from "../src/literature/domain/literature-types.ts";
 import type { CommandExecutor } from "../src/shared/infrastructure/command-executor.ts";
 
 const temporaryPaths: string[] = [];
@@ -546,6 +546,104 @@ describe("library collections API", () => {
 				secondCollection.id,
 			]);
 			expect(await application.personalStore().getPaper("paper-first")).toBeUndefined();
+		} finally {
+			await server.close();
+			await application.close();
+		}
+	});
+
+	it("deletes one PDF version, reassigns the preferred version, and removes dependent MinerU material", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-version-removal-api-"));
+		temporaryPaths.push(root);
+		const staticRoot = join(root, "dist", "web");
+		await mkdir(join(staticRoot, "assets"), { recursive: true });
+		await writeFile(join(staticRoot, "index.html"), "<html>Paper Agent</html>");
+		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
+		const record: PaperRecord = {
+			id: "paper-version-removal",
+			title: "Version removal",
+			authors: ["Researcher"],
+			identifiers: {},
+			links: [],
+			provenance: [{ provider: "json-import", query: "fixture", retrievedAt: new Date().toISOString() }],
+			mergedFrom: [],
+		};
+		const store = application.personalStore();
+		await store.upsertPaper(record);
+		const saveVersion = async (
+			name: string,
+			versionKind: NonNullable<PaperVersion["versionKind"]>,
+			isPreferred: boolean,
+		) => {
+			const body = Buffer.from(`%PDF-1.4\n${name}\n%%EOF\n`);
+			const blob = await store.putBlob(body);
+			const version: PaperVersion = {
+				paperId: record.id,
+				sourceUrl: `https://example.test/${name}.pdf`,
+				finalUrl: `https://example.test/${name}.pdf`,
+				retrievedAt: `2026-09-1${versionKind === "published" ? "7" : "6"}T00:00:00.000Z`,
+				sha256: blob.sha256,
+				bytes: body.length,
+				blobPath: blob.path,
+				contentType: "application/pdf",
+				versionKind,
+				isPreferred,
+			};
+			await store.savePaperVersion(version);
+			return version;
+		};
+		const preprint = await saveVersion("preprint", "preprint", false);
+		const published = await saveVersion("published", "published", true);
+		const materialPath = join(store.personalFilesRoot, record.id, "mineru");
+		await mkdir(materialPath, { recursive: true });
+		await writeFile(join(materialPath, "content.md"), "parsed");
+		await store.savePdfMaterial({
+			paperId: record.id,
+			sourceSha256: published.sha256,
+			relativePath: relative(store.personalDataRoot, materialPath),
+			engine: "mineru",
+			modelVersion: "vlm",
+			packageSha256: "a".repeat(64),
+			contentSha256: "b".repeat(64),
+			pageCount: 2,
+			fileCount: 1,
+			bytes: 6,
+		});
+		const server = await startLocalWebServer(application, { staticRoot });
+		try {
+			const post = (path: string, body: Record<string, unknown>) =>
+				fetch(`${server.url}${path}`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				});
+			const payload = { paperId: record.id, sha256: published.sha256 };
+			const preparedResponse = await post("/api/library/pdf-versions/remove/prepare", payload);
+			expect(preparedResponse.status).toBe(200);
+			const prepared = (await preparedResponse.json()) as {
+				operationId: string;
+				manifestFingerprint: string;
+				details: { isPreferred: boolean; deletesMineruMaterial: boolean };
+			};
+			expect(prepared.details).toMatchObject({ isPreferred: true, deletesMineruMaterial: true });
+			const grant = await (await post("/api/operations/confirm", prepared)).json();
+			const executed = await post("/api/library/pdf-versions/remove/execute", { ...payload, grant });
+			const executedText = await executed.text();
+			expect(executed.status, executedText).toBe(200);
+			const result = JSON.parse(executedText) as {
+				preferredSha256?: string;
+				mineruMaterialDeleted: boolean;
+			};
+			expect(result).toMatchObject({
+				preferredSha256: preprint.sha256,
+				mineruMaterialDeleted: true,
+			});
+			expect(await store.listPaperVersions(record.id)).toMatchObject([
+				{ sha256: preprint.sha256, isPreferred: true },
+			]);
+			expect(await store.getPdfMaterial(record.id)).toBeUndefined();
+			await expect(stat(published.blobPath)).rejects.toMatchObject({ code: "ENOENT" });
+			await expect(stat(materialPath)).rejects.toMatchObject({ code: "ENOENT" });
 		} finally {
 			await server.close();
 			await application.close();

@@ -13,7 +13,7 @@
 
 ## 逐篇证据边界
 
-| 论文短标签、标题与版本 | PDF 来源 / SHA-256 | 实际物理页段与未读页 | 已核验图表 | Artifact 来源与 commit | 失败与 `[未知]` |
+| 论文短标签、标题与版本 | PDF / MinerU source SHA | MinerU 覆盖与截断 | 已查看 MinerU assets / PDF 核验页 | Artifact 来源与 commit | 失败与 `[未知]` |
 | --- | --- | --- | --- | --- | --- |
 | | | | | | |
 

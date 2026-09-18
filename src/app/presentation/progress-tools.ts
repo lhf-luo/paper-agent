@@ -5,51 +5,56 @@ interface PdfCoverage {
 	pageCount: number;
 	pages: Set<number>;
 	renderedPages: Set<number>;
-	layoutPages: Set<number>;
 	regionPages: Set<number>;
 	tablePages: Set<number>;
-	assetIndexedPages: Set<number>;
-	semanticAssetIds: Set<string>;
-	semanticAssetPages: Set<number>;
 	verifiedAssetIds: Set<string>;
-	semanticAssetPageById: Map<string, number>;
-	verifiedAssetPageById: Map<string, number>;
-	embeddedImageIds: Set<string>;
-	truncatedAssetListings: number;
 	truncatedReads: number;
 }
 
+interface MineruCoverage {
+	paperId: string;
+	sourceSha256: string;
+	pageCount: number;
+	overview: boolean;
+	sectionIds: Set<string>;
+	pageRequiredBlocks: Map<number, Set<number>>;
+	pageReadBlocks: Map<number, Set<number>>;
+	sectionRanges: Map<string, { ids: Set<string>; ranges: Array<{ start: number; end: number; total: number }> }>;
+	markdownRanges: Map<string, Array<{ start: number; end: number; total: number }>>;
+	discoveredAssetIds: Set<string>;
+	viewedAssetIds: Set<string>;
+	truncatedCalls: number;
+}
+
 interface ProgressDetails {
+	mineru: Array<{
+		paperId: string;
+		sourceSha256: string;
+		pageCount: number;
+		overview: boolean;
+		sectionIds: string[];
+		readPages: number[];
+		missingPages: number[];
+		fullMarkdownComplete: boolean;
+		discoveredAssetIds: string[];
+		viewedAssetIds: string[];
+		truncatedCalls: number;
+	}>;
 	pdfs: Array<{
 		path: string;
 		pageCount: number;
 		readPages: number[];
-		missingPages: number[];
 		renderedPages: number[];
-		layoutPages: number[];
 		regionPages: number[];
 		tablePages: number[];
-		assetIndexedPages: number[];
-		semanticAssetCount: number;
-		semanticAssetIds: string[];
-		semanticAssetPages: number[];
 		verifiedAssetIds: string[];
-		semanticAssets: Array<{ id: string; page: number }>;
-		verifiedAssets: Array<{ id: string; page: number }>;
-		embeddedImageCount: number;
-		truncatedAssetListings: number;
 		truncatedReads: number;
 	}>;
 	artifactInspections: number;
 	artifactDiscoveries: number;
-	artifactCandidatesDiscovered: number;
 	artifactAcquisitions: number;
 	artifactAcquisitionFailures: string[];
-	literatureSearches: number;
-	literatureCollections: number;
-	literatureProviderCounts: Record<string, number>;
-	literatureFailures: string[];
-	fetchedSources: string[];
+	correlatedAssetIds: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,28 +65,12 @@ function numberArray(value: unknown): number[] {
 	return Array.isArray(value) ? value.filter((item): item is number => typeof item === "number") : [];
 }
 
-function emptyPdfCoverage(pageCount: number): PdfCoverage {
-	return {
-		pageCount,
-		pages: new Set<number>(),
-		renderedPages: new Set<number>(),
-		layoutPages: new Set<number>(),
-		regionPages: new Set<number>(),
-		tablePages: new Set<number>(),
-		assetIndexedPages: new Set<number>(),
-		semanticAssetIds: new Set<string>(),
-		semanticAssetPages: new Set<number>(),
-		verifiedAssetIds: new Set<string>(),
-		semanticAssetPageById: new Map<string, number>(),
-		verifiedAssetPageById: new Map<string, number>(),
-		embeddedImageIds: new Set<string>(),
-		truncatedAssetListings: 0,
-		truncatedReads: 0,
-	};
+function stringArray(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function compressPageRanges(pages: number[]): string {
-	if (pages.length === 0) return "none";
+	if (!pages.length) return "none";
 	const ranges: string[] = [];
 	let start = pages[0];
 	let end = pages[0];
@@ -98,34 +87,141 @@ function compressPageRanges(pages: number[]): string {
 	return ranges.join(", ");
 }
 
+function rangeComplete(ranges: Array<{ start: number; end: number; total: number }>): boolean {
+	if (!ranges.length) return false;
+	const total = ranges[0].total;
+	if (ranges.some((range) => range.total !== total)) return false;
+	const sorted = [...ranges].sort((left, right) => left.start - right.start);
+	let end = 0;
+	for (const range of sorted) {
+		if (range.start > end) return false;
+		end = Math.max(end, range.end);
+	}
+	return end >= total;
+}
+
+function emptyPdfCoverage(pageCount: number): PdfCoverage {
+	return {
+		pageCount,
+		pages: new Set(),
+		renderedPages: new Set(),
+		regionPages: new Set(),
+		tablePages: new Set(),
+		verifiedAssetIds: new Set(),
+		truncatedReads: 0,
+	};
+}
+
+function emptyMineruCoverage(paperId: string, sourceSha256: string, pageCount: number): MineruCoverage {
+	return {
+		paperId,
+		sourceSha256,
+		pageCount,
+		overview: false,
+		sectionIds: new Set(),
+		pageRequiredBlocks: new Map(),
+		pageReadBlocks: new Map(),
+		sectionRanges: new Map(),
+		markdownRanges: new Map(),
+		discoveredAssetIds: new Set(),
+		viewedAssetIds: new Set(),
+		truncatedCalls: 0,
+	};
+}
+
 export function registerProgressTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "paper_progress",
 		label: "Paper research progress",
 		description:
-			"Audit the current session branch for complete PDF reading and asset-index coverage, object-level visual checks, adjacent artifacts, literature searches, and fetched primary sources. Call before drafting the final report. Truncated calls do not count as coverage.",
-		promptSnippet: "Audit PDF coverage and research-source completeness",
+			"Audit MinerU reading coverage, MinerU visual inspection, targeted original-PDF verification, and optional Artifact work in the current session branch.",
+		promptSnippet: "Audit MinerU coverage and targeted primary-evidence verification",
 		promptGuidelines: [
-			"Call paper_progress before the final paper report and resolve every missing PDF page or explicitly disclose why it could not be read.",
+			"For full-paper research, complete every MinerU page or traverse full.md until next_cursor is none.",
+			"Use original PDF tools for decisive claims, critical values, quotations, equations, conflicts, and ambiguous visual crops; every PDF page need not be reread.",
+			"Artifact checks are required for reproduction work, not ordinary paper reading.",
 		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			const pdfs = new Map<string, PdfCoverage>();
+			const mineru = new Map<string, MineruCoverage>();
 			let artifactInspections = 0;
 			let artifactDiscoveries = 0;
-			let artifactCandidatesDiscovered = 0;
 			let artifactAcquisitions = 0;
 			const artifactAcquisitionFailures: string[] = [];
-			let literatureSearches = 0;
-			let literatureCollections = 0;
-			const literatureProviderCounts: Record<string, number> = {};
-			const literatureFailures: string[] = [];
-			const fetchedSources = new Set<string>();
 
 			for (const entry of ctx.sessionManager.getBranch()) {
 				if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.isError) continue;
 				const { details, toolName } = entry.message;
 				if (!isRecord(details)) continue;
+
+				if (toolName === "read_mineru_material" && isRecord(details.material)) {
+					const paperId = typeof details.material.paperId === "string" ? details.material.paperId : undefined;
+					const sourceSha256 =
+						typeof details.material.sourceSha256 === "string" ? details.material.sourceSha256 : undefined;
+					const pageCount = typeof details.material.pageCount === "number" ? details.material.pageCount : 0;
+					if (!paperId || !sourceSha256) continue;
+					const key = `${paperId}\0${sourceSha256}`;
+					const coverage = mineru.get(key) ?? emptyMineruCoverage(paperId, sourceSha256, pageCount);
+					coverage.pageCount = Math.max(coverage.pageCount, pageCount);
+					if (details.mode === "overview") coverage.overview = true;
+					if (details.truncated === true) coverage.truncatedCalls++;
+					const selectedSectionIds = stringArray(details.selectedSectionIds);
+					if (Array.isArray(details.pageBlocks)) {
+						for (const item of details.pageBlocks) {
+							if (!isRecord(item) || typeof item.page !== "number") continue;
+							const required = coverage.pageRequiredBlocks.get(item.page) ?? new Set<number>();
+							const read = coverage.pageReadBlocks.get(item.page) ?? new Set<number>();
+							for (const block of numberArray(item.total)) required.add(block);
+							for (const block of numberArray(item.selected)) read.add(block);
+							coverage.pageRequiredBlocks.set(item.page, required);
+							coverage.pageReadBlocks.set(item.page, read);
+						}
+					}
+					if (details.mode === "markdown" && isRecord(details.cursorRange)) {
+						const { start, end, total, key: cursorKey } = details.cursorRange;
+						if (
+							typeof start === "number" &&
+							typeof end === "number" &&
+							typeof total === "number" &&
+							typeof cursorKey === "string"
+						) {
+							const ranges = coverage.markdownRanges.get(cursorKey) ?? [];
+							ranges.push({ start, end, total });
+							coverage.markdownRanges.set(cursorKey, ranges);
+						}
+					}
+					if (details.mode === "sections" && isRecord(details.cursorRange)) {
+						const { start, end, total, key: cursorKey } = details.cursorRange;
+						if (
+							typeof start === "number" &&
+							typeof end === "number" &&
+							typeof total === "number" &&
+							typeof cursorKey === "string"
+						) {
+							const entry = coverage.sectionRanges.get(cursorKey) ?? { ids: new Set<string>(), ranges: [] };
+							for (const id of selectedSectionIds) entry.ids.add(id);
+							entry.ranges.push({ start, end, total });
+							coverage.sectionRanges.set(cursorKey, entry);
+						}
+					}
+					if (
+						details.mode === "overview" &&
+						isRecord(details.manifest) &&
+						Array.isArray(details.manifest.assets)
+					) {
+						for (const asset of details.manifest.assets) {
+							if (isRecord(asset) && typeof asset.id === "string") coverage.discoveredAssetIds.add(asset.id);
+						}
+					}
+					if (Array.isArray(details.assetResults)) {
+						for (const asset of details.assetResults) {
+							if (isRecord(asset) && typeof asset.id === "string") coverage.viewedAssetIds.add(asset.id);
+						}
+					}
+					mineru.set(key, coverage);
+					continue;
+				}
 
 				if (toolName === "read_pdf") {
 					const path = typeof details.path === "string" ? details.path : undefined;
@@ -133,259 +229,139 @@ export function registerProgressTool(pi: ExtensionAPI): void {
 					if (!path || pageCount === undefined) continue;
 					const coverage = pdfs.get(path) ?? emptyPdfCoverage(pageCount);
 					coverage.pageCount = Math.max(coverage.pageCount, pageCount);
-					if (details.truncated === true) {
-						coverage.truncatedReads++;
-					} else {
-						for (const page of numberArray(details.selectedPages)) coverage.pages.add(page);
-					}
-					pdfs.set(path, coverage);
-					continue;
-				}
-
-				if (toolName === "render_pdf_page") {
-					const path = typeof details.path === "string" ? details.path : undefined;
-					const page = typeof details.page === "number" ? details.page : undefined;
-					if (!path || page === undefined) continue;
-					const coverage = pdfs.get(path) ?? emptyPdfCoverage(0);
-					coverage.renderedPages.add(page);
+					if (details.truncated === true) coverage.truncatedReads++;
+					else for (const page of numberArray(details.selectedPages)) coverage.pages.add(page);
 					pdfs.set(path, coverage);
 					continue;
 				}
 
 				if (
-					toolName === "inspect_pdf_layout" ||
+					toolName === "render_pdf_page" ||
 					toolName === "extract_pdf_region" ||
 					toolName === "extract_pdf_table"
 				) {
 					const path = typeof details.path === "string" ? details.path : undefined;
-					if (!path) continue;
-					const pageCount = typeof details.pageCount === "number" ? details.pageCount : 0;
-					const coverage = pdfs.get(path) ?? emptyPdfCoverage(pageCount);
-					coverage.pageCount = Math.max(coverage.pageCount, pageCount);
-					if (toolName === "inspect_pdf_layout") {
-						if (details.truncated !== true) {
-							for (const page of numberArray(details.selectedPages)) coverage.layoutPages.add(page);
-						}
-					} else {
-						const page = typeof details.page === "number" ? details.page : undefined;
-						if (page !== undefined) {
-							if (toolName === "extract_pdf_region") coverage.regionPages.add(page);
-							if (toolName === "extract_pdf_table") coverage.tablePages.add(page);
-						}
-						if (typeof details.assetId === "string" && page !== undefined) {
-							coverage.verifiedAssetIds.add(details.assetId);
-							coverage.verifiedAssetPageById.set(details.assetId, page);
-						}
-					}
-					pdfs.set(path, coverage);
-					continue;
-				}
-
-				if (toolName === "list_paper_assets") {
-					const path = typeof details.path === "string" ? details.path : undefined;
-					const pageCount = typeof details.pageCount === "number" ? details.pageCount : undefined;
-					if (!path || pageCount === undefined) continue;
-					const coverage = pdfs.get(path) ?? emptyPdfCoverage(pageCount);
-					coverage.pageCount = Math.max(coverage.pageCount, pageCount);
-					if (details.truncated === true) {
-						coverage.truncatedAssetListings++;
-					} else {
-						for (const page of numberArray(details.selectedPages)) coverage.assetIndexedPages.add(page);
-					}
-					if (Array.isArray(details.assets)) {
-						for (const asset of details.assets) {
-							if (!isRecord(asset)) continue;
-							if (typeof asset.id === "string") {
-								coverage.semanticAssetIds.add(asset.id);
-								if (typeof asset.page === "number") coverage.semanticAssetPageById.set(asset.id, asset.page);
-							}
-							if (typeof asset.page === "number") coverage.semanticAssetPages.add(asset.page);
-						}
-					}
-					if (Array.isArray(details.embeddedImages)) {
-						for (const image of details.embeddedImages) {
-							if (!isRecord(image)) continue;
-							const page = typeof image.page === "number" ? image.page : "?";
-							const index = typeof image.index === "number" ? image.index : "?";
-							const objectId = typeof image.objectId === "string" ? image.objectId : "?";
-							const type = typeof image.type === "string" ? image.type : "?";
-							coverage.embeddedImageIds.add(`${page}:${index}:${objectId}:${type}`);
-						}
-					}
+					const page = typeof details.page === "number" ? details.page : undefined;
+					if (!path || page === undefined) continue;
+					const coverage = pdfs.get(path) ?? emptyPdfCoverage(Number(details.pageCount ?? 0));
+					if (toolName === "render_pdf_page") coverage.renderedPages.add(page);
+					if (toolName === "extract_pdf_region") coverage.regionPages.add(page);
+					if (toolName === "extract_pdf_table") coverage.tablePages.add(page);
+					if (typeof details.assetId === "string") coverage.verifiedAssetIds.add(details.assetId);
 					pdfs.set(path, coverage);
 					continue;
 				}
 
 				if (toolName === "inspect_paper_artifacts") artifactInspections++;
-				if (toolName === "discover_paper_artifacts") {
-					artifactDiscoveries++;
-					if (typeof details.candidateCount === "number") {
-						artifactCandidatesDiscovered = Math.max(artifactCandidatesDiscovered, details.candidateCount);
-					}
-				}
+				if (toolName === "discover_paper_artifacts") artifactDiscoveries++;
 				if (toolName === "acquire_paper_artifacts") {
 					artifactAcquisitions++;
-					if (typeof details.candidateCount === "number") {
-						artifactCandidatesDiscovered = Math.max(artifactCandidatesDiscovered, details.candidateCount);
-					}
 					if (Array.isArray(details.failures)) {
 						for (const failure of details.failures) artifactAcquisitionFailures.push(String(failure));
 					}
 				}
-				if (toolName === "search_literature") literatureSearches++;
-				if (toolName === "collect_literature") {
-					literatureCollections++;
-					if (isRecord(details.sourceCounts)) {
-						for (const [provider, count] of Object.entries(details.sourceCounts)) {
-							if (typeof count === "number") {
-								literatureProviderCounts[provider] = (literatureProviderCounts[provider] ?? 0) + count;
-							}
-						}
-					}
-					if (Array.isArray(details.failures)) {
-						for (const failure of details.failures) {
-							if (isRecord(failure)) {
-								literatureFailures.push(
-									`${String(failure.provider ?? "provider")}: ${String(failure.message ?? "unknown failure")}`,
-								);
-							}
-						}
-					}
-				}
-				if (toolName === "fetch_url" && typeof details.finalUrl === "string") fetchedSources.add(details.finalUrl);
 			}
 
-			const pdfDetails = [...pdfs.entries()].map(([path, coverage]) => {
-				const readPages = [...coverage.pages].sort((left, right) => left - right);
-				const renderedPages = [...coverage.renderedPages].sort((left, right) => left - right);
-				const layoutPages = [...coverage.layoutPages].sort((left, right) => left - right);
-				const regionPages = [...coverage.regionPages].sort((left, right) => left - right);
-				const tablePages = [...coverage.tablePages].sort((left, right) => left - right);
-				const assetIndexedPages = [...coverage.assetIndexedPages].sort((left, right) => left - right);
-				const semanticAssetPages = [...coverage.semanticAssetPages].sort((left, right) => left - right);
+			const mineruDetails = [...mineru.values()].map((coverage) => {
+				for (const entry of coverage.sectionRanges.values()) {
+					if (rangeComplete(entry.ranges)) for (const id of entry.ids) coverage.sectionIds.add(id);
+				}
+				const readPages = [...coverage.pageRequiredBlocks.entries()]
+					.filter(([page, required]) => {
+						const read = coverage.pageReadBlocks.get(page) ?? new Set<number>();
+						return required.size > 0 && [...required].every((block) => read.has(block));
+					})
+					.map(([page]) => page)
+					.sort((left, right) => left - right);
 				const missingPages = Array.from({ length: coverage.pageCount }, (_value, index) => index + 1).filter(
-					(page) => !coverage.pages.has(page),
+					(page) => !readPages.includes(page),
 				);
 				return {
-					path,
+					paperId: coverage.paperId,
+					sourceSha256: coverage.sourceSha256,
 					pageCount: coverage.pageCount,
+					overview: coverage.overview,
+					sectionIds: [...coverage.sectionIds].sort(),
 					readPages,
 					missingPages,
-					renderedPages,
-					layoutPages,
-					regionPages,
-					tablePages,
-					assetIndexedPages,
-					semanticAssetCount: coverage.semanticAssetIds.size,
-					semanticAssetIds: [...coverage.semanticAssetIds].sort(),
-					semanticAssetPages,
-					verifiedAssetIds: [...coverage.verifiedAssetIds].sort(),
-					semanticAssets: [...coverage.semanticAssetPageById.entries()]
-						.map(([id, page]) => ({ id, page }))
-						.sort((left, right) => left.id.localeCompare(right.id)),
-					verifiedAssets: [...coverage.verifiedAssetPageById.entries()]
-						.map(([id, page]) => ({ id, page }))
-						.sort((left, right) => left.id.localeCompare(right.id)),
-					embeddedImageCount: coverage.embeddedImageIds.size,
-					truncatedAssetListings: coverage.truncatedAssetListings,
-					truncatedReads: coverage.truncatedReads,
+					fullMarkdownComplete: [...coverage.markdownRanges.values()].some(rangeComplete),
+					discoveredAssetIds: [...coverage.discoveredAssetIds].sort(),
+					viewedAssetIds: [...coverage.viewedAssetIds].sort(),
+					truncatedCalls: coverage.truncatedCalls,
 				};
 			});
+			const pdfDetails = [...pdfs.entries()].map(([path, coverage]) => ({
+				path,
+				pageCount: coverage.pageCount,
+				readPages: [...coverage.pages].sort((left, right) => left - right),
+				renderedPages: [...coverage.renderedPages].sort((left, right) => left - right),
+				regionPages: [...coverage.regionPages].sort((left, right) => left - right),
+				tablePages: [...coverage.tablePages].sort((left, right) => left - right),
+				verifiedAssetIds: [...coverage.verifiedAssetIds].sort(),
+				truncatedReads: coverage.truncatedReads,
+			}));
+			const mineruAssetIds = new Set(mineruDetails.flatMap((item) => item.discoveredAssetIds));
+			const correlatedAssetIds = [
+				...new Set(pdfDetails.flatMap((item) => item.verifiedAssetIds).filter((id) => mineruAssetIds.has(id))),
+			].sort();
 
-			const pdfText =
-				pdfDetails.length === 0
-					? "- No successful read_pdf calls found."
-					: pdfDetails
-							.map((pdf) => {
-								const percentage = pdf.pageCount === 0 ? 0 : (100 * pdf.readPages.length) / pdf.pageCount;
-								return [
-									`- ${pdf.path}`,
-									`  coverage: ${pdf.readPages.length}/${pdf.pageCount} pages (${percentage.toFixed(1)}%)`,
-									`  read: ${compressPageRanges(pdf.readPages)}`,
-									`  missing: ${compressPageRanges(pdf.missingPages)}`,
-									`  rendered: ${compressPageRanges(pdf.renderedPages)}`,
-									`  layout inspected: ${compressPageRanges(pdf.layoutPages)}`,
-									`  extracted regions: ${compressPageRanges(pdf.regionPages)}`,
-									`  extracted tables: ${compressPageRanges(pdf.tablePages)}`,
-									`  asset index coverage: ${compressPageRanges(pdf.assetIndexedPages)}`,
-									`  detected semantic assets: ${pdf.semanticAssetCount}; embedded image entries: ${pdf.embeddedImageCount}`,
-									`  semantic asset pages: ${compressPageRanges(pdf.semanticAssetPages)}; verified asset ids: ${pdf.verifiedAssetIds.join(", ") || "none"}`,
-									`  truncated read_pdf calls: ${pdf.truncatedReads}`,
-									`  truncated list_paper_assets calls: ${pdf.truncatedAssetListings}`,
-								].join("\n");
-							})
-							.join("\n");
-			const completePdf =
-				pdfDetails.length > 0 && pdfDetails.every((pdf) => pdf.pageCount > 0 && pdf.missingPages.length === 0);
-			const completeAssetIndex =
-				pdfDetails.length > 0 &&
-				pdfDetails.every((pdf) => pdf.pageCount > 0 && pdf.assetIndexedPages.length === pdf.pageCount);
-			const hasSemanticAssets = pdfDetails.some((pdf) => pdf.semanticAssetCount > 0);
-			const objectLevelEvidenceChecked =
-				hasSemanticAssets &&
-				pdfDetails.every(
-					(pdf) =>
-						pdf.semanticAssetCount === 0 ||
-						pdf.verifiedAssets.some((verified) =>
-							pdf.semanticAssets.some(
-								(semantic) => semantic.id === verified.id && semantic.page === verified.page,
-							),
-						),
-				);
-			const checklist = [
-				`${completePdf ? "[x]" : "[ ]"} Every physical PDF page read without truncation`,
-				`${completeAssetIndex ? "[x]" : "[ ]"} Every physical PDF page included in an untruncated asset index`,
-				hasSemanticAssets
-					? `${objectLevelEvidenceChecked ? "[x]" : "[ ]"} At least one indexed asset per PDF checked at object level with asset_id`
-					: "[-] No captioned figure/table detected for object-level verification",
-				`${artifactInspections > 0 ? "[x]" : "[ ]"} Adjacent artifacts inventoried`,
-				`${artifactDiscoveries > 0 ? "[x]" : "[ ]"} PDF artifact links discovered`,
-				artifactCandidatesDiscovered === 0
-					? "[-] No artifact candidate discovered for acquisition"
-					: `${artifactAcquisitions > 0 ? "[x]" : "[ ]"} Discovered artifacts acquired or failures recorded`,
-				`${literatureSearches + literatureCollections > 0 ? "[x]" : "[ ]"} Multi-source literature discovery performed`,
-				`${artifactAcquisitionFailures.length + literatureFailures.length === 0 ? "[x]" : "[ ]"} Acquisition/provider failures reviewed and disclosed`,
-				`${fetchedSources.size > 0 ? "[x]" : "[ ]"} At least one public primary source fetched`,
-			].join("\n");
+			const mineruText = mineruDetails.length
+				? mineruDetails
+						.map((item) => {
+							const complete =
+								item.fullMarkdownComplete || (item.pageCount > 0 && item.missingPages.length === 0);
+							return [
+								`- ${item.paperId} @ ${item.sourceSha256}`,
+								`  current material: yes; overview: ${item.overview ? "yes" : "no"}`,
+								`  sections read: ${item.sectionIds.join(", ") || "none"}`,
+								`  complete pages: ${compressPageRanges(item.readPages)}`,
+								`  missing pages: ${compressPageRanges(item.missingPages)}`,
+								`  full.md traversal: ${item.fullMarkdownComplete ? "complete" : "incomplete"}`,
+								`  full-paper MinerU coverage: ${complete ? "complete" : "incomplete"}`,
+								`  visual assets discovered/viewed: ${item.discoveredAssetIds.length}/${item.viewedAssetIds.length}`,
+								`  truncated calls: ${item.truncatedCalls}`,
+							].join("\n");
+						})
+						.join("\n")
+				: "- No successful read_mineru_material calls found.";
+			const pdfText = pdfDetails.length
+				? pdfDetails
+						.map((item) =>
+							[
+								`- ${item.path}`,
+								`  text pages: ${compressPageRanges(item.readPages)}`,
+								`  rendered pages: ${compressPageRanges(item.renderedPages)}`,
+								`  extracted regions: ${compressPageRanges(item.regionPages)}`,
+								`  extracted tables: ${compressPageRanges(item.tablePages)}`,
+								`  verified asset IDs: ${item.verifiedAssetIds.join(", ") || "none"}`,
+								`  truncated reads: ${item.truncatedReads}`,
+							].join("\n"),
+						)
+						.join("\n")
+				: "- No targeted original-PDF verification found.";
 			const text = [
-				"PDF coverage:",
+				"MinerU reading:",
+				mineruText,
+				"",
+				"Original PDF verification:",
 				pdfText,
+				`MinerU/PDF asset ID correlations: ${correlatedAssetIds.join(", ") || "none"}`,
 				"",
-				`Artifact inspections: ${artifactInspections}`,
-				`Artifact discoveries: ${artifactDiscoveries}; candidates: ${artifactCandidatesDiscovered}; acquisition runs: ${artifactAcquisitions}`,
-				`Artifact acquisition failures: ${artifactAcquisitionFailures.length}`,
-				...artifactAcquisitionFailures.map((failure) => `- artifact: ${failure}`),
-				`Literature searches: ${literatureSearches}`,
-				`Persistent/structured collections: ${literatureCollections}`,
-				`Literature provider counts: ${
-					Object.entries(literatureProviderCounts)
-						.map(([provider, count]) => `${provider}=${count}`)
-						.join(", ") || "none"
-				}`,
-				`Literature provider failures: ${literatureFailures.length}`,
-				...literatureFailures.map((failure) => `- literature: ${failure}`),
-				`Fetched primary sources: ${fetchedSources.size}`,
-				...[...fetchedSources].map((url) => `- ${url}`),
-				"",
-				"Readiness checklist:",
-				checklist,
-				"",
-				completePdf && completeAssetIndex
-					? "PDF reading and asset-index coverage are complete. Remaining unchecked research steps must be completed or disclosed before the final report."
-					: "PDF research coverage is incomplete. Read every missing range and finish the asset index before drafting a paper-wide report.",
+				"Artifact/reproduction:",
+				`- discoveries: ${artifactDiscoveries}`,
+				`- acquisitions: ${artifactAcquisitions}`,
+				`- inspections: ${artifactInspections}`,
+				`- acquisition failures: ${artifactAcquisitionFailures.length}`,
+				...artifactAcquisitionFailures.map((failure) => `  - ${failure}`),
 			].join("\n");
 			const progressDetails: ProgressDetails = {
+				mineru: mineruDetails,
 				pdfs: pdfDetails,
 				artifactInspections,
 				artifactDiscoveries,
-				artifactCandidatesDiscovered,
 				artifactAcquisitions,
 				artifactAcquisitionFailures,
-				literatureSearches,
-				literatureCollections,
-				literatureProviderCounts,
-				literatureFailures,
-				fetchedSources: [...fetchedSources],
+				correlatedAssetIds,
 			};
 			return { content: [{ type: "text", text }], details: progressDetails };
 		},

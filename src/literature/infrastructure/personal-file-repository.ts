@@ -19,6 +19,18 @@ import {
 import { PersonalPdfMaterialRepository } from "./personal-pdf-material-repository.ts";
 
 export abstract class PersonalFileRepository extends PersonalPdfMaterialRepository {
+	private preferredPaperVersion(versions: PaperVersion[]): PaperVersion | undefined {
+		const rank = (version: PaperVersion) =>
+			version.isPreferred
+				? -1
+				: ({ published: 0, preprint: 1, unknown: 2, translation: 3, supplement: 4 }[
+						version.versionKind ?? "unknown"
+					] ?? 5);
+		return [...versions].sort(
+			(left, right) => rank(left) - rank(right) || right.retrievedAt.localeCompare(left.retrievedAt),
+		)[0];
+	}
+
 	protected versionRows(database: DatabaseSync, paperId: string): StoredVersionRow[] {
 		const paper = this.paperRow(database, paperId);
 		if (!paper) return [];
@@ -270,6 +282,45 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 			return [];
 		await this.initialize();
 		return this.read((database) => this.versionRows(database, paperId).map((row) => this.hydrateVersion(row)));
+	}
+
+	async deletePaperVersion(
+		paperId: string,
+		sha256: string,
+	): Promise<{ version: PaperVersion; preferredSha256?: string; materialPath?: string }> {
+		if (!/^[a-f0-9]{64}$/i.test(sha256)) throw new Error("PDF version SHA-256 is invalid");
+		await this.initialize();
+		const material = await this.getPdfMaterial(paperId);
+		let deleted: PaperVersion | undefined;
+		let preferredSha256: string | undefined;
+		this.write((database) => {
+			const paper = this.paperRow(database, paperId);
+			if (!paper) throw new Error(`Paper not found in personal corpus: ${paperId}`);
+			const row = this.versionRows(database, paperId).find(
+				(candidate) => candidate.sha256.toLowerCase() === sha256.toLowerCase(),
+			);
+			if (!row) throw new Error("PDF version was not found in the selected corpus");
+			deleted = this.hydrateVersion(row);
+			database.prepare("DELETE FROM paper_versions WHERE id = ?").run(row.version_id);
+			database.prepare("DELETE FROM stored_files WHERE id = ?").run(row.file_id);
+
+			const remainingRows = this.versionRows(database, paperId);
+			const remaining = remainingRows.map((candidate) => this.hydrateVersion(candidate));
+			const preferred = this.preferredPaperVersion(remaining);
+			preferredSha256 = preferred?.sha256;
+			for (const [index, candidate] of remaining.entries()) {
+				const isPreferred = candidate.sha256 === preferredSha256;
+				database
+					.prepare("UPDATE paper_versions SET is_preferred = ?, version_json = ? WHERE id = ?")
+					.run(Number(isPreferred), json({ ...candidate, isPreferred }), remainingRows[index].version_id);
+			}
+		});
+		if (!deleted) throw new Error("PDF version deletion did not complete");
+		return {
+			version: deleted,
+			preferredSha256,
+			materialPath: material?.sourceSha256.toLowerCase() === sha256.toLowerCase() ? material.path : undefined,
+		};
 	}
 
 	async readPaperVersionBlob(paperId: string, sha256: string): Promise<Buffer> {

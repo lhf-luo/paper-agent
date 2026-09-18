@@ -845,31 +845,61 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				</aside>
 				<main className="research-note-editor">
 					{openNoteIds.length > 0 && (
-						<div className="research-note-tabs" role="tablist">
-							{openNoteIds.map((id) => {
-								const note = notes.find((item) => item.id === id);
-								return note ? (
-									<div className={`research-note-tab${activeId === id ? " active" : ""}`} key={id}>
+						<div className="research-note-tabs-bar">
+							<div className="research-note-tabs" role="tablist">
+								{openNoteIds.map((id) => {
+									const note = notes.find((item) => item.id === id);
+									return note ? (
+										<div className={`research-note-tab${activeId === id ? " active" : ""}`} key={id}>
+											<button
+												type="button"
+												role="tab"
+												aria-selected={activeId === id}
+												onClick={() => void openNote(id)}
+											>
+												{note.title}
+											</button>
+											<button
+												type="button"
+												className="icon-button"
+												title="关闭标签"
+												aria-label={`关闭${note.title}`}
+												onClick={() => void closeNote(id)}
+											>
+												<X size={13} />
+											</button>
+										</div>
+									) : null;
+								})}
+							</div>
+							{active && !createOpen && (
+								<div className="research-note-editor-actions">
+									<button
+										className="research-note-mobile-back"
+										type="button"
+										onClick={() => void closeNote(active.id)}
+									>
+										返回列表
+									</button>
+									{saveLabel && <span className={`research-note-save-state ${saveState}`}>{saveLabel}</span>}
+									<fieldset className="segmented-control" aria-label="笔记显示方式">
 										<button
 											type="button"
-											role="tab"
-											aria-selected={activeId === id}
-											onClick={() => void openNote(id)}
+											className={mode === "edit" ? "active" : undefined}
+											onClick={() => setMode("edit")}
 										>
-											{note.title}
+											编辑
 										</button>
 										<button
 											type="button"
-											className="icon-button"
-											title="关闭标签"
-											aria-label={`关闭${note.title}`}
-											onClick={() => void closeNote(id)}
+											className={mode === "preview" ? "active" : undefined}
+											onClick={() => setMode("preview")}
 										>
-											<X size={13} />
+											预览
 										</button>
-									</div>
-								) : null;
-							})}
+									</fieldset>
+								</div>
+							)}
 						</div>
 					)}
 					{createOpen ? (
@@ -893,61 +923,23 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 							onCreate={prepareCreateNote}
 						/>
 					) : active ? (
-						<>
-							<header className="research-note-editor-header">
-								<button
-									className="research-note-mobile-back"
-									type="button"
-									onClick={() => void closeNote(active.id)}
-								>
-									返回列表
-								</button>
-								<strong className="research-note-title">{active.title}</strong>
-								<div className="research-note-editor-actions">
-									{saveLabel && <span className={`research-note-save-state ${saveState}`}>{saveLabel}</span>}
-									<fieldset className="segmented-control" aria-label="笔记显示方式">
-										<button
-											type="button"
-											className={mode === "edit" ? "active" : undefined}
-											onClick={() => setMode("edit")}
-										>
-											编辑
-										</button>
-										<button
-											type="button"
-											className={mode === "preview" ? "active" : undefined}
-											onClick={() => setMode("preview")}
-										>
-											预览
-										</button>
-									</fieldset>
-								</div>
-							</header>
-							<div className="research-note-paper-links">
-								{active.papers.map((paper) => (
-									<span key={paper.id} title={paper.id}>
-										{paper.title}
-									</span>
-								))}
-							</div>
-							{mode === "edit" ? (
-								<textarea
-									className="research-markdown-editor"
-									value={draftMarkdown}
-									onChange={(event) => setDraftMarkdown(event.target.value)}
-									placeholder="开始记录你的调研内容…"
-									spellCheck
-								/>
-							) : (
-								<article className="research-markdown-preview">
-									{draftMarkdown.trim() ? (
-										<ReactMarkdown remarkPlugins={[remarkGfm]}>{draftMarkdown}</ReactMarkdown>
-									) : (
-										<p className="research-note-placeholder">这篇笔记还没有内容。</p>
-									)}
-								</article>
-							)}
-						</>
+						mode === "edit" ? (
+							<textarea
+								className="research-markdown-editor"
+								value={draftMarkdown}
+								onChange={(event) => setDraftMarkdown(event.target.value)}
+								placeholder="开始记录你的调研内容…"
+								spellCheck
+							/>
+						) : (
+							<article className="research-markdown-preview">
+								{draftMarkdown.trim() ? (
+									<ReactMarkdown remarkPlugins={[remarkGfm]}>{draftMarkdown}</ReactMarkdown>
+								) : (
+									<p className="research-note-placeholder">这篇笔记还没有内容。</p>
+								)}
+							</article>
+						)
 					) : (
 						<EmptyState title="选择一篇笔记" text="从左侧打开已有笔记，或新建一篇 Markdown 笔记。" />
 					)}

@@ -49,13 +49,25 @@ export async function handleMineruRoutes(
 		return true;
 	}
 	if (request.method === "GET" && action === "content") {
+		const mode =
+			(url.searchParams.get("mode") as
+				| "overview"
+				| "sections"
+				| "markdown"
+				| "pages"
+				| "search"
+				| "assets"
+				| null) ?? "overview";
 		json(
 			response,
 			200,
 			await application.mineru.read(paperId, targetNamespace, {
-				mode: (url.searchParams.get("mode") as "overview" | "pages" | "search" | null) ?? undefined,
+				mode,
 				pages: pages(url.searchParams.get("pages")),
-				query: url.searchParams.get("query") ?? undefined,
+				sectionIds: url.searchParams.get("section_ids")?.split(",").filter(Boolean),
+				queries: url.searchParams.getAll("query").filter(Boolean),
+				assetIds: url.searchParams.get("asset_ids")?.split(",").filter(Boolean),
+				cursor: url.searchParams.get("cursor") ?? undefined,
 			}),
 		);
 		return true;

@@ -5,6 +5,7 @@ import type {
 	LiteraturePdfDownloadRequest,
 	PreparedLiteraturePdfDownload,
 } from "../../literature/application/literature-download.ts";
+import type { MetadataProviderSearcher } from "../../literature/application/literature-metadata-refresh.ts";
 import type {
 	ArtifactManifest,
 	LiteratureProvider,
@@ -36,6 +37,7 @@ export interface PaperAgentApplicationConfig {
 	executor?: CommandExecutor;
 	jobConcurrency?: number;
 	doiProviderLookup?: DoiProviderLookup;
+	metadataProviderSearcher?: MetadataProviderSearcher;
 }
 
 export interface LiteratureSearchJobInput {
@@ -175,11 +177,24 @@ export interface PersonalCorpusAnnotationInput {
 	screeningReason?: string;
 }
 
+export interface PersonalMetadataEnrichmentInput {
+	paperId: string;
+	namespace?: string;
+	author?: string;
+}
+
 export interface PersonalPaperRemovalInput {
 	paperId?: string;
 	paperIds?: string[];
 	namespace?: string;
 	collectionId?: string;
+	author?: string;
+}
+
+export interface PersonalPdfVersionRemovalInput {
+	paperId: string;
+	sha256: string;
+	namespace?: string;
 	author?: string;
 }
 

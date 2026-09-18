@@ -109,7 +109,7 @@ describe("paper-agent activation", () => {
 		});
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining('<skill name="paper-research"'));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("## 研究顺序"));
-		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("### 全文研究与复现准备"));
+		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("## 各方式的最低读取范围"));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("12. **非增量 follow-up idea**"));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining(`研究本地论文：${pdfPath}`));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("用户要求：重点核对消融实验"));

@@ -111,7 +111,24 @@ export interface PaperCuration {
 	};
 }
 
-export type PaperMetadataConflictField = "authors" | "year" | "venue" | "publicationType" | "citedByApiUrl";
+export type PaperMetadataConflictField =
+	| "title"
+	| "authors"
+	| "abstract"
+	| "year"
+	| "venue"
+	| "venueRank"
+	| "publicationType"
+	| "citationCount"
+	| "referencedWorks"
+	| "citedByApiUrl"
+	| "doi"
+	| "arxivId"
+	| "openAlexId"
+	| "semanticScholarId"
+	| "dblpKey"
+	| "coreId"
+	| "openCitationsId";
 
 export interface PaperMetadataConflictValue {
 	value: string | number | string[];

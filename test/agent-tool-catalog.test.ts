@@ -25,4 +25,22 @@ describe("agent tool catalog", () => {
 		expect(exact?.parameters).toBeDefined();
 		expect(exact?.promptGuidelines.length).toBeGreaterThan(0);
 	});
+
+	it("registers OpenAI-compatible object schemas for MinerU reading", () => {
+		const tool = collectRegisteredTools(paperAgentExtension).find(
+			(candidate) => candidate.name === "read_mineru_material",
+		);
+		expect(tool).toBeDefined();
+		const parameters = tool?.parameters as {
+			type?: string;
+			required?: string[];
+			properties?: Record<string, unknown>;
+		};
+		expect(parameters.type).toBe("object");
+		expect(parameters.required).toEqual(expect.arrayContaining(["paper_id", "mode"]));
+		expect(parameters.properties).toHaveProperty("section_ids");
+		expect(parameters.properties).toHaveProperty("pages");
+		expect(parameters.properties).toHaveProperty("queries");
+		expect(parameters.properties).toHaveProperty("asset_ids");
+	});
 });

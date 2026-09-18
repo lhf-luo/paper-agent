@@ -171,7 +171,7 @@ function hasConflictingPrimaryIdentifiers(
 	return Boolean(leftArxiv && rightArxiv && leftArxiv !== rightArxiv);
 }
 
-function sameTitleAndFirstAuthor(
+export function sameTitleAndFirstAuthor(
 	left: Pick<PaperRecord, "title" | "authors" | "identifiers">,
 	right: Pick<PaperRecord, "title" | "authors" | "identifiers">,
 ): boolean {

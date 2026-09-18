@@ -11,11 +11,7 @@ import type {
 } from "../domain/literature-types.ts";
 import { ensurePersonalDatabaseSchema } from "./personal-database-schema.ts";
 
-import {
-	initializationPromises,
-	type PaperRow,
-	sqlitePathLayout,
-} from "./personal-database-support.ts";
+import { initializationPromises, type PaperRow, sqlitePathLayout } from "./personal-database-support.ts";
 export abstract class PersonalDatabaseBase {
 	readonly databasePath: string;
 	readonly filesRoot: string;
@@ -33,6 +29,10 @@ export abstract class PersonalDatabaseBase {
 	abstract listCollections(): Promise<PaperCollection[]>;
 	abstract listPaperVersions(paperId: string): Promise<PaperVersion[]>;
 	abstract savePaperVersion(version: PaperVersion): Promise<void>;
+	abstract deletePaperVersion(
+		paperId: string,
+		sha256: string,
+	): Promise<{ version: PaperVersion; preferredSha256?: string; materialPath?: string }>;
 	abstract saveSearchRun(run: SearchRun, keep?: number): Promise<void>;
 	abstract putDerived(record: DerivedRecord, replace?: boolean): Promise<"created" | "replaced" | "unchanged">;
 	abstract saveArtifactManifest(manifest: ArtifactManifest, paperId?: string): Promise<string>;

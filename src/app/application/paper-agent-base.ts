@@ -9,6 +9,7 @@ import { MineruService } from "../../extensions/mineru/application/mineru-servic
 import { PdfTranslationService } from "../../extensions/pdf-translation/application/pdf-translation-service.ts";
 import { ZoteroIntegrationService } from "../../extensions/zotero/application/zotero-integration.ts";
 import type { DoiProviderLookup } from "../../literature/application/literature-doi-enrichment.ts";
+import type { MetadataProviderSearcher } from "../../literature/application/literature-metadata-refresh.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../../literature/application/literature-store.ts";
 import { LocalPdfImportBatchManager } from "../../literature/application/local-pdf-import-batches.ts";
 import type { PaperRecord, SearchRun } from "../../literature/domain/literature-types.ts";
@@ -32,6 +33,7 @@ export abstract class PaperAgentApplicationBase {
 	readonly pdfTranslation: PdfTranslationService;
 	readonly mineru: MineruService;
 	readonly doiProviderLookup?: DoiProviderLookup;
+	readonly metadataProviderSearcher?: MetadataProviderSearcher;
 	protected initialized = false;
 	protected abstract configuredTeam(): Promise<unknown>;
 	abstract listNamespaces(scope: "personal" | "team"): Promise<string[]>;
@@ -52,6 +54,7 @@ export abstract class PaperAgentApplicationBase {
 		applyExternalToolDirectories(loadPaperAgentConfigSync(this.projectRoot).externalTools.commandDirectories);
 		this.executor = config.executor ?? new NodeCommandExecutor();
 		this.doiProviderLookup = config.doiProviderLookup;
+		this.metadataProviderSearcher = config.metadataProviderSearcher;
 		this.consent = new OperationConsentManager({
 			auditPath: join(this.dataRoot, "audit", "operations.jsonl"),
 			signingKeyPath: join(this.dataRoot, "runtime", "operation-signing.key"),

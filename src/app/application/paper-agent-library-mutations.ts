@@ -6,14 +6,25 @@ import {
 	corpusExportPlan,
 	corpusTitleRepairPlan,
 } from "../../literature/application/corpus-operations.ts";
+import {
+	metadataRefreshDiff,
+	refreshPersonalPaperMetadata,
+} from "../../literature/application/literature-metadata-refresh.ts";
 import { runAuthorizedMutation } from "../../literature/application/literature-write.ts";
+import { normalizeArxivId, normalizeDoi, sha256Text } from "../../literature/domain/literature-identifiers.ts";
 import type { PaperCollection, PaperRecord } from "../../literature/domain/literature-types.ts";
-import type { ConfirmationGrant, PreparedOperation } from "../../shared/application/operation-consent.ts";
+import type {
+	ConfirmationGrant,
+	OperationPlan,
+	PreparedOperation,
+} from "../../shared/application/operation-consent.ts";
 
 import type {
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
+	PersonalMetadataEnrichmentInput,
 	PersonalPaperRemovalInput,
+	PersonalPdfVersionRemovalInput,
 	PersonalTitleRepairInput,
 } from "./paper-agent-contracts.ts";
 import { PaperAgentLibrary } from "./paper-agent-library.ts";
@@ -48,6 +59,149 @@ async function artifactAvailability(store: ReturnType<PaperAgentLibrary["persona
 }
 
 export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
+	private readonly preparedMetadataEnrichments = new Map<
+		string,
+		{
+			namespace: string;
+			paperId: string;
+			originalFingerprint: string;
+			record: PaperRecord;
+			filledFields: string[];
+			replacedFields: string[];
+			matchedProviders: string[];
+			warnings: Array<{ provider: string; message: string; code?: "identity-conflict" }>;
+			plan: OperationPlan;
+			expiresAt: string;
+		}
+	>();
+
+	private async metadataIdentityConflict(
+		store: ReturnType<PaperAgentLibrary["personalStore"]>,
+		paperId: string,
+		record: PaperRecord,
+	): Promise<string | undefined> {
+		const doi = normalizeDoi(record.identifiers.doi);
+		const arxivId = normalizeArxivId(record.identifiers.arxivId);
+		if (!doi && !arxivId) return undefined;
+		return (await store.listPapers()).find((candidate) => {
+			if (candidate.id === paperId) return false;
+			return (
+				(Boolean(doi) && normalizeDoi(candidate.identifiers.doi) === doi) ||
+				(Boolean(arxivId) && normalizeArxivId(candidate.identifiers.arxivId) === arxivId)
+			);
+		})?.id;
+	}
+
+	async preparePersonalMetadataEnrichment(input: PersonalMetadataEnrichmentInput) {
+		const paperId = input.paperId.trim();
+		if (!paperId || paperId.length > 500) throw new Error("Personal paper id is invalid");
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		const original = await store.getPaper(paperId);
+		if (!original) throw new Error(`Personal corpus does not contain: ${paperId}`);
+		const refreshed = await refreshPersonalPaperMetadata(original, this.projectRoot, {
+			searcher: this.metadataProviderSearcher,
+			doiLookup: this.doiProviderLookup,
+		});
+		const diff = metadataRefreshDiff(original, refreshed.record);
+		const response = {
+			paperId,
+			filledFields: diff.filledFields,
+			replacedFields: diff.replacedFields,
+			matchedProviders: refreshed.matchedProviders,
+			warnings: refreshed.warnings,
+		};
+		const conflictingPaperId = await this.metadataIdentityConflict(store, paperId, refreshed.record);
+		if (conflictingPaperId) {
+			return { ...response, status: "identity-conflict" as const, conflictingPaperId, prepared: null };
+		}
+		if (refreshed.identityConflict && !refreshed.hadMatch) {
+			return { ...response, status: "identity-conflict" as const, prepared: null };
+		}
+		if (!diff.changed) {
+			return {
+				...response,
+				status: refreshed.hadMatch ? ("unchanged" as const) : ("no-match" as const),
+				prepared: null,
+			};
+		}
+		const labels = [
+			diff.filledFields.length ? `add ${diff.filledFields.join(", ")}` : undefined,
+			diff.replacedFields.length ? `replace ${diff.replacedFields.join(", ")}` : undefined,
+		].filter(Boolean);
+		const originalFingerprint = sha256Text(JSON.stringify(original));
+		const plan: OperationPlan = {
+			kind: "personal-corpus-write",
+			summary: `Refresh metadata for ${original.title}: ${labels.join("; ")}`,
+			actor: input.author?.trim() || "local-user",
+			targets: [{ label: "personal-paper", value: `${namespace}/${paperId}`, risk: "low" }],
+			details: {
+				namespace,
+				paperId,
+				originalFingerprint,
+				refreshedFingerprint: sha256Text(JSON.stringify(refreshed.record)),
+				filledFields: diff.filledFields,
+				replacedFields: diff.replacedFields,
+				matchedProviders: refreshed.matchedProviders,
+				warnings: refreshed.warnings,
+			},
+		};
+		const prepared = await this.consent.prepare(plan);
+		this.preparedMetadataEnrichments.set(prepared.operationId, {
+			namespace,
+			paperId,
+			originalFingerprint,
+			record: refreshed.record,
+			filledFields: diff.filledFields,
+			replacedFields: diff.replacedFields,
+			matchedProviders: refreshed.matchedProviders,
+			warnings: refreshed.warnings,
+			plan,
+			expiresAt: prepared.expiresAt,
+		});
+		return { ...response, status: "ready" as const, prepared };
+	}
+
+	async enrichPersonalPaperMetadata(input: PersonalMetadataEnrichmentInput, grant: ConfirmationGrant) {
+		const now = Date.now();
+		for (const [id, item] of this.preparedMetadataEnrichments) {
+			if (Date.parse(item.expiresAt) <= now) this.preparedMetadataEnrichments.delete(id);
+		}
+		const prepared = this.preparedMetadataEnrichments.get(grant.operationId);
+		if (!prepared) throw new Error("Prepared metadata enrichment was not found or has expired; prepare again");
+		const namespace = input.namespace ?? this.defaultNamespace;
+		if (prepared.namespace !== namespace || prepared.paperId !== input.paperId.trim()) {
+			throw new Error("Prepared metadata enrichment does not match the requested paper");
+		}
+		const store = this.personalStore(namespace);
+		const current = await store.getPaper(prepared.paperId);
+		if (!current) throw new Error(`Personal corpus does not contain: ${prepared.paperId}`);
+		if (sha256Text(JSON.stringify(current)) !== prepared.originalFingerprint) {
+			throw new Error("Paper metadata changed after preparation; prepare the enrichment again");
+		}
+		const conflictingPaperId = await this.metadataIdentityConflict(store, prepared.paperId, prepared.record);
+		if (conflictingPaperId) {
+			throw new Error(`Refreshed identifiers already belong to personal paper: ${conflictingPaperId}`);
+		}
+		try {
+			const status = await runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, () =>
+				store.replacePaperMetadata(prepared.record),
+			);
+			const paper = await store.getPaper(prepared.paperId);
+			if (!paper) throw new Error("Refreshed personal paper could not be reloaded");
+			return {
+				status,
+				paper,
+				filledFields: prepared.filledFields,
+				replacedFields: prepared.replacedFields,
+				matchedProviders: prepared.matchedProviders,
+				warnings: prepared.warnings,
+			};
+		} finally {
+			this.preparedMetadataEnrichments.delete(grant.operationId);
+		}
+	}
+
 	protected async personalPaperRemovalOperation(input: PersonalPaperRemovalInput) {
 		const requestedIds = input.paperIds?.length ? input.paperIds : input.paperId ? [input.paperId] : [];
 		if (requestedIds.length < 1 || requestedIds.length > 1_000) {
@@ -171,6 +325,54 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 				...result,
 			};
 		});
+	}
+
+	protected async personalPdfVersionRemovalOperation(input: PersonalPdfVersionRemovalInput) {
+		const paperId = input.paperId.trim();
+		const sha256 = input.sha256.trim().toLowerCase();
+		if (!paperId || paperId.length > 500) throw new Error("Personal paper id is invalid");
+		if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("PDF version SHA-256 is invalid");
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const store = this.personalStore(namespace);
+		const paper = await store.getPaper(paperId);
+		if (!paper) throw new Error(`Personal corpus does not contain: ${paperId}`);
+		const version = (await store.listPaperVersions(paperId)).find(
+			(candidate) => candidate.sha256.toLowerCase() === sha256,
+		);
+		if (!version) throw new Error("PDF version was not found in the selected corpus");
+		const material = await store.getPdfMaterial(paperId);
+		const deletesMineruMaterial = material?.sourceSha256.toLowerCase() === sha256;
+		const plan: OperationPlan = {
+			kind: "personal-paper-remove",
+			summary: `Delete ${version.versionKind ?? "unknown"} PDF version from ${paper.title}`,
+			actor: input.author?.trim() || "local-user",
+			targets: [{ label: "PDF version", value: `${namespace}/${paperId}/${sha256}`, risk: "high" }],
+			details: {
+				namespace,
+				paperId,
+				title: paper.title,
+				sha256,
+				bytes: version.bytes,
+				versionKind: version.versionKind ?? "unknown",
+				versionLabel: version.versionLabel,
+				isPreferred: Boolean(version.isPreferred),
+				deletesMineruMaterial,
+			},
+		};
+		return { namespace, store, paper, version, plan };
+	}
+
+	async preparePersonalPdfVersionRemoval(input: PersonalPdfVersionRemovalInput): Promise<PreparedOperation> {
+		return this.consent.prepare((await this.personalPdfVersionRemovalOperation(input)).plan);
+	}
+
+	async removePersonalPdfVersion(input: PersonalPdfVersionRemovalInput, grant: ConfirmationGrant) {
+		const prepared = await this.personalPdfVersionRemovalOperation(input);
+		return runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, async () => ({
+			namespace: prepared.namespace,
+			paperId: prepared.paper.id,
+			...(await prepared.store.deletePaperVersion(prepared.paper.id, prepared.version.sha256)),
+		}));
 	}
 
 	async paperDetails(id: string, namespace = this.defaultNamespace) {

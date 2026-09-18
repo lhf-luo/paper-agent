@@ -322,15 +322,24 @@ export class MineruService {
 		return { opened: true, path: material.path };
 	}
 
-	async read(paperId: string, namespace: string, request?: MineruReadRequest) {
-		const material = await this.options.store(namespace).getPdfMaterial(paperId);
+	private async currentMaterial(paperId: string, namespace: string): Promise<PdfMaterialRecord> {
+		const store = this.options.store(namespace);
+		const [material, versions] = await Promise.all([store.getPdfMaterial(paperId), store.listPaperVersions(paperId)]);
 		if (!material) throw new Error("This paper has no MinerU material");
+		const current = preferredVersion(versions);
+		if (!current || current.sha256 !== material.sourceSha256) {
+			throw new Error("MinerU material is stale for the current preferred PDF; regenerate it before reading");
+		}
+		return material;
+	}
+
+	async read(paperId: string, namespace: string, request: MineruReadRequest) {
+		const material = await this.currentMaterial(paperId, namespace);
 		return readMineruMaterial(material, request);
 	}
 
 	async readAsset(paperId: string, namespace: string, assetPath: string): Promise<{ path: string; body: Buffer }> {
-		const material = await this.options.store(namespace).getPdfMaterial(paperId);
-		if (!material) throw new Error("This paper has no MinerU material");
+		const material = await this.currentMaterial(paperId, namespace);
 		const path = resolveMineruAsset(material, assetPath);
 		return { path, body: await readFile(path) };
 	}

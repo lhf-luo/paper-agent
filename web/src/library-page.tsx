@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, apiBytes, jsonBody } from "./api";
@@ -29,6 +29,7 @@ import type {
 	LocalPdfImportIssue,
 	PaperCollection,
 	PaperRecord,
+	PaperVersionView,
 	PreparedOperation,
 	ReaderState,
 	ResearchNoteNavigation,
@@ -56,6 +57,56 @@ function zoteroMissingFields(fields: Array<"title" | "authors"> | undefined): st
 	if (!fields?.length) return undefined;
 	const labels = { title: "标题", authors: "作者" };
 	return `缺失信息：${fields.map((field) => labels[field]).join("、")}`;
+}
+
+interface MetadataEnrichmentPreparation {
+	status: "ready" | "unchanged" | "no-match" | "identity-conflict";
+	paperId: string;
+	filledFields: string[];
+	replacedFields: string[];
+	matchedProviders: string[];
+	warnings: Array<{ provider: string; message: string; code?: "identity-conflict" }>;
+	conflictingPaperId?: string;
+	prepared: PreparedOperation | null;
+}
+
+const metadataFieldLabels: Record<string, string> = {
+	title: "标题",
+	authors: "作者",
+	abstract: "摘要",
+	year: "年份",
+	venue: "venue",
+	venueRank: "CCF",
+	publicationType: "出版类型",
+	citationCount: "被引用数",
+	referencedWorks: "参考文献",
+	citedByApiUrl: "被引链接",
+	doi: "DOI",
+	arxivId: "arXiv ID",
+	openAlexId: "OpenAlex ID",
+	semanticScholarId: "Semantic Scholar ID",
+	dblpKey: "DBLP ID",
+	coreId: "CORE ID",
+	openCitationsId: "OpenCitations ID",
+	links: "链接",
+	provenance: "来源",
+	metadataConflicts: "冲突记录",
+};
+
+function metadataFieldsLabel(fields: string[]): string {
+	return fields.map((field) => metadataFieldLabels[field] ?? field).join("、");
+}
+
+function pdfVersionLabel(version: PaperVersionView): string {
+	return (
+		{
+			published: "正式版",
+			preprint: "预印本",
+			supplement: "补充材料",
+			translation: version.versionLabel ? `译文 · ${version.versionLabel}` : "译文",
+			unknown: "未知版本",
+		}[version.versionKind ?? "unknown"] ?? "未知版本"
+	);
 }
 
 function ZoteroSelectionCheckbox({
@@ -118,8 +169,15 @@ export function LibraryPage({
 	const [exportPayload, setExportPayload] = useState<Record<string, unknown>>();
 	const [removalPending, setRemovalPending] = useState<PreparedOperation>();
 	const [removalPayload, setRemovalPayload] = useState<Record<string, unknown>>();
+	const [versionRemovalPending, setVersionRemovalPending] = useState<PreparedOperation>();
+	const [versionRemovalPayload, setVersionRemovalPayload] = useState<Record<string, unknown>>();
+	const [versionRemovingSha256, setVersionRemovingSha256] = useState<string>();
 	const [titleRepairPending, setTitleRepairPending] = useState<PreparedOperation>();
 	const [titleRepairPayload, setTitleRepairPayload] = useState<Record<string, unknown>>();
+	const [metadataEnrichmentPending, setMetadataEnrichmentPending] = useState<PreparedOperation>();
+	const [metadataEnrichmentPayload, setMetadataEnrichmentPayload] = useState<Record<string, unknown>>();
+	const [metadataEnrichmentPreview, setMetadataEnrichmentPreview] = useState<MetadataEnrichmentPreparation>();
+	const [metadataEnrichingPaperId, setMetadataEnrichingPaperId] = useState<string>();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
@@ -706,6 +764,77 @@ export function LibraryPage({
 			setBusy(false);
 		}
 	};
+	const prepareMetadataEnrichment = async (paper: PaperRecord) => {
+		setBusy(true);
+		setMetadataEnrichingPaperId(paper.id);
+		setError("");
+		setMessage("");
+		try {
+			const payload = { paperId: paper.id, namespace };
+			const result = await api<MetadataEnrichmentPreparation>("/api/library/metadata/prepare", jsonBody(payload));
+			if (result.status === "ready" && result.prepared) {
+				setMetadataEnrichmentPayload(payload);
+				setMetadataEnrichmentPreview(result);
+				setMetadataEnrichmentPending(result.prepared);
+				return;
+			}
+			if (result.status === "identity-conflict") {
+				setError(
+					result.conflictingPaperId
+						? `补全得到的标识已属于个人库论文 ${result.conflictingPaperId}，未修改当前论文。`
+						: "查询结果的 DOI 或 arXiv ID 与当前论文冲突，未修改当前论文。",
+				);
+			} else if (result.status === "no-match") {
+				setMessage(
+					result.warnings.length
+						? `没有找到可安全匹配的元数据；${result.warnings.length} 个来源查询失败或未返回结果。`
+						: "没有找到可安全匹配的元数据。",
+				);
+			} else {
+				setMessage("当前元数据已经与可用来源一致，无需更新。");
+			}
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+			setMetadataEnrichingPaperId(undefined);
+		}
+	};
+	const executeMetadataEnrichment = async () => {
+		if (!metadataEnrichmentPending || !metadataEnrichmentPayload || !metadataEnrichmentPreview) return;
+		setBusy(true);
+		setMetadataEnrichingPaperId(metadataEnrichmentPreview.paperId);
+		setError("");
+		try {
+			const grant = (await confirmOperation(metadataEnrichmentPending)) as ConfirmationGrant;
+			const result = await api<{
+				paper: PaperRecord;
+				filledFields: string[];
+				replacedFields: string[];
+				matchedProviders: string[];
+				warnings: Array<{ provider: string; message: string }>;
+			}>("/api/library/metadata/execute", jsonBody({ ...metadataEnrichmentPayload, grant }));
+			const changes = [
+				result.filledFields.length ? `补充 ${metadataFieldsLabel(result.filledFields)}` : undefined,
+				result.replacedFields.length ? `更新 ${metadataFieldsLabel(result.replacedFields)}` : undefined,
+			].filter(Boolean);
+			setMessage(
+				`${changes.join("；")}。来源：${result.matchedProviders.join("、") || "本地规范化"}${
+					result.warnings.length ? `；${result.warnings.length} 个来源有警告` : ""
+				}`,
+			);
+			setMetadataEnrichmentPending(undefined);
+			setMetadataEnrichmentPayload(undefined);
+			setMetadataEnrichmentPreview(undefined);
+			await load();
+			if (details?.paper?.id === result.paper.id) await open(result.paper);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+			setMetadataEnrichingPaperId(undefined);
+		}
+	};
 	const prepareExport = async () => {
 		setBusy(true);
 		setError("");
@@ -1037,7 +1166,65 @@ export function LibraryPage({
 			setBusy(false);
 		}
 	}
-	const otherLibraryActionLocked = busy || Boolean(pending || annotationPending || exportPending || removalPending);
+	async function preparePdfVersionRemoval(version: PaperVersionView) {
+		if (!details?.paper?.id) return;
+		setBusy(true);
+		setVersionRemovingSha256(version.sha256);
+		setError("");
+		setMessage("");
+		try {
+			const payload = { paperId: details.paper.id, sha256: version.sha256, namespace };
+			setVersionRemovalPayload(payload);
+			setVersionRemovalPending(
+				await api<PreparedOperation>("/api/library/pdf-versions/remove/prepare", jsonBody(payload)),
+			);
+		} catch (reason) {
+			setVersionRemovalPayload(undefined);
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+			setVersionRemovingSha256(undefined);
+		}
+	}
+	async function executePdfVersionRemoval() {
+		if (!versionRemovalPending || !versionRemovalPayload || !details?.paper) return;
+		const paper = details.paper as PaperRecord;
+		setBusy(true);
+		setVersionRemovingSha256(String(versionRemovalPayload.sha256));
+		setError("");
+		try {
+			const grant = (await confirmOperation(versionRemovalPending)) as ConfirmationGrant;
+			const result = await api<{
+				preferredSha256?: string;
+				mineruMaterialDeleted: boolean;
+				warnings: string[];
+			}>("/api/library/pdf-versions/remove/execute", jsonBody({ ...versionRemovalPayload, grant }));
+			setMessage(
+				`已删除 PDF 版本${result.mineruMaterialDeleted ? "，并清理了由该版本生成的 MinerU 材料" : ""}${
+					result.warnings.length ? `；有 ${result.warnings.length} 个文件清理警告` : ""
+				}。`,
+			);
+			setVersionRemovalPending(undefined);
+			setVersionRemovalPayload(undefined);
+			await open(paper);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+			setVersionRemovingSha256(undefined);
+		}
+	}
+	const otherLibraryActionLocked =
+		busy ||
+		Boolean(
+			pending ||
+				annotationPending ||
+				exportPending ||
+				removalPending ||
+				versionRemovalPending ||
+				metadataEnrichmentPending ||
+				metadataEnrichingPaperId,
+		);
 	const libraryActionLocked =
 		otherLibraryActionLocked || localImportBusy || Boolean(localImportBatch) || zoteroBusy || zoteroImportOpen;
 	const membershipPaperIds = {
@@ -1849,6 +2036,62 @@ export function LibraryPage({
 						/>
 					</AccessibleModal>
 				)}
+				{metadataEnrichmentPending && (
+					<AccessibleModal
+						title="确认补充论文元数据"
+						onClose={() => {
+							if (!busy) {
+								setMetadataEnrichmentPending(undefined);
+								setMetadataEnrichmentPayload(undefined);
+								setMetadataEnrichmentPreview(undefined);
+							}
+						}}
+						maxWidth={680}
+					>
+						{metadataEnrichmentPreview && (
+							<p className="muted">
+								{metadataEnrichmentPreview.filledFields.length
+									? `补充：${metadataFieldsLabel(metadataEnrichmentPreview.filledFields)}。`
+									: ""}
+								{metadataEnrichmentPreview.replacedFields.length
+									? `更新：${metadataFieldsLabel(metadataEnrichmentPreview.replacedFields)}。`
+									: ""}
+							</p>
+						)}
+						<ConsentCard
+							operation={metadataEnrichmentPending}
+							busy={busy}
+							onCancel={() => {
+								setMetadataEnrichmentPending(undefined);
+								setMetadataEnrichmentPayload(undefined);
+								setMetadataEnrichmentPreview(undefined);
+							}}
+							onConfirm={executeMetadataEnrichment}
+						/>
+					</AccessibleModal>
+				)}
+				{versionRemovalPending && (
+					<AccessibleModal
+						title="确认删除 PDF 版本"
+						onClose={() => {
+							if (!busy) {
+								setVersionRemovalPending(undefined);
+								setVersionRemovalPayload(undefined);
+							}
+						}}
+						maxWidth={620}
+					>
+						<ConsentCard
+							operation={versionRemovalPending}
+							busy={busy}
+							onCancel={() => {
+								setVersionRemovalPending(undefined);
+								setVersionRemovalPayload(undefined);
+							}}
+							onConfirm={executePdfVersionRemoval}
+						/>
+					</AccessibleModal>
+				)}
 				{removalPending && (
 					<AccessibleModal
 						title="确认删除文献"
@@ -1898,6 +2141,9 @@ export function LibraryPage({
 											onMoveToCollection={(paperId, collectionId) =>
 												void movePaperToCollection(paperId, collectionId)
 											}
+											onEnrichMetadata={(selectedPaper) => void prepareMetadataEnrichment(selectedPaper)}
+											metadataEnriching={metadataEnrichingPaperId === paper.id}
+											metadataBusy={libraryActionLocked}
 											onLoadLocalPdf={chooseLocalPdf}
 											localPdfUploading={localUploadingPaperId === paper.id}
 											localPdfBusy={Boolean(localUploadingPaperId)}
@@ -1981,30 +2227,47 @@ export function LibraryPage({
 								/>
 								<h3>PDF 版本</h3>
 								{details.versions.length ? (
-									details.versions.map((version: any) => (
-										<button
-											className="version-row"
-											type="button"
-											key={version.sha256}
-											onClick={() =>
-												onOpenReader({
-													title: details.paper.title,
-													url: `/api/papers/${encodeURIComponent(details.paper.id)}/pdf/${version.sha256}?namespace=${encodeURIComponent(namespace)}`,
-													pdfPath: version.blobPath,
-													paperId: details.paper.id,
-													namespace,
-													sha256: version.sha256,
-													bytes: version.bytes,
-													retrievedAt: version.retrievedAt,
-													versionKind: version.versionKind,
-													versionLabel: version.versionLabel,
-												})
-											}
-										>
-											<span>{new Date(version.retrievedAt).toLocaleDateString()}</span>
-											<code>{version.sha256.slice(0, 12)}</code>
-											<small>{Math.round(version.bytes / 1024)} KB</small>
-										</button>
+									details.versions.map((version: PaperVersionView) => (
+										<div className="version-row-shell" key={version.sha256}>
+											<button
+												className="version-row"
+												type="button"
+												onClick={() =>
+													onOpenReader({
+														title: details.paper.title,
+														url: `/api/papers/${encodeURIComponent(details.paper.id)}/pdf/${version.sha256}?namespace=${encodeURIComponent(namespace)}`,
+														pdfPath: version.blobPath,
+														paperId: details.paper.id,
+														namespace,
+														sha256: version.sha256,
+														bytes: version.bytes,
+														retrievedAt: version.retrievedAt,
+														versionKind: version.versionKind,
+														versionLabel: version.versionLabel,
+													})
+												}
+											>
+												<span>{new Date(version.retrievedAt).toLocaleDateString()}</span>
+												<code>{version.sha256.slice(0, 12)}</code>
+												<small>
+													{pdfVersionLabel(version)}
+													{version.isPreferred ? " · 首选" : ""} · {formatFileSize(version.bytes)}
+												</small>
+											</button>
+											<button
+												className="icon-button danger version-delete-button"
+												type="button"
+												title={`删除 ${pdfVersionLabel(version)} PDF`}
+												aria-label={`删除 ${pdfVersionLabel(version)} PDF`}
+												disabled={busy || Boolean(versionRemovalPending)}
+												onClick={() => void preparePdfVersionRemoval(version)}
+											>
+												<Trash2 size={16} aria-hidden="true" />
+												{versionRemovingSha256 === version.sha256 && (
+													<span className="sr-only">正在准备删除</span>
+												)}
+											</button>
+										</div>
 									))
 								) : (
 									<p className="muted">尚未下载 PDF。</p>

@@ -17,15 +17,61 @@ export interface MineruJobCheckpoint {
 	sourceSha256: string;
 }
 
+export interface MineruSectionIndex {
+	id: string;
+	title: string;
+	level: number;
+	startPage: number;
+	endPage: number;
+	blockRange: { start: number; end: number };
+	markdownRange: { start: number; end: number };
+}
+
+export interface MineruAssetIndex {
+	id: string;
+	type: string;
+	page: number;
+	caption?: string;
+	footnote?: string;
+	path?: string;
+	bbox?: number[];
+	hasImage: boolean;
+	hasStructuredContent: boolean;
+	blockIndex: number;
+}
+
+export interface MineruPackageStatistics {
+	pages: number;
+	blockTypes: Record<string, number>;
+	textBlocks: number;
+	tables: number;
+	figures: number;
+	charts: number;
+	codeBlocks: number;
+}
+
 export interface MineruPackageManifest {
-	schemaVersion: 1;
+	schemaVersion: 1 | 2;
 	engine: "mineru";
 	sourceSha256: string;
 	modelVersion: "pipeline" | "vlm";
 	createdAt: string;
 	pageCount: number;
 	headings: Array<{ level: number; text: string; page: number }>;
-	assets: Array<{ type: string; path?: string; caption?: string; page: number }>;
+	assets: Array<{
+		id?: string;
+		type: string;
+		path?: string;
+		caption?: string;
+		footnote?: string;
+		page: number;
+		bbox?: number[];
+		hasImage?: boolean;
+		hasStructuredContent?: boolean;
+		blockIndex?: number;
+	}>;
+	sections?: MineruSectionIndex[];
+	statistics?: MineruPackageStatistics;
 	files: string[];
 }
 
