@@ -4,6 +4,7 @@
 		"includes": [
 			"**",
 			"!dist",
+			"!web/public/pdfjs/6.2.108",
 			"!tmp",
 			"!.paper-agent",
 			"!artifacts",

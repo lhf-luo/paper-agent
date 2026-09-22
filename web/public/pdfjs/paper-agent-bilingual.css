@@ -1,0 +1,9 @@
+.paper-agent-bilingual-highlight {
+	position: absolute;
+	z-index: 3;
+	pointer-events: none;
+	border-radius: 2px;
+	background: rgb(250 204 21 / 30%);
+	box-shadow: 0 0 0 1px rgb(202 138 4 / 50%);
+	mix-blend-mode: multiply;
+}

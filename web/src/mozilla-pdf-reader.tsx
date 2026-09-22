@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserPdfReader } from "./browser-pdf-reader";
+import { connectPdfJsBilingualSelectionBridge } from "./pdfjs-bilingual-selection";
 import { mozillaPdfViewerUrl } from "./pdfjs-viewer-url";
 
 export function MozillaPdfReader({ url, title }: { url: string; title: string }) {
@@ -8,10 +9,13 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 	const [retry, setRetry] = useState(0);
 	const [useNativeReader, setUseNativeReader] = useState(false);
 	const frameRef = useRef<HTMLIFrameElement>(null);
+	const bridgeCleanup = useRef<() => void>(() => undefined);
 	const viewerUrl = useMemo(() => mozillaPdfViewerUrl(url, window.location.origin), [url]);
 
 	useEffect(() => {
 		const controller = new AbortController();
+		bridgeCleanup.current();
+		bridgeCleanup.current = () => undefined;
 		setStatus("checking");
 		setError("");
 		setUseNativeReader(false);
@@ -31,6 +35,19 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 		return () => controller.abort();
 	}, [url, retry]);
 
+	useEffect(
+		() => () => {
+			bridgeCleanup.current();
+		},
+		[],
+	);
+
+	const useBrowserReader = () => {
+		bridgeCleanup.current();
+		bridgeCleanup.current = () => undefined;
+		setUseNativeReader(true);
+	};
+
 	if (useNativeReader) return <BrowserPdfReader url={url} title={title} />;
 	if (status === "checking") return <div className="browser-pdf-status">正在加载 Mozilla PDF.js…</div>;
 	if (status === "error") {
@@ -42,7 +59,7 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 					<button type="button" className="button secondary" onClick={() => setRetry((current) => current + 1)}>
 						重试
 					</button>
-					<button type="button" className="button primary" onClick={() => setUseNativeReader(true)}>
+					<button type="button" className="button primary" onClick={useBrowserReader}>
 						使用浏览器阅读器
 					</button>
 				</div>
@@ -51,7 +68,7 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 	}
 	return (
 		<div className="mozilla-pdf-reader">
-			<button type="button" className="mozilla-pdf-native-fallback" onClick={() => setUseNativeReader(true)}>
+			<button type="button" className="mozilla-pdf-native-fallback" onClick={useBrowserReader}>
 				使用浏览器阅读器
 			</button>
 			<iframe
@@ -60,14 +77,24 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 				src={viewerUrl}
 				title={`${title} 双语 PDF`}
 				onError={() => {
+					bridgeCleanup.current();
+					bridgeCleanup.current = () => undefined;
 					setError("Mozilla PDF.js Viewer 加载失败");
 					setStatus("error");
 				}}
 				onLoad={() => {
+					bridgeCleanup.current();
+					bridgeCleanup.current = () => undefined;
 					const frame = frameRef.current;
 					if (!frame?.contentDocument?.getElementById("viewer")) {
 						setError("Mozilla PDF.js Viewer 未正确加载");
 						setStatus("error");
+						return;
+					}
+					try {
+						bridgeCleanup.current = connectPdfJsBilingualSelectionBridge(frame);
+					} catch (reason) {
+						console.warn("Unable to attach the bilingual PDF selection bridge", reason);
 					}
 				}}
 			/>
