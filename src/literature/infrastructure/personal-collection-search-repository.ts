@@ -7,6 +7,68 @@ import { json, parseJson, pathExists } from "./personal-database-support.ts";
 import { PersonalResearchNoteRepository } from "./personal-research-note-repository.ts";
 
 export abstract class PersonalCollectionSearchRepository extends PersonalResearchNoteRepository {
+	async paperDeletionImpact(ids: string[]): Promise<{
+		pdfVersionCount: number;
+		pdfBytes: number;
+		derivedRecordCount: number;
+	}> {
+		await this.initialize();
+		const uniqueIds = [...new Set(ids)];
+		if (!uniqueIds.length) return { pdfVersionCount: 0, pdfBytes: 0, derivedRecordCount: 0 };
+		return this.read((database) => {
+			const placeholders = uniqueIds.map(() => "?").join(", ");
+			const versions = database
+				.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(sf.bytes), 0) AS bytes
+					FROM paper_versions pv
+					JOIN papers p ON p.row_id = pv.paper_row_id
+					JOIN stored_files sf ON sf.id = pv.file_id
+					WHERE p.namespace_id = ? AND p.paper_id IN (${placeholders})`)
+				.get(this.namespace, ...uniqueIds) as { count: number; bytes: number };
+			const derived = database
+				.prepare(`SELECT COUNT(*) AS count FROM derived_records
+					WHERE namespace_id = ? AND is_current = 1 AND paper_id IN (${placeholders})`)
+				.get(this.namespace, ...uniqueIds) as { count: number };
+			return {
+				pdfVersionCount: versions.count,
+				pdfBytes: versions.bytes,
+				derivedRecordCount: derived.count,
+			};
+		});
+	}
+
+	async collectionMemberships(): Promise<{
+		allPaperIds: string[];
+		uncategorizedPaperIds: string[];
+		collectionPaperIds: Record<string, string[]>;
+	}> {
+		await this.initialize();
+		return this.read((database) => {
+			const allPaperIds = (
+				database
+					.prepare("SELECT paper_id FROM papers WHERE namespace_id = ? ORDER BY paper_id")
+					.all(this.namespace) as unknown as Array<{ paper_id: string }>
+			).map((row) => row.paper_id);
+			const uncategorizedPaperIds = (
+				database
+					.prepare(`SELECT p.paper_id FROM papers p
+						WHERE p.namespace_id = ?
+						AND NOT EXISTS (SELECT 1 FROM paper_collections pc WHERE pc.paper_row_id = p.row_id)
+						ORDER BY p.paper_id`)
+					.all(this.namespace) as unknown as Array<{ paper_id: string }>
+			).map((row) => row.paper_id);
+			const collectionPaperIds: Record<string, string[]> = Object.fromEntries(
+				this.collectionRows(database).map((collection) => [collection.id, []]),
+			);
+			const memberships = database
+				.prepare(`SELECT pc.collection_id, p.paper_id
+					FROM paper_collections pc JOIN papers p ON p.row_id = pc.paper_row_id
+					WHERE p.namespace_id = ? ORDER BY pc.collection_id, p.paper_id`)
+				.all(this.namespace) as unknown as Array<{ collection_id: string; paper_id: string }>;
+			for (const row of memberships) collectionPaperIds[row.collection_id]?.push(row.paper_id);
+			return { allPaperIds, uncategorizedPaperIds, collectionPaperIds };
+		});
+	}
+
 	async deletePaper(id: string): Promise<PaperVersion[]> {
 		await this.initialize();
 		const versions = await this.listPaperVersions(id);
@@ -27,6 +89,39 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			for (const file of fileIds) database.prepare("DELETE FROM stored_files WHERE id = ?").run(file.file_id);
 		});
 		return versions;
+	}
+
+	async deletePapers(ids: string[]): Promise<{ deleted: string[]; missing: string[] }> {
+		await this.initialize();
+		const uniqueIds = [...new Set(ids)];
+		return this.write((database) => {
+			const deleted: string[] = [];
+			const missing: string[] = [];
+			const rowQuery = database.prepare("SELECT row_id FROM papers WHERE namespace_id = ? AND paper_id = ?");
+			const fileQuery = database.prepare("SELECT file_id FROM paper_versions WHERE paper_row_id = ?");
+			const deleteDerived = database.prepare("DELETE FROM derived_records WHERE namespace_id = ? AND paper_id = ?");
+			const deleteArtifacts = database.prepare(
+				"DELETE FROM artifact_manifests WHERE namespace_id = ? AND paper_id = ?",
+			);
+			const deleteSearch = database.prepare("DELETE FROM paper_search WHERE paper_row_id = ?");
+			const deletePaper = database.prepare("DELETE FROM papers WHERE row_id = ?");
+			const deleteFile = database.prepare("DELETE FROM stored_files WHERE id = ?");
+			for (const id of uniqueIds) {
+				const row = rowQuery.get(this.namespace, id) as { row_id: number } | undefined;
+				if (!row) {
+					missing.push(id);
+					continue;
+				}
+				const fileIds = fileQuery.all(row.row_id) as unknown as Array<{ file_id: string }>;
+				deleteDerived.run(this.namespace, id);
+				deleteArtifacts.run(this.namespace, id);
+				deleteSearch.run(row.row_id);
+				deletePaper.run(row.row_id);
+				for (const file of fileIds) deleteFile.run(file.file_id);
+				deleted.push(id);
+			}
+			return { deleted, missing };
+		});
 	}
 
 	async listCollections(): Promise<PaperCollection[]> {
@@ -84,10 +179,7 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 		});
 	}
 
-	async updateCollection(
-		id: string,
-		updates: { name?: string; parentId?: string | null },
-	): Promise<PaperCollection> {
+	async updateCollection(id: string, updates: { name?: string; parentId?: string | null }): Promise<PaperCollection> {
 		await this.initialize();
 		return this.write((database) => {
 			const collections = this.collectionRows(database);
@@ -123,7 +215,9 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 				.map((row) => parseJson<PaperRecord>(row.record_json))
 				.filter((paper) => paper.collectionIds?.some((collectionId) => deletedSet.has(collectionId)));
 			for (const collectionId of [...deletedIds].reverse()) {
-				database.prepare("DELETE FROM collections WHERE namespace_id = ? AND id = ?").run(this.namespace, collectionId);
+				database
+					.prepare("DELETE FROM collections WHERE namespace_id = ? AND id = ?")
+					.run(this.namespace, collectionId);
 			}
 			for (const paper of affected) {
 				this.syncPaper(database, {
@@ -154,14 +248,16 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			});
 			const missing = uniqueIds.filter((_, index) => !records[index]);
 			if (missing.length) throw new Error(`Paper ids were not found: ${missing.join(", ")}`);
-			return records.filter((record): record is PaperRecord => Boolean(record)).map((record) => {
-				const collectionIds = new Set(record.collectionIds ?? []);
-				if (mode === "assign") collectionIds.add(collectionId);
-				else collectionIds.delete(collectionId);
-				const updated = { ...record, collectionIds: collectionIds.size ? [...collectionIds] : undefined };
-				this.syncPaper(database, updated);
-				return updated;
-			});
+			return records
+				.filter((record): record is PaperRecord => Boolean(record))
+				.map((record) => {
+					const collectionIds = new Set(record.collectionIds ?? []);
+					if (mode === "assign") collectionIds.add(collectionId);
+					else collectionIds.delete(collectionId);
+					const updated = { ...record, collectionIds: collectionIds.size ? [...collectionIds] : undefined };
+					this.syncPaper(database, updated);
+					return updated;
+				});
 		});
 	}
 
@@ -175,7 +271,7 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 				parent_id: string | null;
 				created_at: string;
 				updated_at: string;
-		}>
+			}>
 		).map((row) => ({
 			id: row.id,
 			name: row.name,

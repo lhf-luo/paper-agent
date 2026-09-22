@@ -150,6 +150,11 @@ describe("personal SQLite corpus", () => {
 			isPreferred: true,
 		};
 		await store.savePaperVersion(version);
+		expect(await store.paperDeletionImpact([record.id])).toEqual({
+			pdfVersionCount: 1,
+			pdfBytes: body.byteLength,
+			derivedRecordCount: 0,
+		});
 
 		expect(basename(version.blobPath)).toBe("Compiler Testing at Scale.pdf");
 		expect(await readFile(version.blobPath)).toEqual(Buffer.from(body));

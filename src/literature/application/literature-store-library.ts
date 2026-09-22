@@ -2,13 +2,57 @@ import { randomUUID } from "node:crypto";
 import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { collectionDescendantIds, validateCollectionParent } from "../domain/collection-hierarchy.ts";
-import type { PaperCollection, PaperRecord } from "../domain/literature-types.ts";
+import type { DerivedRecord, PaperCollection, PaperRecord } from "../domain/literature-types.ts";
 import { withCleanMetadata } from "../domain/paper-title.ts";
 
 import { pathExists, readJson, writeJsonAtomic } from "./literature-store-support.ts";
 import { LiteratureStoreWrite } from "./literature-store-write.ts";
 
 export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
+	abstract listDerived(options?: { paperId?: string; operation?: string }): Promise<DerivedRecord[]>;
+
+	async paperDeletionImpact(ids: string[]): Promise<{
+		pdfVersionCount: number;
+		pdfBytes: number;
+		derivedRecordCount: number;
+	}> {
+		if (this.personalDatabase) return this.personalDatabase.paperDeletionImpact(ids);
+		const entries = await Promise.all(
+			[...new Set(ids)].map(async (paperId) => ({
+				versions: await this.listPaperVersions(paperId),
+				derived: await this.listDerived({ paperId }),
+			})),
+		);
+		return {
+			pdfVersionCount: entries.reduce((sum, entry) => sum + entry.versions.length, 0),
+			pdfBytes: entries.reduce(
+				(sum, entry) => sum + entry.versions.reduce((bytes, version) => bytes + version.bytes, 0),
+				0,
+			),
+			derivedRecordCount: entries.reduce((sum, entry) => sum + entry.derived.length, 0),
+		};
+	}
+
+	async collectionMemberships(): Promise<{
+		allPaperIds: string[];
+		uncategorizedPaperIds: string[];
+		collectionPaperIds: Record<string, string[]>;
+	}> {
+		if (this.personalDatabase) return this.personalDatabase.collectionMemberships();
+		const [papers, collections] = await Promise.all([this.listPapers(), this.listCollections()]);
+		const collectionPaperIds: Record<string, string[]> = Object.fromEntries(
+			collections.map((collection) => [collection.id, []]),
+		);
+		const allPaperIds: string[] = [];
+		const uncategorizedPaperIds: string[] = [];
+		for (const paper of papers) {
+			allPaperIds.push(paper.id);
+			if (!paper.collectionIds?.length) uncategorizedPaperIds.push(paper.id);
+			for (const collectionId of paper.collectionIds ?? []) collectionPaperIds[collectionId]?.push(paper.id);
+		}
+		return { allPaperIds, uncategorizedPaperIds, collectionPaperIds };
+	}
+
 	async listPapers(): Promise<PaperRecord[]> {
 		if (this.personalDatabase) return this.personalDatabase.listPapers();
 		const directory = join(this.root, "records");
@@ -32,6 +76,13 @@ export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 		);
 		if (aliases.length > 1) throw new Error(`Paper alias is ambiguous: ${id}`);
 		return aliases[0];
+	}
+
+	async getPapers(ids: string[]): Promise<PaperRecord[]> {
+		if (this.personalDatabase) return this.personalDatabase.getPapers(ids);
+		return (await Promise.all([...new Set(ids)].map((id) => this.getPaper(id)))).filter(
+			(record): record is PaperRecord => Boolean(record),
+		);
 	}
 
 	async getCollection(id: string): Promise<PaperCollection | undefined> {

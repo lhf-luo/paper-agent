@@ -1106,22 +1106,29 @@ export function LibraryPage({
 			setBusy(false);
 		}
 	}
-	async function preparePaperRemoval(target: PaperRecord | string[]) {
+	async function preparePaperRemoval(
+		target: PaperRecord | string[],
+		mode: "remove-from-collection" | "permanent-delete",
+	) {
 		if (Array.isArray(target) && !target.length) return;
+		if (
+			mode === "remove-from-collection" &&
+			(activeCollection === "all" || activeCollection === "__uncategorized__")
+		) {
+			setError("请先打开一个分类，再执行移出分类。");
+			return;
+		}
 		setActiveLibraryTool(undefined);
 		setBusy(true);
 		setError("");
 		setMessage("");
 		try {
-			const payload = Array.isArray(target)
-				? { paperIds: target, namespace }
-				: {
-						paperId: target.id,
-						namespace,
-						...(activeCollection !== "all" && activeCollection !== "__uncategorized__"
-							? { collectionId: activeCollection }
-							: {}),
-					};
+			const payload = {
+				paperIds: Array.isArray(target) ? target : [target.id],
+				namespace,
+				mode,
+				...(mode === "remove-from-collection" ? { collectionId: activeCollection } : {}),
+			};
 			setRemovalPayload(payload);
 			setRemovalPending(await api<PreparedOperation>("/api/library/papers/remove/prepare", jsonBody(payload)));
 		} catch (reason) {
@@ -1143,9 +1150,7 @@ export function LibraryPage({
 			);
 			const paperIds = Array.isArray(removalPayload.paperIds)
 				? removalPayload.paperIds.filter((id): id is string => typeof id === "string")
-				: typeof removalPayload.paperId === "string"
-					? [removalPayload.paperId]
-					: [];
+				: [];
 			setSelected((current) => {
 				const next = new Set(current);
 				for (const paperId of paperIds) next.delete(paperId);
@@ -1159,7 +1164,8 @@ export function LibraryPage({
 			);
 			setRemovalPending(undefined);
 			setRemovalPayload(undefined);
-			await Promise.all([load(), loadCollectionData()]);
+			setPapers((current) => current.filter((paper) => !paperIds.includes(paper.id)));
+			await loadCollectionData();
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -1227,6 +1233,13 @@ export function LibraryPage({
 		);
 	const libraryActionLocked =
 		otherLibraryActionLocked || localImportBusy || Boolean(localImportBatch) || zoteroBusy || zoteroImportOpen;
+	const removalWikiDependencies = (removalPending?.details.wikiDependencies ?? []) as Array<{
+		paperId: string;
+		paperTitle: string;
+		pageCount: number;
+		evidenceCount: number;
+		pages: Array<{ id: string; title: string; mixed: boolean }>;
+	}>;
 	const membershipPaperIds = {
 		all: collectionMemberships?.allPaperIds ?? [],
 		__uncategorized__: collectionMemberships?.uncategorizedPaperIds ?? [],
@@ -1342,13 +1355,23 @@ export function LibraryPage({
 				>
 					导出
 				</button>
+				{activeCollection !== "all" && activeCollection !== "__uncategorized__" && (
+					<button
+						className="button secondary"
+						type="button"
+						disabled={!selected.size || libraryActionLocked}
+						onClick={() => void preparePaperRemoval([...selected], "remove-from-collection")}
+					>
+						移出当前分类
+					</button>
+				)}
 				<button
 					className="button danger"
 					type="button"
 					disabled={!selected.size || libraryActionLocked}
-					onClick={() => void preparePaperRemoval([...selected])}
+					onClick={() => void preparePaperRemoval([...selected], "permanent-delete")}
 				>
-					删除
+					永久删除
 				</button>
 			</div>
 		</div>
@@ -2006,6 +2029,31 @@ export function LibraryPage({
 						}}
 						maxWidth={620}
 					>
+						{removalWikiDependencies.length > 0 && (
+							<section className="wiki-deletion-warning" role="alert">
+								<strong>关联 Wiki 页面不会随论文一起删除</strong>
+								<p>
+									继续删除后，下列页面会出现缺失来源。之后可由 Agent 调用
+									<code>delete_research_wiki_source_pages</code> 清理。
+								</p>
+								{removalWikiDependencies.map((dependency) => (
+									<div key={dependency.paperId}>
+										<span>
+											{dependency.paperTitle}：{dependency.pageCount} 个页面，{dependency.evidenceCount}{" "}
+											条证据
+										</span>
+										<ul>
+											{dependency.pages.map((page) => (
+												<li key={page.id}>
+													{page.title}
+													{page.mixed ? "（含其他来源）" : ""}
+												</li>
+											))}
+										</ul>
+									</div>
+								))}
+							</section>
+						)}
 						<ConsentCard
 							operation={pending}
 							busy={busy}
@@ -2147,8 +2195,16 @@ export function LibraryPage({
 											onLoadLocalPdf={chooseLocalPdf}
 											localPdfUploading={localUploadingPaperId === paper.id}
 											localPdfBusy={Boolean(localUploadingPaperId)}
-											onDelete={(selectedPaper) => void preparePaperRemoval(selectedPaper)}
-											deleteLabel="删除"
+											onRemoveFromCollection={
+												activeCollection !== "all" && activeCollection !== "__uncategorized__"
+													? (selectedPaper) =>
+															void preparePaperRemoval(selectedPaper, "remove-from-collection")
+													: undefined
+											}
+											onDelete={(selectedPaper) =>
+												void preparePaperRemoval(selectedPaper, "permanent-delete")
+											}
+											deleteLabel="永久删除论文"
 											deleteBusy={libraryActionLocked}
 											researchNotes={noteIndex[paper.id] ?? []}
 											onOpenResearchNote={(noteId) => onOpenResearchNote({ namespace, noteId })}

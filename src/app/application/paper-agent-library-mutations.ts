@@ -58,7 +58,26 @@ async function artifactAvailability(store: ReturnType<PaperAgentLibrary["persona
 	return { artifactRoot, count, available: count > 0 };
 }
 
+interface PreparedPaperRemovalSnapshot {
+	namespace: string;
+	mode: PersonalPaperRemovalInput["mode"];
+	collectionId?: string;
+	paperIds: string[];
+	paperFingerprints: Record<string, string>;
+	wikiFingerprint?: string;
+	store: ReturnType<PaperAgentLibrary["personalStore"]>;
+	plan: OperationPlan;
+	expiresAt: string;
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+	const sortedLeft = [...left].sort();
+	const sortedRight = [...right].sort();
+	return sortedLeft.length === sortedRight.length && sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
 export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
+	private readonly preparedPaperRemovals = new Map<string, PreparedPaperRemovalSnapshot>();
 	private readonly preparedMetadataEnrichments = new Map<
 		string,
 		{
@@ -203,128 +222,179 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	}
 
 	protected async personalPaperRemovalOperation(input: PersonalPaperRemovalInput) {
-		const requestedIds = input.paperIds?.length ? input.paperIds : input.paperId ? [input.paperId] : [];
+		const requestedIds = input.paperIds;
 		if (requestedIds.length < 1 || requestedIds.length > 1_000) {
 			throw new Error("Select between 1 and 1000 personal papers");
 		}
-		const paperIds = [...new Set(requestedIds.map((id) => id.trim()))];
+		const paperIds = requestedIds.map((id) => id.trim());
 		if (paperIds.some((id) => !id || id.length > 500)) throw new Error("Personal paper ids are invalid");
-		const isBatch = Boolean(input.paperIds?.length);
-		if (isBatch && input.collectionId?.trim()) {
-			throw new Error("Batch deletion permanently removes papers and does not accept collectionId");
+		if (new Set(paperIds).size !== paperIds.length) throw new Error("Personal paper ids contain duplicates");
+		const collectionId = input.collectionId?.trim() || undefined;
+		if (input.mode === "remove-from-collection" && !collectionId) {
+			throw new Error("collectionId is required when removing papers from a collection");
+		}
+		if (input.mode === "permanent-delete" && collectionId) {
+			throw new Error("collectionId is not accepted for permanent deletion");
 		}
 		const namespace = input.namespace ?? this.defaultNamespace;
 		const store = this.personalStore(namespace);
-		const requested = await Promise.all(paperIds.map(async (id) => ({ id, paper: await store.getPaper(id) })));
-		const missing = requested.filter((item) => !item.paper).map((item) => item.id);
+		const loaded = await store.getPapers(paperIds);
+		const recordsById = new Map(loaded.map((paper) => [paper.id, paper]));
+		const missing = paperIds.filter((id) => !recordsById.has(id));
 		if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
-		const papers = requested.map((item) => item.paper).filter((paper): paper is PaperRecord => Boolean(paper));
-		const collectionId = input.collectionId?.trim() || undefined;
+		const papers = paperIds.map((id) => recordsById.get(id)).filter((paper): paper is PaperRecord => Boolean(paper));
 		let collection: PaperCollection | undefined;
-		if (collectionId) {
+		if (input.mode === "remove-from-collection") {
 			collection = (await store.listCollections()).find((value) => value.id === collectionId);
 			if (!collection) throw new Error(`Collection not found: ${collectionId}`);
-			const outsideCollection = papers.filter((paper) => !paper.collectionIds?.includes(collectionId));
+			const outsideCollection = papers.filter((paper) => !paper.collectionIds?.includes(collectionId!));
 			if (outsideCollection.length) {
 				throw new Error(
 					`Papers are not assigned to collection ${collection.name}: ${outsideCollection.map((paper) => paper.id).join(", ")}`,
 				);
 			}
 		}
-		const targets = papers.map((paper) => {
-			const removeFromCollectionOnly = Boolean(collectionId && (paper.collectionIds?.length ?? 0) > 1);
-			return {
-				paper,
-				mode: removeFromCollectionOnly ? ("remove-from-collection" as const) : ("permanent-delete" as const),
-				remainingCollectionIds: (paper.collectionIds ?? []).filter((id) => id !== collectionId),
-			};
-		});
-		const permanentTargets = targets.filter((target) => target.mode === "permanent-delete");
-		const cleanupByPaper = new Map(
-			await Promise.all(
-				permanentTargets.map(async ({ paper }) => {
-					const [versions, derived] = await Promise.all([
-						store.listPaperVersions(paper.id),
-						store.listDerived({ paperId: paper.id }),
-					]);
-					return [paper.id, { versions, derived }] as const;
-				}),
-			),
-		);
+		const permanentTargets = input.mode === "permanent-delete" ? papers : [];
+		const cleanup = await store.paperDeletionImpact(permanentTargets.map((paper) => paper.id));
+		const wikiPreview = permanentTargets.length
+			? await this.wikiWorkspace(namespace).previewPaperDependencies(paperIds)
+			: undefined;
+		const wikiDependencies = (wikiPreview?.dependencies ?? [])
+			.map((dependency) => ({
+				paperId: dependency.paperId,
+				paperTitle: recordsById.get(dependency.paperId)?.title ?? dependency.paperId,
+				pageCount: dependency.pages.length,
+				evidenceCount: dependency.pages.reduce((sum, page) => sum + page.evidenceCount, 0),
+				pages: dependency.pages.map((page) => ({ id: page.id, title: page.title, mixed: page.mixed })),
+			}))
+			.filter((item) => item.pageCount > 0);
+		const wikiPageCount = wikiDependencies.reduce((sum, item) => sum + item.pageCount, 0);
 		const author = input.author?.trim() || "local-user";
-		const mode = targets.every((target) => target.mode === "remove-from-collection")
-			? "remove-from-collection"
-			: targets.every((target) => target.mode === "permanent-delete")
-				? "permanent-delete"
-				: "mixed";
 		return {
 			namespace,
 			store,
-			targets,
+			papers,
+			paperIds,
+			paperFingerprints: Object.fromEntries(papers.map((paper) => [paper.id, sha256Text(JSON.stringify(paper))])),
+			wikiFingerprint: wikiPreview?.fingerprint,
 			collection,
-			mode,
+			collectionId,
+			mode: input.mode,
 			plan: {
 				kind: "personal-paper-remove" as const,
 				summary:
-					mode === "remove-from-collection"
-						? `从分类“${collection!.name}”移除 ${papers.length} 篇已选论文`
-						: `永久删除 ${papers.length} 篇已选论文及相关本地数据`,
+					input.mode === "remove-from-collection"
+						? `从分类“${collection!.name}”移除 ${papers.length} 篇论文`
+						: `永久删除 ${papers.length} 篇论文及相关本地数据${wikiPageCount ? `；${wikiPageCount} 个 Wiki 页面将失去来源` : ""}`,
 				actor: author,
-				targets: targets.map((target) => ({
-					label: target.mode === "remove-from-collection" ? "分类关系" : "个人库论文",
-					value:
-						target.mode === "remove-from-collection"
-							? `${collection!.name}/${target.paper.title}`
-							: `${namespace}/${target.paper.title}`,
-					risk: target.mode === "remove-from-collection" ? ("medium" as const) : ("high" as const),
-				})),
+				targets: [
+					...papers.map((paper) => ({
+						label: input.mode === "remove-from-collection" ? "分类关系" : "个人库论文",
+						value:
+							input.mode === "remove-from-collection"
+								? `${collection!.name}/${paper.title}`
+								: `${namespace}/${paper.title}`,
+						risk: input.mode === "remove-from-collection" ? ("medium" as const) : ("high" as const),
+					})),
+					...wikiDependencies.flatMap((dependency) =>
+						dependency.pages.map((page) => ({
+							label: "关联 Wiki（不会删除）",
+							value: `${namespace}/${page.title}`,
+							risk: "high" as const,
+						})),
+					),
+				],
 				details: {
 					namespace,
-					mode,
+					mode: input.mode,
 					paperId: papers.length === 1 ? papers[0].id : undefined,
 					paperIds,
 					paperCount: papers.length,
 					collectionId,
-					pdfVersionCount: [...cleanupByPaper.values()].reduce((sum, value) => sum + value.versions.length, 0),
-					pdfBytes: [...cleanupByPaper.values()].reduce(
-						(sum, value) => sum + value.versions.reduce((bytes, version) => bytes + version.bytes, 0),
-						0,
-					),
-					derivedRecordCount: [...cleanupByPaper.values()].reduce((sum, value) => sum + value.derived.length, 0),
+					...cleanup,
 					noteAssociations: "Paper deletion removes note links but keeps Markdown notes.",
+					wikiDependencies,
+					wikiWarning: wikiPageCount
+						? "Deleting these papers does not delete Wiki pages. Use delete_research_wiki_source_pages afterward to remove pages backed by an intentionally deleted source."
+						: undefined,
 				},
 			},
 		};
 	}
 
 	async preparePersonalPaperRemoval(input: PersonalPaperRemovalInput): Promise<PreparedOperation> {
-		return this.consent.prepare((await this.personalPaperRemovalOperation(input)).plan);
+		const snapshot = await this.personalPaperRemovalOperation(input);
+		const prepared = await this.consent.prepare(snapshot.plan);
+		this.preparedPaperRemovals.set(prepared.operationId, {
+			...snapshot,
+			expiresAt: prepared.expiresAt,
+		});
+		return prepared;
 	}
 
 	async removePersonalPaper(input: PersonalPaperRemovalInput, grant: ConfirmationGrant) {
-		const prepared = await this.personalPaperRemovalOperation(input);
-		return runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, async () => {
-			const removedFromCollection: PaperRecord[] = [];
-			for (const target of prepared.targets) {
-				if (target.mode !== "remove-from-collection") continue;
-				removedFromCollection.push(
-					await prepared.store.setPaperCollections(target.paper.id, target.remainingCollectionIds),
-				);
+		const now = Date.now();
+		for (const [id, item] of this.preparedPaperRemovals) {
+			if (Date.parse(item.expiresAt) <= now) this.preparedPaperRemovals.delete(id);
+		}
+		const snapshot = this.preparedPaperRemovals.get(grant.operationId);
+		if (!snapshot) throw new Error("Prepared paper removal was not found or has expired; prepare again");
+		const namespace = input.namespace ?? this.defaultNamespace;
+		if (snapshot.namespace !== namespace) throw new Error("Prepared paper removal namespace changed; prepare again");
+		if (snapshot.mode !== input.mode) throw new Error("Prepared paper removal mode changed; prepare again");
+		if (snapshot.collectionId !== (input.collectionId?.trim() || undefined)) {
+			throw new Error("Prepared paper removal collection changed; prepare again");
+		}
+		if (
+			!sameStringSet(
+				snapshot.paperIds,
+				input.paperIds.map((id) => id.trim()),
+			)
+		) {
+			throw new Error("Prepared paper removal selection changed; prepare again");
+		}
+		try {
+			const current = await snapshot.store.getPapers(snapshot.paperIds);
+			if (
+				current.length !== snapshot.paperIds.length ||
+				current.some((paper) => sha256Text(JSON.stringify(paper)) !== snapshot.paperFingerprints[paper.id])
+			) {
+				throw new Error("Personal papers changed after preparation; prepare the removal again");
 			}
-			const permanentIds = prepared.targets
-				.filter((target) => target.mode === "permanent-delete")
-				.map((target) => target.paper.id);
-			const result = permanentIds.length
-				? await prepared.store.deletePapers(permanentIds)
-				: { deleted: [], missing: [], blobWarnings: [] };
-			return {
-				namespace: prepared.namespace,
-				mode: prepared.mode,
-				paper: removedFromCollection.length === 1 ? removedFromCollection[0] : undefined,
-				removedFromCollection: removedFromCollection.map((paper) => paper.id),
-				...result,
-			};
-		});
+			if (snapshot.wikiFingerprint) {
+				const wiki = await this.wikiWorkspace(snapshot.namespace).previewPaperDependencies(snapshot.paperIds);
+				if (wiki.fingerprint !== snapshot.wikiFingerprint) {
+					throw new Error("Wiki dependencies changed after preparation; prepare the removal again");
+				}
+			}
+			return await runAuthorizedMutation({ manager: this.consent, grant }, snapshot.plan, async () => {
+				if (snapshot.mode === "remove-from-collection") {
+					const updated = await snapshot.store.updatePaperCollectionMembership(
+						snapshot.paperIds,
+						snapshot.collectionId!,
+						"unassign",
+					);
+					return {
+						namespace: snapshot.namespace,
+						mode: snapshot.mode,
+						paper: updated.length === 1 ? updated[0] : undefined,
+						removedFromCollection: updated.map((paper) => paper.id),
+						deleted: [],
+						missing: [],
+						blobWarnings: [],
+					};
+				}
+				const result = await snapshot.store.deletePapers(snapshot.paperIds);
+				return {
+					namespace: snapshot.namespace,
+					mode: snapshot.mode,
+					removedFromCollection: [],
+					...result,
+				};
+			});
+		} finally {
+			this.preparedPaperRemovals.delete(grant.operationId);
+		}
 	}
 
 	protected async personalPdfVersionRemovalOperation(input: PersonalPdfVersionRemovalInput) {

@@ -58,7 +58,7 @@ const NAVIGATION_SECTIONS: NavigationSection[] = [
 	{
 		title: "研究与证据",
 		items: [
-			{ id: "research", label: "调研工作区", icon: FlaskConical },
+			{ id: "research", label: "个人笔记", icon: FlaskConical },
 			{ id: "wiki", label: "研究 Wiki", icon: BookOpen },
 			{ id: "pdf", label: "PDF 与 Artifact", icon: FileStack },
 			{ id: "tasks", label: "任务调度中心", icon: Clock },
@@ -78,7 +78,7 @@ const PAGE_TITLES: Record<Page, string> = {
 	library: "个人文献库",
 	search: "检索与收集",
 	agent: "Agent 对话",
-	research: "调研工作区",
+	research: "个人笔记",
 	wiki: "研究 Wiki",
 	pdf: "PDF 与 Artifact",
 	tasks: "任务调度中心",

@@ -168,7 +168,9 @@ describe("WikiWorkspace", () => {
 			"utf8",
 		);
 		const lint = await workspace.lint();
-		expect(lint.issues).toContainEqual(expect.objectContaining({ code: "legacy-source-granularity", severity: "warning" }));
+		expect(lint.issues).toContainEqual(
+			expect.objectContaining({ code: "legacy-source-granularity", severity: "warning" }),
+		);
 		expect(lint.issues.filter((item) => item.severity === "error")).toEqual([]);
 	});
 
@@ -208,7 +210,9 @@ describe("WikiWorkspace", () => {
 		const { workspace } = await testWorkspace();
 		const preview = await workspace.previewIngest({
 			summary: "Invalid source",
-			changes: [pageChange({ evidence: [{ id: "E1", kind: "paper", sourceId: "paper-2", locator: { pdfPage: 1 } }] })],
+			changes: [
+				pageChange({ evidence: [{ id: "E1", kind: "paper", sourceId: "paper-2", locator: { pdfPage: 1 } }] }),
+			],
 		});
 		expect(preview.changes[0].action).toBe("conflict");
 		expect(preview.issues.map((issue) => issue.message).join(" ")).toContain("paper-2");
@@ -237,5 +241,124 @@ describe("WikiWorkspace", () => {
 		notes.set("note-1", { ...notes.get("note-1")!, version: "c".repeat(64), revision: 2 });
 		await expect(workspace.applyIngest(preview)).rejects.toThrow("conflicts");
 		expect((await workspace.search({ query: "Note synthesis" })).pages).toEqual([]);
+	});
+
+	it("previews and deletes paper, artifact, legacy, and explicitly included mixed-source pages", async () => {
+		const { workspace } = await testWorkspace();
+		const created = await workspace.previewIngest({
+			summary: "Create deletion fixtures",
+			changes: [
+				pageChange(),
+				pageChange({
+					title: "Artifact-backed page",
+					type: "system",
+					markdown: "# Artifact\n\nThe artifact belongs to the paper. [E1]",
+					evidence: [
+						{ id: "E1", kind: "artifact", paperId: "paper-1", locator: { commit: "abc123", path: "src" } },
+					],
+				}),
+				pageChange({
+					title: "Mixed-source page",
+					type: "synthesis",
+					markdown: "# Mixed\n\nPaper and public evidence. [E1][E2]",
+					evidence: [
+						{ id: "E1", kind: "paper", sourceId: "paper-1", locator: { pdfPage: 2 } },
+						{ id: "E2", kind: "public", locator: { url: "https://example.org/source" } },
+					],
+				}),
+			],
+		});
+		await workspace.applyIngest(created);
+		await writeFile(
+			join(workspace.directory, "legacy.md"),
+			[
+				"---",
+				"id: wiki-delete-legacy",
+				"title: Legacy deletion page",
+				"type: concept",
+				"status: draft",
+				"aliases: []",
+				"tags: []",
+				"source_notes: []",
+				"paper_ids:",
+				"  - paper-1",
+				"created_at: 2026-01-01T00:00:00.000Z",
+				"updated_at: 2026-01-01T00:00:00.000Z",
+				"---",
+				"# Legacy deletion page",
+			].join("\n"),
+			"utf8",
+		);
+
+		const initial = await workspace.previewSourcePageDeletion("paper-1");
+		expect(initial.deletablePages.map((page) => page.title).sort()).toEqual([
+			"Artifact-backed page",
+			"Legacy deletion page",
+			"Use-after-free detection",
+		]);
+		expect(initial.mixedPages).toHaveLength(1);
+		expect(initial.targetPages).toHaveLength(3);
+		await expect(workspace.previewSourcePageDeletion("paper-1", [initial.deletablePages[0].id])).rejects.toThrow(
+			"not mixed",
+		);
+
+		const preview = await workspace.previewSourcePageDeletion("paper-1", [initial.mixedPages[0].id]);
+		expect(preview.targetPages).toHaveLength(4);
+		expect(preview.blocked).toBe(false);
+		const result = await workspace.applySourcePageDeletion(preview);
+		expect(result.deletedPages).toHaveLength(4);
+		expect(result.lint.pageCount).toBe(0);
+		expect(await readFile(join(workspace.directory, "log.md"), "utf8")).toContain("| delete |");
+		expect((await workspace.search({ paperId: "paper-1" })).pages).toEqual([]);
+	});
+
+	it("blocks source-page deletion when a surviving page links to a target", async () => {
+		const { workspace } = await testWorkspace();
+		const created = await workspace.previewIngest({
+			summary: "Create backlink fixture",
+			changes: [
+				pageChange(),
+				pageChange({
+					title: "Surviving note page",
+					type: "synthesis",
+					markdown: "# Synthesis\n\nSee [[Use-after-free detection]]. [E1]",
+					evidence: [
+						{
+							id: "E1",
+							kind: "note",
+							sourceId: "note-1",
+							locator: { noteRevision: 1, noteHash: "b".repeat(64) },
+						},
+					],
+				}),
+			],
+		});
+		await workspace.applyIngest(created);
+		const preview = await workspace.previewSourcePageDeletion("paper-1");
+		expect(preview.blocked).toBe(true);
+		expect(preview.externalBacklinks).toEqual([
+			expect.objectContaining({ title: "Surviving note page", targetPageIds: [preview.targetPages[0].id] }),
+		]);
+		await expect(workspace.applySourcePageDeletion(preview)).rejects.toThrow("external backlinks");
+	});
+
+	it("rejects stale deletion previews and restores files when synchronization fails", async () => {
+		const { workspace } = await testWorkspace();
+		const page = await workspace.ingest(pageChange());
+		const path = join(workspace.directory, ...page.relativePath.split("/"));
+		const stale = await workspace.previewSourcePageDeletion("paper-1");
+		await writeFile(path, `${await readFile(path, "utf8")}\n`, "utf8");
+		await expect(workspace.applySourcePageDeletion(stale)).rejects.toThrow("preview changed");
+
+		const preview = await workspace.previewSourcePageDeletion("paper-1");
+		const originalSync = workspace.sync.bind(workspace);
+		let syncCalls = 0;
+		workspace.sync = async () => {
+			syncCalls += 1;
+			if (syncCalls === 1) throw new Error("forced sync failure");
+			return originalSync();
+		};
+		await expect(workspace.applySourcePageDeletion(preview)).rejects.toThrow("forced sync failure");
+		expect(await readFile(path, "utf8")).toContain("Temporal memory safety");
 	});
 });

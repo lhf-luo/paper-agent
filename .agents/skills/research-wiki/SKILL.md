@@ -164,6 +164,15 @@ Wiki 页面是二次知识，不是一手证据。回答科学 claim 时，优�
 
 Lint 只读。修复不能手工编辑，必须生成新的批量 preview/apply；语义矛盾和结论合并仍需要用户确认。
 
+当 `missing-source` 来自用户已经明确永久删除、且不准备恢复的个人库论文时：
+
+1. 调用 `delete_research_wiki_source_pages(mode="preview", paper_id=...)` 汇总所有关联页面。
+2. 默认只删除全部证据都依赖该论文的页面。含其他论文、笔记或公开来源的页面必须列为 mixed，不得自行加入删除集合。
+3. 只有用户明确同意删除某个完整 mixed 页面后，才能把其精确 page ID 放入 `include_mixed_page_ids` 并重新 preview。
+4. Preview 出现删除集合外 backlink 时，先通过正常 Wiki ingest 更新引用页；不得留下新的死链。
+5. 用户确认完整页面清单后，用相同 `preview_fingerprint` 调用 apply。不要用模型记忆替换缺失来源，也不要直接删除 Markdown。
+6. Apply 后按原 Paper ID 再查一次 Wiki 并运行 `lint_research_wiki`；仍有 error 时不得报告完成。
+
 ## References
 
 - [pages schema](references/schema.md)

@@ -28,4 +28,6 @@ Lint is read-only. It rebuilds the Markdown-derived index and reports determinis
 4. Obtain the normal Wiki write authorization and apply the batch.
 5. Re-run lint and report remaining issues.
 
+When the user intentionally deleted a personal-library paper and does not want it restored, use `delete_research_wiki_source_pages` instead of reconstructing unsupported pages. Preview the full page set first. Pages with other sources remain protected unless the user explicitly includes their exact page IDs; backlinks from surviving pages block deletion until those links are updated. Apply must use the unchanged preview fingerprint, then search by the deleted Paper ID and run lint again.
+
 Do not fix lint findings by editing Markdown, SQLite, or `.paper-agent/wiki/` directly.

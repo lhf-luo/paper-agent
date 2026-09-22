@@ -10,7 +10,14 @@ describe("agent tool catalog", () => {
 	it("lists the actual extension tools without executing them", () => {
 		const tools = collectRegisteredTools(paperAgentExtension);
 		const names = tools.map((tool) => tool.name);
-		expect(names).toEqual(expect.arrayContaining(["inspect_agent_tools", "read_pdf", "ingest_research_wiki"]));
+		expect(names).toEqual(
+			expect.arrayContaining([
+				"inspect_agent_tools",
+				"read_pdf",
+				"ingest_research_wiki",
+				"delete_research_wiki_source_pages",
+			]),
+		);
 		expect(new Set(names).size).toBe(names.length);
 	});
 

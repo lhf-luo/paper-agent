@@ -3,14 +3,29 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
-import type { ConfirmationGrant, OperationPlan, PreparedOperation } from "../../shared/application/operation-consent.ts";
+import type {
+	ConfirmationGrant,
+	OperationPlan,
+	PreparedOperation,
+} from "../../shared/application/operation-consent.ts";
 import type { WikiWorkspace } from "../../wiki/application/wiki-workspace.ts";
-import type { WikiIngestRequest, WikiIngestPreview, WikiSearchOptions } from "../../wiki/domain/wiki-types.ts";
+import type {
+	WikiIngestPreview,
+	WikiIngestRequest,
+	WikiSearchOptions,
+	WikiSourcePageDeletionPreview,
+} from "../../wiki/domain/wiki-types.ts";
 import { PaperAgentTeamCollaboration } from "./paper-agent-team-collaboration.ts";
 
 export interface PreparedWikiIngest {
 	preview: WikiIngestPreview;
 	operation: PreparedOperation;
+}
+
+export interface PreparedWikiSourcePageDeletion {
+	status: "ready" | "blocked" | "no-op";
+	preview: WikiSourcePageDeletionPreview;
+	operation?: PreparedOperation;
 }
 
 interface ObsidianConfig {
@@ -28,7 +43,10 @@ export function defaultObsidianConfigPath(): string {
 	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "obsidian", "obsidian.json");
 }
 
-export async function ensureObsidianVault(vaultPath: string, configPath = defaultObsidianConfigPath()): Promise<string> {
+export async function ensureObsidianVault(
+	vaultPath: string,
+	configPath = defaultObsidianConfigPath(),
+): Promise<string> {
 	const absoluteVaultPath = resolve(vaultPath);
 	const normalizedPath = absoluteVaultPath.replaceAll("\\", "/").toLowerCase();
 	let config: ObsidianConfig = {};
@@ -75,8 +93,69 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 		return this.wikiWorkspace(namespace).get(id);
 	}
 
+	async getWikiManagementFile(path: string, namespace = this.defaultNamespace) {
+		return this.wikiWorkspace(namespace).getManagementFile(path);
+	}
+
 	async lintWiki(namespace = this.defaultNamespace) {
 		return this.wikiWorkspace(namespace).lint();
+	}
+
+	private wikiSourcePageDeletionPlan(preview: WikiSourcePageDeletionPreview): OperationPlan {
+		return {
+			kind: "wiki-write",
+			summary: `删除论文 ${preview.paperId} 关联的 ${preview.targetPages.length} 个 Wiki 页面`,
+			actor: "interactive-user",
+			targets: preview.targetPages.map((page) => ({
+				label: "Wiki 页面",
+				value: `${preview.namespace}/${page.title}`,
+				risk: "high",
+			})),
+			details: {
+				namespace: preview.namespace,
+				paperId: preview.paperId,
+				previewFingerprint: preview.fingerprint,
+				pages: preview.targetPages.map((page) => ({
+					id: page.id,
+					title: page.title,
+					relativePath: page.relativePath,
+					matchingEvidenceIds: page.matchingEvidenceIds,
+					otherSources: page.otherSources,
+				})),
+			},
+		};
+	}
+
+	async prepareWikiSourcePageDeletion(
+		paperId: string,
+		includeMixedPageIds: string[] = [],
+		namespace = this.defaultNamespace,
+	): Promise<PreparedWikiSourcePageDeletion> {
+		const preview = await this.wikiWorkspace(namespace).previewSourcePageDeletion(paperId, includeMixedPageIds);
+		if (!preview.targetPages.length) return { status: "no-op", preview };
+		if (preview.blocked) return { status: "blocked", preview };
+		return {
+			status: "ready",
+			preview,
+			operation: await this.consent.prepare(this.wikiSourcePageDeletionPlan(preview)),
+		};
+	}
+
+	async deleteWikiSourcePages(
+		paperId: string,
+		includeMixedPageIds: string[],
+		previewFingerprint: string,
+		grant: ConfirmationGrant,
+		namespace = this.defaultNamespace,
+	) {
+		const preview = await this.wikiWorkspace(namespace).previewSourcePageDeletion(paperId, includeMixedPageIds);
+		if (preview.fingerprint !== previewFingerprint) {
+			throw new Error("Wiki 删除预览已经变化，请重新检查后再执行");
+		}
+		if (preview.blocked) throw new Error("仍有保留页面链接到待删除页面，无法执行删除");
+		if (!preview.targetPages.length) throw new Error("没有可删除的 Wiki 页面");
+		await this.consent.consume(grant, this.wikiSourcePageDeletionPlan(preview));
+		return this.wikiWorkspace(namespace).applySourcePageDeletion(preview);
 	}
 
 	private wikiIngestPlan(preview: WikiIngestPreview): OperationPlan {

@@ -1,4 +1,14 @@
-import { ArrowUpRight, BookmarkPlus, Check, Inbox, MoreHorizontal, Sparkles, X } from "lucide-react";
+import {
+	ArrowUpRight,
+	BookmarkPlus,
+	Check,
+	ChevronLeft,
+	ChevronRight,
+	Inbox,
+	MoreHorizontal,
+	Sparkles,
+	X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBytes, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree, PAPER_DRAG_TYPE } from "./collection-tree";
@@ -170,7 +180,7 @@ export function AccessibleModal({
 			// 避免打开后焦点仍停在页面背后的触发按钮上。
 			const first =
 				modalRef.current.querySelector<HTMLElement>(
-					'input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+					"input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
 				) ??
 				modalRef.current.querySelector<HTMLElement>(
 					'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
@@ -237,6 +247,78 @@ export function LoadingBlock({ text = "正在加载…" }: { text?: string }) {
 	);
 }
 
+function PaperCollectionPicker({
+	mode,
+	collections,
+	onBack,
+	onChoose,
+	onChooseUncategorized,
+}: {
+	mode: "add" | "move";
+	collections: PaperCollection[];
+	onBack: () => void;
+	onChoose: (collectionId: string) => void;
+	onChooseUncategorized?: () => void;
+}) {
+	const tree = useMemo(() => buildCollectionTree(collections), [collections]);
+	const nodesById = useMemo(
+		() => new Map(flattenCollectionTree(tree).map((node) => [node.collection.id, node])),
+		[tree],
+	);
+	const [parentId, setParentId] = useState<string>();
+	const parentNode = parentId ? nodesById.get(parentId) : undefined;
+	const visibleNodes = parentNode?.children ?? tree;
+	const goBack = () => {
+		if (!parentNode) {
+			onBack();
+			return;
+		}
+		const ancestor = parentNode.collection.parentId ? nodesById.get(parentNode.collection.parentId) : undefined;
+		setParentId(ancestor?.collection.id);
+	};
+	return (
+		<div className="paper-card-collection-picker">
+			<button className="paper-card-collection-back" type="button" onClick={goBack}>
+				<ChevronLeft size={14} aria-hidden="true" />
+				<span title={parentNode?.path.join(" / ")}>
+					{parentNode?.collection.name ?? (mode === "add" ? "添加到" : "移动到")}
+				</span>
+			</button>
+			<div className="paper-card-collection-list">
+				{mode === "move" && !parentNode && onChooseUncategorized && (
+					<button className="paper-card-menu-item" type="button" onClick={onChooseUncategorized}>
+						未分类
+					</button>
+				)}
+				{visibleNodes.map((node) => (
+					<div className="paper-card-collection-row" key={node.collection.id}>
+						<button
+							className="paper-card-collection-choice"
+							type="button"
+							title={node.collection.name}
+							onClick={() => onChoose(node.collection.id)}
+						>
+							{node.collection.name}
+						</button>
+						{node.children.length > 0 && (
+							<button
+								className="paper-card-collection-next"
+								type="button"
+								aria-label={`打开${node.collection.name}的子分类`}
+								title="查看子分类"
+								onClick={() => setParentId(node.collection.id)}
+							>
+								<ChevronRight size={14} aria-hidden="true" />
+							</button>
+						)}
+					</div>
+				))}
+				{visibleNodes.length === 0 && <span className="paper-card-menu-empty">暂无子分类</span>}
+			</div>
+		</div>
+	);
+}
+
 export function PaperCard({
 	paper,
 	selected,
@@ -252,6 +334,7 @@ export function PaperCard({
 	onLoadLocalPdf,
 	localPdfUploading,
 	localPdfBusy,
+	onRemoveFromCollection,
 	onDelete,
 	researchNotes,
 	onOpenResearchNote,
@@ -277,6 +360,7 @@ export function PaperCard({
 	onLoadLocalPdf?: (paper: PaperRecord) => void;
 	localPdfUploading?: boolean;
 	localPdfBusy?: boolean;
+	onRemoveFromCollection?: (paper: PaperRecord) => void;
 	onDelete?: (paper: PaperRecord) => void;
 	researchNotes?: ResearchNoteSummary[];
 	onOpenResearchNote?: (noteId: string) => void;
@@ -291,10 +375,6 @@ export function PaperCard({
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [menuMode, setMenuMode] = useState<"add" | "move" | "notes" | null>(null);
 	const menuCloseTimerRef = useRef<number | undefined>(undefined);
-	const collectionOptions = useMemo(
-		() => flattenCollectionTree(buildCollectionTree(collections ?? [])),
-		[collections],
-	);
 	useEffect(
 		() => () => {
 			if (menuCloseTimerRef.current) window.clearTimeout(menuCloseTimerRef.current);
@@ -365,7 +445,11 @@ export function PaperCard({
 							rel="noreferrer"
 							title={action.label}
 						>
-							{action.label} <ArrowUpRight size={13} style={{ display: "inline-block", verticalAlign: "middle", marginLeft: 3 }} />
+							{action.label}{" "}
+							<ArrowUpRight
+								size={13}
+								style={{ display: "inline-block", verticalAlign: "middle", marginLeft: 3 }}
+							/>
 						</a>
 					);
 				})()}
@@ -384,6 +468,7 @@ export function PaperCard({
 				{((collections && onAddToCollection && onMoveToCollection) ||
 					onEnrichMetadata ||
 					onLoadLocalPdf ||
+					onRemoveFromCollection ||
 					onDelete ||
 					onCreateResearchNote) && (
 					<div className="paper-card-menu-wrap">
@@ -403,7 +488,7 @@ export function PaperCard({
 						</button>
 						{menuOpen && (
 							<div
-								className="paper-card-menu"
+								className={`paper-card-menu${menuMode === "add" || menuMode === "move" ? " collection-picker" : ""}`}
 								role="menu"
 								onMouseEnter={cancelMenuClose}
 								onMouseLeave={scheduleMenuClose}
@@ -465,6 +550,20 @@ export function PaperCard({
 												笔记
 											</button>
 										)}
+										{onRemoveFromCollection && (
+											<button
+												className="paper-card-menu-item"
+												type="button"
+												disabled={deleteBusy}
+												onClick={() => {
+													setMenuOpen(false);
+													setMenuMode(null);
+													onRemoveFromCollection(paper);
+												}}
+											>
+												移出当前分类
+											</button>
+										)}
 										{onDelete && (
 											<button
 												className="paper-card-menu-item danger"
@@ -513,48 +612,32 @@ export function PaperCard({
 										</button>
 									</div>
 								) : menuMode === "move" && collections && onMoveToCollection ? (
-									<>
-										<button
-											className="paper-card-menu-item"
-											type="button"
-											onClick={() => {
-												onMoveToCollection(paper.id, null);
-												setMenuOpen(false);
-												setMenuMode(null);
-											}}
-										>
-											未分类
-										</button>
-										{collectionOptions.map(({ collection, path }) => (
-											<button
-												className="paper-card-menu-item"
-												type="button"
-												key={collection.id}
-												onClick={() => {
-													onMoveToCollection(paper.id, collection.id);
-													setMenuOpen(false);
-													setMenuMode(null);
-												}}
-											>
-												{path.join(" / ")}
-											</button>
-										))}
-									</>
-								) : collections && onAddToCollection ? (
-									collectionOptions.map(({ collection, path }) => (
-										<button
-											className="paper-card-menu-item"
-											type="button"
-											key={collection.id}
-											onClick={() => {
-												onAddToCollection(paper.id, collection.id);
-												setMenuOpen(false);
-												setMenuMode(null);
-											}}
-										>
-											{path.join(" / ")}
-										</button>
-									))
+									<PaperCollectionPicker
+										mode="move"
+										collections={collections}
+										onBack={() => setMenuMode(null)}
+										onChoose={(collectionId) => {
+											onMoveToCollection(paper.id, collectionId);
+											setMenuOpen(false);
+											setMenuMode(null);
+										}}
+										onChooseUncategorized={() => {
+											onMoveToCollection(paper.id, null);
+											setMenuOpen(false);
+											setMenuMode(null);
+										}}
+									/>
+								) : menuMode === "add" && collections && onAddToCollection ? (
+									<PaperCollectionPicker
+										mode="add"
+										collections={collections}
+										onBack={() => setMenuMode(null)}
+										onChoose={(collectionId) => {
+											onAddToCollection(paper.id, collectionId);
+											setMenuOpen(false);
+											setMenuMode(null);
+										}}
+									/>
 								) : null}
 							</div>
 						)}

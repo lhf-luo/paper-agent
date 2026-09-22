@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname as pathDirname, relative, resolve } from "node:path";
 import { normalizedWikiLabel, wikiLineDiff } from "../domain/wiki-content.ts";
@@ -12,22 +12,28 @@ import {
 	type WikiIngestRequest,
 	type WikiIngestResult,
 	type WikiLintIssue,
+	type WikiManagementFile,
 	type WikiPage,
 	type WikiPageMetadata,
+	type WikiPaperDependencyPreview,
 	type WikiSearchOptions,
 	type WikiSearchResult,
+	type WikiSourcePageDeletionPreview,
+	type WikiSourcePageDeletionResult,
 	type WikiSourceSnapshot,
 	type WikiSyncResult,
 } from "../domain/wiki-types.ts";
 import { WikiIndex } from "../infrastructure/wiki-index.ts";
+import { lintWikiPages } from "./wiki-lint.ts";
+import { appendWikiLog, buildWikiTree, ensureWikiNavigationFiles, writeWikiIndex } from "./wiki-navigation.ts";
 import {
-	MAX_WIKI_PAGE_BYTES,
 	boundedText,
 	changeSetFingerprint,
 	evidencePaperIds,
 	evidenceSourceIds,
 	isHttpUrl,
 	issue,
+	MAX_WIKI_PAGE_BYTES,
 	markdownFiles,
 	newWikiRelativePath,
 	nextEvidenceId,
@@ -37,10 +43,10 @@ import {
 	safeWikiPath,
 	uniqueStrings,
 	validateEvidenceClaims,
+	WIKI_RESERVED_FILES,
 	writeAtomic,
 } from "./wiki-page-codec.ts";
-import { lintWikiPages } from "./wiki-lint.ts";
-import { appendWikiLog, buildWikiTree, ensureWikiNavigationFiles, writeWikiIndex } from "./wiki-navigation.ts";
+import { applyWikiSourcePageDeletion, previewWikiSourcePageDeletion } from "./wiki-source-page-deletion.ts";
 import { restoreWikiFiles, withWikiWriteLock } from "./wiki-write-lock.ts";
 
 export interface WikiSourceResolver {
@@ -107,7 +113,9 @@ export class WikiWorkspace {
 		const page = parseWikiPage(await readFile(path, "utf8"), relativePath);
 		const related = (
 			await Promise.all(
-				(await this.index.neighbors(this.namespace, page.id)).map(async (item) => {
+				(
+					await this.index.neighbors(this.namespace, page.id)
+				).map(async (item) => {
 					try {
 						const path = safeWikiPath(this.directory, item.relativePath);
 						return parseWikiPage(await readFile(path, "utf8"), item.relativePath);
@@ -126,6 +134,87 @@ export class WikiWorkspace {
 
 	async lint(): Promise<WikiSyncResult> {
 		return this.sync();
+	}
+
+	async getManagementFile(pathInput: string): Promise<WikiManagementFile | undefined> {
+		const path = pathInput.trim().replaceAll("\\", "/").toLowerCase();
+		if (!WIKI_RESERVED_FILES.has(path)) return undefined;
+		await this.initialize();
+		return {
+			name: path,
+			path,
+			markdown: await readFile(safeWikiPath(this.directory, path), "utf8"),
+		};
+	}
+
+	async previewSourcePageDeletion(
+		paperIdInput: string,
+		includeMixedPageIdsInput: string[] = [],
+	): Promise<WikiSourcePageDeletionPreview> {
+		return previewWikiSourcePageDeletion(
+			{ namespace: this.namespace, scanPages: () => this.scanPages() },
+			paperIdInput,
+			includeMixedPageIdsInput,
+		);
+	}
+
+	async previewPaperDependencies(paperIdsInput: string[]): Promise<WikiPaperDependencyPreview> {
+		const paperIds = [...new Set(paperIdsInput.map((id) => id.trim()))].sort();
+		if (!paperIds.length || paperIds.some((id) => !id || id.length > 512)) {
+			throw new Error("Wiki dependency paper ids are invalid");
+		}
+		const pages = (await this.scanPages()).pages;
+		const dependencies = paperIds.map((paperId) => ({
+			paperId,
+			pages: pages
+				.filter((page) => page.paperIds.includes(paperId))
+				.map((page) => {
+					const matchingEvidence = page.evidence.filter(
+						(evidence) =>
+							(evidence.kind === "paper" && evidence.sourceId === paperId) ||
+							(evidence.kind === "artifact" && evidence.paperId === paperId),
+					);
+					const otherEvidence = page.evidence.some(
+						(evidence) =>
+							!matchingEvidence.includes(evidence) &&
+							(evidence.kind !== "paper" || evidence.sourceId !== paperId) &&
+							(evidence.kind !== "artifact" || evidence.paperId !== paperId),
+					);
+					return {
+						id: page.id,
+						title: page.title,
+						contentHash: page.contentHash,
+						evidenceCount: matchingEvidence.length || Number(page.paperIds.includes(paperId)),
+						mixed: otherEvidence || page.paperIds.some((id) => id !== paperId) || page.sourceNoteIds.length > 0,
+					};
+				})
+				.sort((left, right) => left.id.localeCompare(right.id)),
+		}));
+		const fingerprint = createHash("sha256")
+			.update(
+				JSON.stringify({
+					namespace: this.namespace,
+					paperIds,
+					pages: pages
+						.map((page) => ({ id: page.id, relativePath: page.relativePath, contentHash: page.contentHash }))
+						.sort((left, right) => left.id.localeCompare(right.id)),
+				}),
+			)
+			.digest("hex");
+		return { namespace: this.namespace, paperIds, fingerprint, dependencies };
+	}
+
+	async applySourcePageDeletion(preview: WikiSourcePageDeletionPreview): Promise<WikiSourcePageDeletionResult> {
+		return applyWikiSourcePageDeletion(
+			{
+				namespace: this.namespace,
+				directory: this.directory,
+				root: this.root,
+				scanPages: () => this.scanPages(),
+				sync: () => this.sync(),
+			},
+			preview,
+		);
 	}
 
 	async previewIngest(request: WikiIngestRequest): Promise<WikiIngestPreview> {
@@ -169,9 +258,7 @@ export class WikiWorkspace {
 			}
 		}
 
-		const proposed = new Map<string, WikiPage>(
-			existingPages.map((page) => [page.id, page]),
-		);
+		const proposed = new Map<string, WikiPage>(existingPages.map((page) => [page.id, page]));
 		for (const change of changes) {
 			const existing = change.pageId ? proposed.get(change.pageId) : undefined;
 			const page = previewPage(change, existing);
@@ -187,12 +274,7 @@ export class WikiWorkspace {
 		}
 		for (const change of changes) {
 			const missing = (change.change.markdown.match(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g) ?? []).map(
-				(link) =>
-					link
-						.slice(2, -2)
-						.split("|")[0]
-						.split("#")[0]
-						.trim(),
+				(link) => link.slice(2, -2).split("|")[0].split("#")[0].trim(),
 			);
 			for (const link of missing) {
 				if (!allLabels.has(normalizedWikiLabel(link))) {
@@ -236,7 +318,9 @@ export class WikiWorkspace {
 			if (current.changes.some((change) => change.action === "conflict")) {
 				throw new Error("Wiki change set now contains conflicts; run preview again");
 			}
-			const actionable = current.changes.filter((change) => change.action === "create" || change.action === "update");
+			const actionable = current.changes.filter(
+				(change) => change.action === "create" || change.action === "update",
+			);
 			if (!actionable.length) return { pages: [], previewFingerprint: preview.fingerprint };
 
 			const existingPages = await this.scanPages().then((result) => result.pages);
@@ -250,7 +334,10 @@ export class WikiWorkspace {
 					id: existing?.id ?? `wiki-${randomUUID()}`,
 					title: change.title,
 					type: change.type,
-					status: existing?.status === "reviewed" || existing?.status === "conflicted" ? "needs-review" : (existing?.status ?? "draft"),
+					status:
+						existing?.status === "reviewed" || existing?.status === "conflicted"
+							? "needs-review"
+							: (existing?.status ?? "draft"),
 					aliases: uniqueStrings(change.change.aliases ?? []),
 					tags: uniqueStrings(change.change.tags ?? []),
 					sourceNoteIds: [],
@@ -284,12 +371,16 @@ export class WikiWorkspace {
 					await writeAtomic(item.path, item.content);
 				}
 				const synced = await this.sync();
-				const changedPaths = new Set(planned.map((item) => relative(this.directory, item.path).replaceAll("\\", "/")));
+				const changedPaths = new Set(
+					planned.map((item) => relative(this.directory, item.path).replaceAll("\\", "/")),
+				);
 				const introducedErrors = synced.issues.filter(
 					(issue) => issue.severity === "error" && changedPaths.has(issue.path),
 				);
 				if (introducedErrors.length) {
-					throw new Error(`Wiki write produced lint errors: ${introducedErrors.map((issue) => issue.message).join("; ")}`);
+					throw new Error(
+						`Wiki write produced lint errors: ${introducedErrors.map((issue) => issue.message).join("; ")}`,
+					);
 				}
 				await appendWikiLog(
 					this.directory,
@@ -354,7 +445,9 @@ export class WikiWorkspace {
 			tags,
 			evidence: evidence.values,
 		};
-		const existing = input.pageId ? (await this.scanPages()).pages.find((page) => page.id === input.pageId) : undefined;
+		const existing = input.pageId
+			? (await this.scanPages()).pages.find((page) => page.id === input.pageId)
+			: undefined;
 		const issues: WikiLintIssue[] = [...evidence.issues];
 		const oldMarkdown = existing?.markdown ?? "";
 		const diff = wikiLineDiff(oldMarkdown, markdown);
@@ -446,7 +539,9 @@ export class WikiWorkspace {
 				locator: raw.locator ?? {},
 			} as WikiEvidence;
 			if (!/^E[1-9]\d*$/.test(evidence.id)) {
-				issues.push(issue("error", "invalid-evidence-locator", `证据 ID 必须使用 E1、E2 格式：${evidence.id}`, evidence.id));
+				issues.push(
+					issue("error", "invalid-evidence-locator", `证据 ID 必须使用 E1、E2 格式：${evidence.id}`, evidence.id),
+				);
 				continue;
 			}
 			if (seen.has(evidence.id)) {
@@ -455,7 +550,9 @@ export class WikiWorkspace {
 			}
 			seen.add(evidence.id);
 			if (!isWikiEvidenceKind(evidence.kind)) {
-				issues.push(issue("error", "invalid-evidence-locator", `不支持证据类型：${String(evidence.kind)}`, evidence.id));
+				issues.push(
+					issue("error", "invalid-evidence-locator", `不支持证据类型：${String(evidence.kind)}`, evidence.id),
+				);
 				continue;
 			}
 			const resolved = await this.resolveEvidence(evidence, sourceCache);
@@ -483,10 +580,14 @@ export class WikiWorkspace {
 				} else {
 					snapshots.push(snapshot);
 					if (!Number.isInteger(locator.pdfPage) || Number(locator.pdfPage) < 1) {
-						issues.push(issue("error", "invalid-evidence-locator", "论文证据必须提供正整数 pdf_page", evidence.id));
+						issues.push(
+							issue("error", "invalid-evidence-locator", "论文证据必须提供正整数 pdf_page", evidence.id),
+						);
 					}
 					if (evidence.version && snapshot.version && evidence.version !== snapshot.version) {
-						issues.push(issue("error", "stale-source", `论文版本与当前来源不一致：${evidence.sourceId}`, evidence.id));
+						issues.push(
+							issue("error", "stale-source", `论文版本与当前来源不一致：${evidence.sourceId}`, evidence.id),
+						);
 					}
 					evidence.version = evidence.version ?? snapshot.version;
 				}
@@ -502,10 +603,18 @@ export class WikiWorkspace {
 					snapshots.push(snapshot);
 					if (!evidence.version && snapshot.version) evidence.version = snapshot.version;
 					if (evidence.version && snapshot.version && evidence.version !== snapshot.version) {
-						issues.push(issue("error", "stale-source", `笔记版本与当前来源不一致：${evidence.sourceId}`, evidence.id));
+						issues.push(
+							issue("error", "stale-source", `笔记版本与当前来源不一致：${evidence.sourceId}`, evidence.id),
+						);
 					}
-					if (locator.noteRevision !== undefined && snapshot.revision !== undefined && locator.noteRevision !== snapshot.revision) {
-						issues.push(issue("error", "stale-source", `笔记 revision 已变化：${evidence.sourceId}`, evidence.id));
+					if (
+						locator.noteRevision !== undefined &&
+						snapshot.revision !== undefined &&
+						locator.noteRevision !== snapshot.revision
+					) {
+						issues.push(
+							issue("error", "stale-source", `笔记 revision 已变化：${evidence.sourceId}`, evidence.id),
+						);
 					}
 					if (locator.noteHash && snapshot.version && locator.noteHash !== snapshot.version) {
 						issues.push(issue("error", "stale-source", `笔记 hash 已变化：${evidence.sourceId}`, evidence.id));
@@ -518,11 +627,15 @@ export class WikiWorkspace {
 			} else {
 				const snapshot = await this.sourceSnapshot("paper", evidence.paperId, sourceCache);
 				if (!snapshot) {
-					issues.push(issue("error", "missing-source", `Artifact 所属论文不存在：${evidence.paperId}`, evidence.id));
+					issues.push(
+						issue("error", "missing-source", `Artifact 所属论文不存在：${evidence.paperId}`, evidence.id),
+					);
 				} else snapshots.push(snapshot);
 			}
 			if (!locator.commit && !locator.path && !locator.url) {
-				issues.push(issue("error", "invalid-evidence-locator", "Artifact 证据必须提供 commit、path 或 url", evidence.id));
+				issues.push(
+					issue("error", "invalid-evidence-locator", "Artifact 证据必须提供 commit、path 或 url", evidence.id),
+				);
 			}
 		} else if (evidence.kind === "public") {
 			if (!isHttpUrl(locator.url)) {
@@ -596,5 +709,4 @@ export class WikiWorkspace {
 		}
 		return { pages, issues };
 	}
-
 }

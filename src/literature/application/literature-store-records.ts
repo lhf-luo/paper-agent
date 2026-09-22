@@ -1,33 +1,79 @@
-import { rm, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { CorpusSearchHit, PaperRecord, PaperVersion, ScreeningStatus } from "../domain/literature-types.ts";
 import { LiteratureStoreLibrary } from "./literature-store-library.ts";
 import { normalizeSearchText, safeSegment, writeJsonAtomic } from "./literature-store-support.ts";
 
+export interface PaperSearchOptions {
+	query?: string;
+	yearFrom?: number;
+	yearTo?: number;
+	authors?: string[];
+	venues?: string[];
+	tags?: string[];
+	identifiers?: string[];
+	screeningStatuses?: ScreeningStatus[];
+	types?: string[];
+	openAccess?: boolean;
+	collectionId?: string;
+	offset?: number;
+	limit?: number;
+	/** Avoid creating or repairing indexes; used by once-mode and explicitly read-only surfaces. */
+	readOnly?: boolean;
+}
+
 export abstract class LiteratureStoreRecords extends LiteratureStoreLibrary {
 	async deletePapers(paperIds: string[]): Promise<{ deleted: string[]; missing: string[]; blobWarnings: string[] }> {
 		await this.initialize();
 		if (this.personalDatabase) {
-			const deleted: string[] = [];
-			const missing: string[] = [];
+			const uniqueIds = [...new Set(paperIds)];
+			const existing = new Set((await this.personalDatabase.getPapers(uniqueIds)).map((paper) => paper.id));
+			const missing = uniqueIds.filter((id) => !existing.has(id));
+			const targets = uniqueIds.filter((id) => existing.has(id));
 			const blobWarnings: string[] = [];
-			for (const id of [...new Set(paperIds)]) {
-				if (!(await this.personalDatabase.getPaper(id))) {
-					missing.push(id);
-					continue;
+			const trashRoot = join(this.personalDatabase.filesRoot, ".trash", `paper-delete-${randomUUID()}`);
+			const staged = new Map<string, { source: string; target: string }>();
+			await mkdir(trashRoot, { recursive: true });
+			try {
+				for (const id of targets) {
+					const source = join(this.personalDatabase.filesRoot, safeSegment(id, "paper id"));
+					const target = join(trashRoot, safeSegment(id, "paper id"));
+					try {
+						await rename(source, target);
+						staged.set(id, { source, target });
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+					}
 				}
-				await this.personalDatabase.deletePaper(id);
-				try {
-					await rm(join(this.personalDatabase.filesRoot, safeSegment(id, "paper id")), {
-						recursive: true,
-						force: true,
-					});
-				} catch (error) {
-					blobWarnings.push(`${id}: ${error instanceof Error ? error.message : String(error)}`);
+				const result = await this.personalDatabase.deletePapers(targets);
+				if (result.missing.length) throw new Error(`Papers changed during deletion: ${result.missing.join(", ")}`);
+			} catch (error) {
+				for (const { source, target } of [...staged.values()].reverse()) {
+					await rename(target, source).catch(() => undefined);
 				}
-				deleted.push(id);
+				await rm(trashRoot, { recursive: true, force: true }).catch(() => undefined);
+				throw error;
 			}
-			return { deleted, missing, blobWarnings };
+			for (let index = 0; index < targets.length; index += 3) {
+				await Promise.all(
+					targets.slice(index, index + 3).map(async (id) => {
+						const stagedDirectory = staged.get(id)?.target;
+						if (!stagedDirectory) return;
+						try {
+							await rm(stagedDirectory, { recursive: true, force: true });
+						} catch (error) {
+							blobWarnings.push(`${id}: ${error instanceof Error ? error.message : String(error)}`);
+						}
+					}),
+				);
+			}
+			try {
+				await rm(trashRoot, { recursive: true, force: true });
+			} catch (error) {
+				blobWarnings.push(`trash cleanup: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			return { deleted: targets, missing, blobWarnings };
 		}
 		return this.withWriteLock(async () => {
 			const uniqueIds = [...new Set(paperIds)];
@@ -89,22 +135,16 @@ export abstract class LiteratureStoreRecords extends LiteratureStoreLibrary {
 		});
 	}
 
-	async searchPapers(options: {
-		query?: string;
-		yearFrom?: number;
-		yearTo?: number;
-		authors?: string[];
-		venues?: string[];
-		tags?: string[];
-		identifiers?: string[];
-		screeningStatuses?: ScreeningStatus[];
-		types?: string[];
-		openAccess?: boolean;
-		offset?: number;
-		limit?: number;
-		/** Avoid creating or repairing indexes; used by once-mode and explicitly read-only surfaces. */
-		readOnly?: boolean;
-	}): Promise<CorpusSearchHit[]> {
+	async searchPapers(options: PaperSearchOptions): Promise<CorpusSearchHit[]> {
+		return (await this.searchPapersPage(options)).hits;
+	}
+
+	async searchPapersPage(options: PaperSearchOptions): Promise<{
+		hits: CorpusSearchHit[];
+		total: number;
+		offset: number;
+		limit: number;
+	}> {
 		if (!options.readOnly) await this.initialize();
 		const query = normalizeSearchText(options.query ?? "");
 		const terms = query.split(" ").filter((term) => term.length > 1);
@@ -123,6 +163,16 @@ export abstract class LiteratureStoreRecords extends LiteratureStoreLibrary {
 					)
 				: await this.listPapers();
 		for (const record of candidates) {
+			if (options.collectionId === "__uncategorized__" && (record.collectionIds?.length ?? 0) > 0) {
+				continue;
+			}
+			if (
+				options.collectionId &&
+				options.collectionId !== "__uncategorized__" &&
+				!record.collectionIds?.includes(options.collectionId)
+			) {
+				continue;
+			}
 			if (options.yearFrom !== undefined && (record.year === undefined || record.year < options.yearFrom)) continue;
 			if (options.yearTo !== undefined && (record.year === undefined || record.year > options.yearTo)) continue;
 			const authors = record.authors.map(normalizeSearchText);
@@ -205,8 +255,10 @@ export abstract class LiteratureStoreRecords extends LiteratureStoreLibrary {
 			hits.push({ record, score, matchedFields });
 		}
 		const offset = Math.max(0, options.offset ?? 0);
-		return hits
-			.sort((left, right) => right.score - left.score || left.record.title.localeCompare(right.record.title))
-			.slice(offset, offset + Math.min(options.limit ?? 100, 500));
+		const limit = Math.min(options.limit ?? 100, 500);
+		const sorted = hits.sort(
+			(left, right) => right.score - left.score || left.record.title.localeCompare(right.record.title),
+		);
+		return { hits: sorted.slice(offset, offset + limit), total: sorted.length, offset, limit };
 	}
 }

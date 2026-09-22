@@ -184,8 +184,8 @@ export interface PersonalMetadataEnrichmentInput {
 }
 
 export interface PersonalPaperRemovalInput {
-	paperId?: string;
-	paperIds?: string[];
+	mode: "remove-from-collection" | "permanent-delete";
+	paperIds: string[];
 	namespace?: string;
 	collectionId?: string;
 	author?: string;

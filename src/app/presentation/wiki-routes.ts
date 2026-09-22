@@ -7,7 +7,7 @@ import {
 	type WikiIngestRequest,
 } from "../../wiki/domain/wiki-types.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
-import { ApiError, grantFromBody, json, readJson } from "./web-http.ts";
+import { ApiError, boundedStringArray, grantFromBody, json, readJson } from "./web-http.ts";
 
 function namespaceFrom(url: URL, body?: Record<string, unknown>): string | undefined {
 	return typeof body?.namespace === "string" ? body.namespace : (url.searchParams.get("namespace") ?? undefined);
@@ -31,7 +31,8 @@ function wikiChange(value: unknown): IngestWikiPageInput {
 	if (!isWikiPageType(body.type)) throw new ApiError(400, "unsupported Wiki page type");
 	const evidence = Array.isArray(body.evidence)
 		? body.evidence.map((item) => {
-				if (!item || typeof item !== "object" || Array.isArray(item)) throw new ApiError(400, "evidence must be objects");
+				if (!item || typeof item !== "object" || Array.isArray(item))
+					throw new ApiError(400, "evidence must be objects");
 				const raw = item as Record<string, unknown>;
 				if (typeof raw.id !== "string" || typeof raw.kind !== "string" || !isWikiEvidenceKind(raw.kind)) {
 					throw new ApiError(400, "evidence id and supported kind are required");
@@ -102,6 +103,14 @@ export async function handleWikiRoutes(
 		json(response, 200, await application.listWikiPages(namespace, searchOptions(url)));
 		return true;
 	}
+	if (request.method === "GET" && url.pathname === "/api/wiki/management-file") {
+		const path = url.searchParams.get("path");
+		if (!path) throw new ApiError(400, "Wiki management file path is required");
+		const file = await application.getWikiManagementFile(path, namespace);
+		if (!file) throw new ApiError(404, `Wiki management file not found: ${path}`);
+		json(response, 200, { namespace, file });
+		return true;
+	}
 	const pageId = pageIdFromPath(url.pathname);
 	if (request.method === "GET" && pageId) {
 		const result = await application.getWikiPage(pageId, namespace);
@@ -126,6 +135,39 @@ export async function handleWikiRoutes(
 		json(response, 200, await application.openWiki(body.action, bodyNamespace));
 		return true;
 	}
+	if (url.pathname === "/api/wiki/source-pages/delete/prepare") {
+		if (typeof body.paperId !== "string" || !body.paperId.trim() || body.paperId.length > 512) {
+			throw new ApiError(400, "paperId is required");
+		}
+		const includeMixedPageIds = boundedStringArray(body.includeMixedPageIds, "includeMixedPageIds", 100, 128) ?? [];
+		json(
+			response,
+			200,
+			await application.prepareWikiSourcePageDeletion(body.paperId, includeMixedPageIds, bodyNamespace),
+		);
+		return true;
+	}
+	if (url.pathname === "/api/wiki/source-pages/delete/execute") {
+		if (typeof body.paperId !== "string" || !body.paperId.trim() || body.paperId.length > 512) {
+			throw new ApiError(400, "paperId is required");
+		}
+		if (typeof body.previewFingerprint !== "string" || !body.previewFingerprint.trim()) {
+			throw new ApiError(400, "previewFingerprint is required");
+		}
+		const includeMixedPageIds = boundedStringArray(body.includeMixedPageIds, "includeMixedPageIds", 100, 128) ?? [];
+		json(
+			response,
+			200,
+			await application.deleteWikiSourcePages(
+				body.paperId,
+				includeMixedPageIds,
+				body.previewFingerprint,
+				grantFromBody(body),
+				bodyNamespace,
+			),
+		);
+		return true;
+	}
 	if (url.pathname === "/api/wiki/ingest/prepare") {
 		json(response, 200, await application.prepareWikiIngest(wikiIngestRequest(body), bodyNamespace));
 		return true;
@@ -133,7 +175,7 @@ export async function handleWikiRoutes(
 	if (url.pathname === "/api/wiki/ingest/execute") {
 		const requestInput = wikiIngestRequest(body);
 		json(response, 200, {
-			...await application.ingestWikiPages(requestInput, grantFromBody(body), bodyNamespace),
+			...(await application.ingestWikiPages(requestInput, grantFromBody(body), bodyNamespace)),
 		});
 		return true;
 	}

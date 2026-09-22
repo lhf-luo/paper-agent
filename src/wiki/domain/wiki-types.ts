@@ -61,6 +61,21 @@ export interface WikiPage extends WikiPageMetadata {
 	claims: WikiClaim[];
 }
 
+export interface WikiPaperDependencyPage {
+	id: string;
+	title: string;
+	contentHash: string;
+	evidenceCount: number;
+	mixed: boolean;
+}
+
+export interface WikiPaperDependencyPreview {
+	namespace: string;
+	paperIds: string[];
+	fingerprint: string;
+	dependencies: Array<{ paperId: string; pages: WikiPaperDependencyPage[] }>;
+}
+
 export interface WikiMatch {
 	reason: "title" | "alias" | "chunk" | "source" | "related";
 	score: number;
@@ -102,6 +117,8 @@ export interface WikiLintIssue {
 	pageId?: string;
 	evidenceId?: string;
 	claimId?: string;
+	sourceKind?: "paper" | "note";
+	sourceId?: string;
 }
 
 export interface WikiSyncResult {
@@ -169,6 +186,43 @@ export interface WikiIngestResult {
 	previewFingerprint: string;
 }
 
+export interface WikiSourcePageDeletionEntry {
+	id: string;
+	title: string;
+	type: WikiPageType;
+	status: WikiPageStatus;
+	relativePath: string;
+	contentHash: string;
+	matchingEvidenceIds: string[];
+	otherSources: string[];
+}
+
+export interface WikiSourcePageDeletionBacklink {
+	pageId: string;
+	title: string;
+	targetPageIds: string[];
+}
+
+export interface WikiSourcePageDeletionPreview {
+	namespace: string;
+	paperId: string;
+	includeMixedPageIds: string[];
+	fingerprint: string;
+	generatedAt: string;
+	deletablePages: WikiSourcePageDeletionEntry[];
+	mixedPages: WikiSourcePageDeletionEntry[];
+	targetPages: WikiSourcePageDeletionEntry[];
+	externalBacklinks: WikiSourcePageDeletionBacklink[];
+	blocked: boolean;
+}
+
+export interface WikiSourcePageDeletionResult {
+	deletedPages: WikiSourcePageDeletionEntry[];
+	deletedEvidenceCount: number;
+	previewFingerprint: string;
+	lint: WikiSyncResult;
+}
+
 export interface WikiSearchOptions {
 	query?: string;
 	pageId?: string;
@@ -187,10 +241,16 @@ export interface WikiSearchResult {
 	sync: WikiSyncResult;
 }
 
+export interface WikiManagementFile {
+	name: string;
+	path: string;
+	markdown: string;
+}
+
 export interface WikiTreeNode {
 	name: string;
 	path: string;
-	kind: "folder" | "page" | "file";
+	kind: "folder" | "page" | "management" | "file";
 	children?: WikiTreeNode[];
 	id?: string;
 	title?: string;

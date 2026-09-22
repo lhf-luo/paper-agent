@@ -79,10 +79,13 @@ describe("prompt and skill contracts", () => {
 		expect(skill).toContain("preview_fingerprint");
 		expect(skill).toContain("不要绕过工具直接编辑 Markdown");
 		expect(skill).toContain("尚未沉淀");
+		expect(skill).toContain("delete_research_wiki_source_pages");
+		expect(skill).toContain("include_mixed_page_ids");
 		expect(schema).toContain("evidence:");
 		expect(schema).toContain("pdf_page");
 		expect(ingest).toContain("declaration-level evidence");
 		expect(query).toContain("Do not silently use");
 		expect(lint).toContain("Lint is read-only");
+		expect(lint).toContain("delete_research_wiki_source_pages");
 	});
 });

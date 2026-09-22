@@ -1,11 +1,12 @@
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
 import type { PaperRecord, PaperVersion, SearchRun } from "../src/literature/domain/literature-types.ts";
 import type { CommandExecutor } from "../src/shared/infrastructure/command-executor.ts";
+import { WikiWorkspace } from "../src/wiki/application/wiki-workspace.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -34,6 +35,36 @@ function searchRun(id: string, namespace: string, results: PaperRecord[]): Searc
 }
 
 describe("library collections API", () => {
+	it("filters by collection before applying the result limit", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-collection-filter-order-"));
+		temporaryPaths.push(root);
+		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
+		try {
+			const collection = await application.createLibraryCollection("Target", undefined);
+			const records: PaperRecord[] = [
+				{ id: "uncategorized-first", title: "A paper", collectionIds: [] },
+				{ id: "target-first", title: "Y target paper", collectionIds: [collection.id] },
+				{ id: "target-second", title: "Z target paper", collectionIds: [collection.id] },
+			].map((record) => ({
+				...record,
+				authors: ["Researcher"],
+				identifiers: {},
+				links: [],
+				provenance: [{ provider: "json-import", query: "fixture", retrievedAt: new Date().toISOString() }],
+				mergedFrom: [],
+			}));
+			await application.personalStore().upsertPapers(records);
+			const page = await application.searchPersonalLibrary({ collectionId: collection.id, limit: 1 });
+			expect(page.total).toBe(2);
+			expect(page.hits.map((hit) => hit.record.id)).toEqual(["target-first"]);
+			const memberships = await application.libraryCollectionMemberships();
+			expect(memberships.collectionPaperIds[collection.id]).toEqual(["target-first", "target-second"]);
+			expect(memberships.uncategorizedPaperIds).toEqual(["uncategorized-first"]);
+		} finally {
+			await application.close();
+		}
+	});
+
 	it("creates, lists, assigns, filters, renames, and deletes collections", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-collections-api-"));
 		temporaryPaths.push(root);
@@ -216,7 +247,7 @@ describe("library collections API", () => {
 		}
 	});
 
-	it("removes a paper from one collection before permanently deleting its final record", async () => {
+	it("keeps collection removal separate from permanent paper deletion", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-paper-removal-api-"));
 		temporaryPaths.push(root);
 		const staticRoot = join(root, "dist", "web");
@@ -233,6 +264,12 @@ describe("library collections API", () => {
 			mergedFrom: [],
 		};
 		await application.personalStore().upsertPaper(record);
+		const wikiPage = await application.wikiWorkspace().ingest({
+			title: "Paper removal knowledge",
+			type: "concept",
+			markdown: "# Paper removal knowledge\n\nThis claim uses the personal paper. [E1]",
+			evidence: [{ id: "E1", kind: "paper", sourceId: record.id, locator: { pdfPage: 1 } }],
+		});
 		const first = await application.createLibraryCollection("First", undefined);
 		const second = await application.createLibraryCollection("Second", undefined);
 		await application.setPaperCollections(record.id, [first.id, second.id]);
@@ -248,41 +285,116 @@ describe("library collections API", () => {
 				(await api("/api/operations/confirm", prepared)).json();
 
 			const removePreparedResponse = await api("/api/library/papers/remove/prepare", {
-				paperId: record.id,
+				mode: "remove-from-collection",
+				paperIds: [record.id],
 				collectionId: first.id,
 			});
 			expect(removePreparedResponse.status).toBe(200);
 			const removePrepared = (await removePreparedResponse.json()) as {
 				operationId: string;
 				manifestFingerprint: string;
-				details: { mode: string };
+				details: { mode: string; wikiDependencies: unknown[] };
 			};
 			expect(removePrepared.details.mode).toBe("remove-from-collection");
+			expect(removePrepared.details.wikiDependencies).toEqual([]);
 			const removed = await api("/api/library/papers/remove/execute", {
-				paperId: record.id,
+				mode: "remove-from-collection",
+				paperIds: [record.id],
 				collectionId: first.id,
 				grant: await confirm(removePrepared),
 			});
 			expect(await removed.json()).toMatchObject({ mode: "remove-from-collection" });
 			expect(await application.personalStore().getPaper(record.id)).toMatchObject({ collectionIds: [second.id] });
+			const removeFinalPrepared = (await (
+				await api("/api/library/papers/remove/prepare", {
+					mode: "remove-from-collection",
+					paperIds: [record.id],
+					collectionId: second.id,
+				})
+			).json()) as { operationId: string; manifestFingerprint: string };
+			const removedFinal = await api("/api/library/papers/remove/execute", {
+				mode: "remove-from-collection",
+				paperIds: [record.id],
+				collectionId: second.id,
+				grant: await confirm(removeFinalPrepared),
+			});
+			expect(await removedFinal.json()).toMatchObject({ mode: "remove-from-collection", deleted: [] });
+			expect((await application.personalStore().getPaper(record.id))?.collectionIds ?? []).toEqual([]);
 
 			const deletePreparedResponse = await api("/api/library/papers/remove/prepare", {
-				paperId: record.id,
-				collectionId: second.id,
+				mode: "permanent-delete",
+				paperIds: [record.id],
 			});
 			const deletePrepared = (await deletePreparedResponse.json()) as {
 				operationId: string;
 				manifestFingerprint: string;
-				details: { mode: string };
+				details: {
+					mode: string;
+					wikiDependencies: Array<{
+						paperId: string;
+						pageCount: number;
+						evidenceCount: number;
+						pages: Array<{ id: string; title: string }>;
+					}>;
+				};
 			};
 			expect(deletePrepared.details.mode).toBe("permanent-delete");
+			expect(deletePrepared.details.wikiDependencies).toEqual([
+				expect.objectContaining({
+					paperId: record.id,
+					pageCount: 1,
+					evidenceCount: 1,
+					pages: [expect.objectContaining({ id: wikiPage.id, title: wikiPage.title })],
+				}),
+			]);
 			const deleted = await api("/api/library/papers/remove/execute", {
-				paperId: record.id,
-				collectionId: second.id,
+				mode: "permanent-delete",
+				paperIds: [record.id],
 				grant: await confirm(deletePrepared),
 			});
 			expect(await deleted.json()).toMatchObject({ mode: "permanent-delete", deleted: [record.id] });
 			expect(await application.personalStore().getPaper(record.id)).toBeUndefined();
+			expect(await application.getWikiPage(wikiPage.id)).toBeDefined();
+			expect((await application.lintWiki()).issues).toContainEqual(
+				expect.objectContaining({
+					code: "missing-source",
+					pageId: wikiPage.id,
+					sourceKind: "paper",
+					sourceId: record.id,
+				}),
+			);
+
+			const cleanupPreparedResponse = await api("/api/wiki/source-pages/delete/prepare", {
+				namespace: "default",
+				paperId: record.id,
+				includeMixedPageIds: [],
+			});
+			expect(cleanupPreparedResponse.status).toBe(200);
+			const cleanupPrepared = (await cleanupPreparedResponse.json()) as {
+				status: string;
+				preview: { fingerprint: string; targetPages: Array<{ id: string }> };
+				operation: { operationId: string; manifestFingerprint: string };
+			};
+			expect(cleanupPrepared).toMatchObject({
+				status: "ready",
+				preview: { targetPages: [{ id: wikiPage.id }] },
+			});
+			const cleanupExecuted = await api("/api/wiki/source-pages/delete/execute", {
+				namespace: "default",
+				paperId: record.id,
+				includeMixedPageIds: [],
+				previewFingerprint: cleanupPrepared.preview.fingerprint,
+				grant: await confirm(cleanupPrepared.operation),
+			});
+			expect(cleanupExecuted.status).toBe(200);
+			expect(await cleanupExecuted.json()).toMatchObject({
+				deletedPages: [{ id: wikiPage.id }],
+				deletedEvidenceCount: 1,
+			});
+			expect(await application.getWikiPage(wikiPage.id)).toBeUndefined();
+			expect((await application.lintWiki()).issues).not.toContainEqual(
+				expect.objectContaining({ code: "missing-source", sourceId: record.id }),
+			);
 		} finally {
 			await server.close();
 			await application.close();
@@ -306,6 +418,7 @@ describe("library collections API", () => {
 			mergedFrom: [],
 		}));
 		for (const record of records) await application.personalStore().upsertPaper(record);
+		const dependencyPreview = vi.spyOn(WikiWorkspace.prototype, "previewPaperDependencies");
 		const server = await startLocalWebServer(application, { staticRoot });
 		try {
 			const post = (path: string, body: Record<string, unknown>) =>
@@ -315,7 +428,10 @@ describe("library collections API", () => {
 					body: JSON.stringify(body),
 				});
 			const paperIds = records.map((record) => record.id);
-			const preparedResponse = await post("/api/library/papers/remove/prepare", { paperIds });
+			const preparedResponse = await post("/api/library/papers/remove/prepare", {
+				mode: "permanent-delete",
+				paperIds,
+			});
 			expect(preparedResponse.status).toBe(200);
 			const prepared = (await preparedResponse.json()) as {
 				operationId: string;
@@ -323,13 +439,19 @@ describe("library collections API", () => {
 				details: { mode: string; paperCount: number; paperIds: string[] };
 			};
 			expect(prepared.details).toMatchObject({ mode: "permanent-delete", paperCount: 2, paperIds });
+			expect(dependencyPreview).toHaveBeenCalledTimes(1);
 			const grant = await (await post("/api/operations/confirm", prepared)).json();
-			const executed = await post("/api/library/papers/remove/execute", { paperIds, grant });
+			const executed = await post("/api/library/papers/remove/execute", {
+				mode: "permanent-delete",
+				paperIds,
+				grant,
+			});
 			expect(await executed.json()).toMatchObject({
 				mode: "permanent-delete",
 				deleted: paperIds,
 				removedFromCollection: [],
 			});
+			expect(dependencyPreview).toHaveBeenCalledTimes(2);
 			expect(await application.personalStore().listPapers()).toEqual([]);
 		} finally {
 			await server.close();

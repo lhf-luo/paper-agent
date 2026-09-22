@@ -263,6 +263,32 @@ export interface WikiLintIssue {
 	pageId?: string;
 	evidenceId?: string;
 	claimId?: string;
+	sourceKind?: "paper" | "note";
+	sourceId?: string;
+}
+
+export interface WikiSourcePageDeletionEntry {
+	id: string;
+	title: string;
+	type: WikiPageSummary["type"];
+	status: WikiPageSummary["status"];
+	relativePath: string;
+	contentHash: string;
+	matchingEvidenceIds: string[];
+	otherSources: string[];
+}
+
+export interface WikiSourcePageDeletionPreview {
+	namespace: string;
+	paperId: string;
+	includeMixedPageIds: string[];
+	fingerprint: string;
+	generatedAt: string;
+	deletablePages: WikiSourcePageDeletionEntry[];
+	mixedPages: WikiSourcePageDeletionEntry[];
+	targetPages: WikiSourcePageDeletionEntry[];
+	externalBacklinks: Array<{ pageId: string; title: string; targetPageIds: string[] }>;
+	blocked: boolean;
 }
 
 export interface WikiEvidence {
@@ -326,12 +352,18 @@ export interface WikiPage extends WikiPageSummary {
 export interface WikiTreeNode {
 	name: string;
 	path: string;
-	kind: "folder" | "page" | "file";
+	kind: "folder" | "page" | "management" | "file";
 	children?: WikiTreeNode[];
 	id?: string;
 	title?: string;
 	type?: WikiPageSummary["type"];
 	status?: WikiPageSummary["status"];
+}
+
+export interface WikiManagementFile {
+	name: string;
+	path: string;
+	markdown: string;
 }
 
 export interface ConfirmationGrant {

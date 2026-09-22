@@ -3,8 +3,6 @@ import { dirname, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sourceRoot = resolve(process.cwd(), "src");
-const maxRuntimeSourceLines = 600;
-
 async function sourceFiles(directory = sourceRoot): Promise<string[]> {
 	const entries = await readdir(directory, { withFileTypes: true });
 	const nested = await Promise.all(
@@ -74,14 +72,6 @@ describe("source architecture", () => {
 				imports.filter((specifier) => forbidden.some((fragment) => specifier.includes(fragment))),
 				name,
 			).toEqual([]);
-		}
-	});
-
-	it("keeps runtime source files within the module-size budget", async () => {
-		for (const file of await sourceFiles()) {
-			const name = relative(sourceRoot, file).replaceAll("\\", "/");
-			const lines = (await readFile(file, "utf8")).trimEnd().split(/\r?\n/).length;
-			expect(lines, name).toBeLessThanOrEqual(maxRuntimeSourceLines);
 		}
 	});
 

@@ -138,6 +138,7 @@ export async function handleLibraryRoutes(
 				yearFrom: numberValue(url.searchParams.get("yearFrom")),
 				yearTo: numberValue(url.searchParams.get("yearTo")),
 				collectionId: url.searchParams.get("collection") ?? undefined,
+				offset: numberValue(url.searchParams.get("offset"), 0),
 				tags: url.searchParams.getAll("tag"),
 				screeningStatuses: url.searchParams
 					.getAll("screeningStatus")
@@ -236,12 +237,13 @@ export async function handleLibraryRoutes(
 	) {
 		const body = await readJson(request);
 		const paperIds = boundedStringArray(body.paperIds, "paperIds", 1_000, 500);
-		if (typeof body.paperId !== "string" && !paperIds?.length) {
-			throw new ApiError(400, "paperId or paperIds is required");
+		if (!paperIds?.length) throw new ApiError(400, "paperIds is required");
+		if (body.mode !== "remove-from-collection" && body.mode !== "permanent-delete") {
+			throw new ApiError(400, "mode must be remove-from-collection or permanent-delete");
 		}
 		const input: PersonalPaperRemovalInput = {
-			paperId: typeof body.paperId === "string" ? body.paperId : undefined,
 			paperIds,
+			mode: body.mode,
 			namespace: namespaceValue(body.namespace),
 			collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 			author: typeof body.author === "string" ? body.author : undefined,

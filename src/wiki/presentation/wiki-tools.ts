@@ -12,8 +12,9 @@ import type {
 	IngestWikiPageInput,
 	WikiEvidenceInput,
 	WikiIngestPreview,
-	WikiPageType,
 	WikiPageStatus,
+	WikiPageType,
+	WikiSourcePageDeletionPreview,
 } from "../domain/wiki-types.ts";
 
 function workspace(cwd: string, namespace: string): WikiWorkspace {
@@ -194,6 +195,31 @@ function wikiIngestPlan(preview: WikiIngestPreview): OperationPlan {
 	};
 }
 
+function wikiSourcePageDeletionPlan(preview: WikiSourcePageDeletionPreview): OperationPlan {
+	return {
+		kind: "wiki-write",
+		summary: `Delete ${preview.targetPages.length} Wiki page(s) linked to ${preview.paperId}`,
+		actor: "paper-agent",
+		targets: preview.targetPages.map((page) => ({
+			label: "Wiki page",
+			value: `${preview.namespace}/${page.title}`,
+			risk: "high",
+		})),
+		details: {
+			namespace: preview.namespace,
+			paperId: preview.paperId,
+			previewFingerprint: preview.fingerprint,
+			pages: preview.targetPages.map((page) => ({
+				id: page.id,
+				title: page.title,
+				relativePath: page.relativePath,
+				matchingEvidenceIds: page.matchingEvidenceIds,
+				otherSources: page.otherSources,
+			})),
+		},
+	};
+}
+
 function renderSearchText(result: Awaited<ReturnType<WikiWorkspace["search"]>>): string {
 	if (!result.pages.length) {
 		return "No deposited Wiki page matched. Do not answer from temporary materials as if it came from the Wiki.";
@@ -204,7 +230,11 @@ function renderSearchText(result: Awaited<ReturnType<WikiWorkspace["search"]>>):
 				? ` match=${page.match.reason}${page.match.heading ? ` heading=${page.match.heading}` : ""}`
 				: "";
 			const evidence = page.match?.evidenceIds.length ? ` evidence=${page.match.evidenceIds.join(",")}` : "";
-			const snippet = page.snippet ? `\n  ${stripMarkup(page.snippet)}` : page.match?.snippet ? `\n  ${stripMarkup(page.match.snippet)}` : "";
+			const snippet = page.snippet
+				? `\n  ${stripMarkup(page.snippet)}`
+				: page.match?.snippet
+					? `\n  ${stripMarkup(page.match.snippet)}`
+					: "";
 			return `- ${page.title} (${page.id}, ${page.type}, ${page.status})${match}${evidence}${snippet}`;
 		})
 		.join("\n");
@@ -251,7 +281,9 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 								`# ${found.page.title}`,
 								`ID: ${found.page.id}; type: ${found.page.type}; status: ${found.page.status}`,
 								`Evidence: ${found.page.evidence.map((item) => item.id).join(", ") || "none"}`,
-								...(found.backlinks.length ? [`Backlinks: ${found.backlinks.map((item) => item.title).join(", ")}`] : []),
+								...(found.backlinks.length
+									? [`Backlinks: ${found.backlinks.map((item) => item.title).join(", ")}`]
+									: []),
 								"",
 								found.page.markdown,
 							].join("\n"),
@@ -388,6 +420,97 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 					},
 				],
 				details: { namespace, ...result },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "delete_research_wiki_source_pages",
+		label: "Delete Wiki pages by paper source",
+		description:
+			"Preview or apply deletion of complete research Wiki pages linked to one personal-library Paper ID. Pages with any other source are excluded unless their exact page IDs are explicitly included. Apply requires the preview fingerprint and interactive Wiki-write authorization.",
+		promptSnippet:
+			"Remove complete Wiki pages after the user intentionally deletes and does not want to restore their source paper",
+		promptGuidelines: [
+			"Always preview first. Show every target page, mixed-source page, and external backlink before apply.",
+			"Do not include mixed-source page IDs unless the user explicitly approves deleting those complete pages.",
+			"Never replace a missing paper with model memory. After apply, query the Paper ID again and run lint_research_wiki.",
+		],
+		parameters: Type.Object({
+			mode: Type.Union([Type.Literal("preview"), Type.Literal("apply")]),
+			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
+			paper_id: Type.String({ minLength: 1, maxLength: 512 }),
+			include_mixed_page_ids: Type.Optional(
+				Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100, uniqueItems: true }),
+			),
+			preview_fingerprint: Type.Optional(Type.String({ minLength: 64, maxLength: 128 })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const namespace = params.namespace ?? "default";
+			const wiki = workspace(ctx.cwd, namespace);
+			const preview = await wiki.previewSourcePageDeletion(params.paper_id, params.include_mixed_page_ids ?? []);
+			if (params.mode === "preview") {
+				return {
+					content: [
+						{
+							type: "text",
+							text: [
+								`Wiki source deletion preview ${preview.fingerprint}`,
+								`Paper ID: ${preview.paperId}; targets: ${preview.targetPages.length}; mixed: ${preview.mixedPages.length}; external backlinks: ${preview.externalBacklinks.length}.`,
+								...preview.targetPages.map(
+									(page) =>
+										`- delete page_id=${page.id} | title=${page.title} | evidence=${page.matchingEvidenceIds.length}${page.otherSources.length ? " | mixed-source override" : ""}`,
+								),
+								...preview.mixedPages
+									.filter((page) => !preview.includeMixedPageIds.includes(page.id))
+									.map(
+										(page) =>
+											`- retained mixed page_id=${page.id} | title=${page.title} | other_sources=${page.otherSources.join(",")}`,
+									),
+								...preview.externalBacklinks.map(
+									(page) =>
+										`- blocking backlink page_id=${page.pageId} | title=${page.title} | targets=${page.targetPageIds.join(",")}`,
+								),
+							].join("\n"),
+						},
+					],
+					details: { namespace, preview },
+				};
+			}
+			if (!params.preview_fingerprint) throw new Error("preview_fingerprint is required when mode=apply");
+			if (params.preview_fingerprint !== preview.fingerprint) {
+				throw new Error("Wiki deletion preview fingerprint changed; run preview again");
+			}
+			if (preview.blocked) {
+				throw new Error("Wiki deletion is blocked by backlinks from pages outside the deletion set");
+			}
+			if (!preview.targetPages.length) {
+				return {
+					content: [{ type: "text", text: "No Wiki pages were eligible for deletion; no write was needed." }],
+					details: { namespace, preview },
+				};
+			}
+			const plan = wikiSourcePageDeletionPlan(preview);
+			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
+				title: "删除关联研究 Wiki 页面？",
+				unavailableMessage: "研究 Wiki 页面删除需要交互确认，请使用 Web 界面。",
+				details: () => [
+					`论文 ID：${preview.paperId}`,
+					`删除页面：${preview.targetPages.length}`,
+					`证据引用：${preview.targetPages.reduce((sum, page) => sum + page.matchingEvidenceIds.length, 0)}`,
+				],
+			});
+			const result = await runAuthorizedMutation(authorization, plan, () => wiki.applySourcePageDeletion(preview));
+			const errors = result.lint.issues.filter((issue) => issue.severity === "error").length;
+			const warnings = result.lint.issues.filter((issue) => issue.severity === "warning").length;
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Deleted ${result.deletedPages.length} Wiki page(s) and ${result.deletedEvidenceCount} matching evidence entries. Remaining lint: ${errors} errors, ${warnings} warnings.`,
+					},
+				],
+				details: { namespace, preview, result },
 			};
 		},
 	});

@@ -27,33 +27,27 @@ export abstract class PaperAgentLibrary extends PaperAgentOperations {
 		tags?: string[];
 		screeningStatuses?: ScreeningStatus[];
 		collectionId?: string;
+		offset?: number;
 		limit?: number;
 	}) {
 		const namespace = input.namespace ?? this.defaultNamespace;
 		const store = this.personalStore(namespace);
-		let hits = await store.searchPapers({
+		const page = await store.searchPapersPage({
 			query: input.query,
 			yearFrom: input.yearFrom,
 			yearTo: input.yearTo,
 			tags: input.tags,
 			screeningStatuses: input.screeningStatuses,
+			collectionId: input.collectionId,
+			offset: input.offset,
 			limit: input.limit ?? 100,
 			readOnly: true,
 		});
-		// 按分类过滤: __uncategorized__ 表示未分类, 其它为分类 id。
-		const collectionId = input.collectionId;
-		if (collectionId) {
-			if (collectionId === "__uncategorized__") {
-				hits = hits.filter((hit) => !hit.record.collectionIds || hit.record.collectionIds.length === 0);
-			} else {
-				hits = hits.filter((hit) => hit.record.collectionIds?.includes(collectionId));
-			}
-		}
 		return {
 			namespace,
 			corpusPath: store.root,
 			collectionId: input.collectionId,
-			hits,
+			...page,
 		};
 	}
 
@@ -66,20 +60,7 @@ export abstract class PaperAgentLibrary extends PaperAgentOperations {
 	async libraryCollectionMemberships(namespace = this.defaultNamespace) {
 		const store = this.personalStore(namespace);
 		await store.initialize();
-		const [papers, collections] = await Promise.all([store.listPapers(), store.listCollections()]);
-		const collectionPaperIds: Record<string, string[]> = Object.fromEntries(
-			collections.map((collection) => [collection.id, []]),
-		);
-		const allPaperIds: string[] = [];
-		const uncategorizedPaperIds: string[] = [];
-		for (const paper of papers) {
-			allPaperIds.push(paper.id);
-			if (!paper.collectionIds?.length) uncategorizedPaperIds.push(paper.id);
-			for (const collectionId of paper.collectionIds ?? []) {
-				collectionPaperIds[collectionId]?.push(paper.id);
-			}
-		}
-		return { namespace, allPaperIds, uncategorizedPaperIds, collectionPaperIds };
+		return { namespace, ...(await store.collectionMemberships()) };
 	}
 
 	async createLibraryCollection(

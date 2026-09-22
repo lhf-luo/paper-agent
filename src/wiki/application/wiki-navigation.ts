@@ -1,16 +1,16 @@
-import { access, appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { WikiPage, WikiPageType, WikiTreeNode } from "../domain/wiki-types.ts";
 import {
+	parseWikiPage,
 	WIKI_INDEX_FILENAME,
 	WIKI_LOG_FILENAME,
 	WIKI_RESERVED_FILES,
 	WIKI_TYPE_DIRECTORIES,
-	parseWikiPage,
 } from "./wiki-page-codec.ts";
 
 export interface WikiLogEntry {
-	action: "create" | "update";
+	action: "create" | "update" | "delete";
 	pageId: string;
 	title: string;
 	type: WikiPageType;
@@ -114,7 +114,7 @@ async function directoryChildren(root: string, directory: string): Promise<WikiT
 		}
 		if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
 		if (WIKI_RESERVED_FILES.has(entry.name.toLowerCase())) {
-			nodes.push({ name: entry.name, path: relativePath, kind: "file" });
+			nodes.push({ name: entry.name, path: relativePath, kind: "management" });
 			continue;
 		}
 		try {

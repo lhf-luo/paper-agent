@@ -2,10 +2,7 @@ import { extractWikiClaims, nearDuplicateLabels, normalizedWikiLabel } from "../
 import type { WikiLintIssue, WikiPage, WikiSourceSnapshot } from "../domain/wiki-types.ts";
 import { isHttpUrl } from "./wiki-page-codec.ts";
 
-export type WikiSourceLookup = (
-	kind: "paper" | "note",
-	id: string,
-) => Promise<WikiSourceSnapshot | undefined>;
+export type WikiSourceLookup = (kind: "paper" | "note", id: string) => Promise<WikiSourceSnapshot | undefined>;
 
 export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup): Promise<WikiLintIssue[]> {
 	const issues: WikiLintIssue[] = [];
@@ -56,7 +53,13 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 		const referenced = new Set(extractWikiClaims(page.markdown).flatMap((claim) => claim.evidenceIds));
 		const available = new Set(page.evidence.map((item) => item.id));
 		if (!page.markdown.trim()) {
-			issues.push({ severity: "warning", code: "empty-page", path: page.relativePath, message: "页面正文为空", pageId: page.id });
+			issues.push({
+				severity: "warning",
+				code: "empty-page",
+				path: page.relativePath,
+				message: "页面正文为空",
+				pageId: page.id,
+			});
 		}
 		for (const claim of page.claims) {
 			for (const evidenceId of claim.evidenceIds) {
@@ -104,6 +107,8 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 						message: `个人库论文不存在：${evidence.sourceId}`,
 						pageId: page.id,
 						evidenceId: evidence.id,
+						sourceKind: "paper",
+						sourceId: evidence.sourceId,
 					});
 				} else if (evidence.version && evidence.version !== source.version) {
 					issues.push({
@@ -126,6 +131,8 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 						message: `调研笔记不存在：${evidence.sourceId}`,
 						pageId: page.id,
 						evidenceId: evidence.id,
+						sourceKind: "note",
+						sourceId: evidence.sourceId,
 					});
 				} else if (
 					(evidence.version && evidence.version !== source.version) ||
@@ -152,6 +159,8 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 						message: `Artifact 所属论文不存在：${evidence.paperId}`,
 						pageId: page.id,
 						evidenceId: evidence.id,
+						sourceKind: "paper",
+						sourceId: evidence.paperId,
 					});
 				}
 				if (!evidence.locator.commit && !evidence.locator.path && !evidence.locator.url) {
@@ -192,9 +201,21 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 		}
 		for (const link of page.links) {
 			if (normalizedWikiLabel(link) === normalizedWikiLabel(page.title)) {
-				issues.push({ severity: "warning", code: "self-link", path: page.relativePath, message: `页面链接自身：[[${link}]]`, pageId: page.id });
+				issues.push({
+					severity: "warning",
+					code: "self-link",
+					path: page.relativePath,
+					message: `页面链接自身：[[${link}]]`,
+					pageId: page.id,
+				});
 			} else if (!labels.has(normalizedWikiLabel(link))) {
-				issues.push({ severity: "warning", code: "broken-link", path: page.relativePath, message: `未找到链接页面：[[${link}]]`, pageId: page.id });
+				issues.push({
+					severity: "warning",
+					code: "broken-link",
+					path: page.relativePath,
+					message: `未找到链接页面：[[${link}]]`,
+					pageId: page.id,
+				});
 			}
 		}
 		if (

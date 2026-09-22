@@ -345,6 +345,19 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		});
 	}
 
+	async getPapers(ids: string[]): Promise<PaperRecord[]> {
+		const uniqueIds = [...new Set(ids)];
+		if (!uniqueIds.length) return [];
+		await this.initialize();
+		return this.read((database) => {
+			const select = database.prepare("SELECT record_json FROM papers WHERE namespace_id = ? AND paper_id = ?");
+			return uniqueIds
+				.map((id) => select.get(this.namespace, id) as { record_json: string } | undefined)
+				.filter((row): row is { record_json: string } => Boolean(row))
+				.map((row) => parseJson<PaperRecord>(row.record_json));
+		});
+	}
+
 	async savePaper(record: PaperRecord, previousId?: string): Promise<void> {
 		await this.initialize();
 		const previous = previousId ? await this.getPaper(previousId) : await this.getPaper(record.id);
