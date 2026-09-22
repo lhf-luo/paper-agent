@@ -14,6 +14,7 @@ export function readerVersionState(paper: PaperRecord, namespace: string, versio
 		retrievedAt: version.retrievedAt,
 		versionKind: version.versionKind,
 		versionLabel: version.versionLabel,
+		translationOutputMode: version.translation?.outputMode,
 	};
 }
 

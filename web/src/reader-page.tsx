@@ -5,7 +5,9 @@ import { api } from "./api";
 import { BrowserPdfReader } from "./browser-pdf-reader";
 import { formatFileSize } from "./components";
 import { MineruControl } from "./mineru-control";
+import { MozillaPdfReader } from "./mozilla-pdf-reader";
 import { PdfTranslationControl } from "./pdf-translation-control";
+import { usesMozillaPdfViewer } from "./pdfjs-viewer-url";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
 import { readerTabsStorageKey, readerVersionName, readerVersionState, restoredReaderTabs } from "./reader-state";
 import type {
@@ -321,6 +323,7 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 							retrievedAt: result.version.retrievedAt,
 							versionKind: result.version.versionKind,
 							versionLabel: result.version.versionLabel,
+							translationOutputMode: result.outputMode,
 						});
 						void loadReaderData();
 					}}
@@ -365,7 +368,11 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				style={{ "--paper-agent-pane-width": `${readerWorkspaceWidth}px` } as React.CSSProperties}
 			>
 				<div className="browser-pdf-shell">
-					<BrowserPdfReader url={activeReader.url} title={activeReader.title} />
+					{usesMozillaPdfViewer(activeReader.translationOutputMode) ? (
+						<MozillaPdfReader url={activeReader.url} title={activeReader.title} />
+					) : (
+						<BrowserPdfReader url={activeReader.url} title={activeReader.title} />
+					)}
 				</div>
 				{workspaceOpen && (
 					<>

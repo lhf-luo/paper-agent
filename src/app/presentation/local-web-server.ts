@@ -41,6 +41,7 @@ export interface LocalWebServerHandle {
 
 const mimeTypes: Record<string, string> = {
 	".css": "text/css; charset=utf-8",
+	".ftl": "text/plain; charset=utf-8",
 	".html": "text/html; charset=utf-8",
 	".js": "text/javascript; charset=utf-8",
 	".mjs": "text/javascript; charset=utf-8",
@@ -48,6 +49,7 @@ const mimeTypes: Record<string, string> = {
 	".map": "application/json; charset=utf-8",
 	".png": "image/png",
 	".svg": "image/svg+xml",
+	".wasm": "application/wasm",
 	".woff2": "font/woff2",
 };
 
@@ -95,16 +97,17 @@ async function serveStatic(response: ServerResponse, staticRoot: string, pathnam
 	} catch {
 		throw new ApiError(503, "Web assets are not built. Run npm run web:build.");
 	}
-		response.writeHead(200, {
-			"content-type": mimeTypes[extname(path).toLowerCase()] ?? "application/octet-stream",
-			"content-length": fileStat.size,
-			"cache-control": path.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
-			"content-security-policy":
-				"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self'",
-			"referrer-policy": "no-referrer",
-			"x-content-type-options": "nosniff",
-			"x-frame-options": "DENY",
-		});
+	const embeddedPdfViewer = pathname.startsWith("/pdfjs/");
+	response.writeHead(200, {
+		"content-type": mimeTypes[extname(path).toLowerCase()] ?? "application/octet-stream",
+		"content-length": fileStat.size,
+		"cache-control": path.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
+		"content-security-policy":
+			"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self'",
+		"referrer-policy": "no-referrer",
+		"x-content-type-options": "nosniff",
+		"x-frame-options": embeddedPdfViewer ? "SAMEORIGIN" : "DENY",
+	});
 	createReadStream(path).pipe(response);
 }
 

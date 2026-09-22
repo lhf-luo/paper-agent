@@ -2300,6 +2300,7 @@ export function LibraryPage({
 														retrievedAt: version.retrievedAt,
 														versionKind: version.versionKind,
 														versionLabel: version.versionLabel,
+														translationOutputMode: version.translation?.outputMode,
 													})
 												}
 											>

@@ -21,8 +21,15 @@ describe("local Paper Agent web server", () => {
 		temporaryPaths.push(root);
 		const staticRoot = join(root, "web");
 		await mkdir(join(staticRoot, "assets"), { recursive: true });
+		await mkdir(join(staticRoot, "pdfjs", "6.2.108", "web"), { recursive: true });
 		await writeFile(join(staticRoot, "index.html"), "<!doctype html><title>Paper Agent</title>");
 		await writeFile(join(staticRoot, "assets", "worker.mjs"), "export default 'worker';");
+		await writeFile(
+			join(staticRoot, "pdfjs", "6.2.108", "web", "viewer.html"),
+			"<!doctype html><title>PDF.js</title>",
+		);
+		await writeFile(join(staticRoot, "pdfjs", "6.2.108", "web", "viewer.ftl"), "pdfjs-test = Viewer");
+		await writeFile(join(staticRoot, "pdfjs", "6.2.108", "web", "viewer.wasm"), "wasm");
 		const executor: CommandExecutor = {
 			exec: async () => ({ stdout: "Pages:          2\n", stderr: "", code: 0, killed: false }),
 		};
@@ -49,6 +56,16 @@ describe("local Paper Agent web server", () => {
 			const workerModule = await fetch(`${server.url}/assets/worker.mjs`);
 			expect(workerModule.status).toBe(200);
 			expect(workerModule.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+			expect(page.headers.get("x-frame-options")).toBe("DENY");
+			const pdfViewer = await fetch(`${server.url}/pdfjs/6.2.108/web/viewer.html`);
+			expect(pdfViewer.status).toBe(200);
+			expect(pdfViewer.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+			expect((await fetch(`${server.url}/pdfjs/6.2.108/web/viewer.ftl`)).headers.get("content-type")).toBe(
+				"text/plain; charset=utf-8",
+			);
+			expect((await fetch(`${server.url}/pdfjs/6.2.108/web/viewer.wasm`)).headers.get("content-type")).toBe(
+				"application/wasm",
+			);
 
 			const status = await fetch(`${server.url}/api/status`);
 			expect(status.status).toBe(200);

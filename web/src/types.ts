@@ -175,6 +175,14 @@ export interface PaperVersionView {
 	versionLabel?: string;
 	relatedVersionSha256?: string;
 	isPreferred?: boolean;
+	translation?: {
+		engine: "pdf2zh-next";
+		engineVersion?: string;
+		model: string;
+		sourceLanguage: string;
+		targetLanguage: string;
+		outputMode: "mono" | "dual";
+	};
 }
 
 export interface PdfMaterialRecord {
@@ -722,6 +730,7 @@ export interface ReaderState {
 	retrievedAt?: string;
 	versionKind?: "published" | "preprint" | "supplement" | "translation" | "unknown";
 	versionLabel?: string;
+	translationOutputMode?: "mono" | "dual";
 }
 
 export type ReaderWorkspaceTab =

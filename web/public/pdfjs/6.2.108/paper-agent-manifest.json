@@ -1,0 +1,8 @@
+{
+	"name": "Mozilla PDF.js generic viewer",
+	"version": "6.2.108",
+	"source": "https://github.com/mozilla/pdf.js/releases/download/v6.2.108/pdfjs-6.2.108-dist.zip",
+	"archiveSha256": "7bf642d59582b475e8c48447da9b02b0108fad9742d7c2a35cb4ed6dd45e95ba",
+	"license": "Apache-2.0",
+	"notes": "Source maps, the bundled demonstration PDF, and debugger-only assets are omitted from the application distribution."
+}
