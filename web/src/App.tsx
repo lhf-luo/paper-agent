@@ -323,6 +323,7 @@ function AppShell() {
 								{page === "reader" && reader && (
 									<ReaderPage
 										reader={reader}
+										pdfReader={status?.pdfReader ?? "pdfjs"}
 										onBack={() => go("library")}
 										focusSessionId={params.session}
 										initialPrompt={

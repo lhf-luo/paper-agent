@@ -17,7 +17,7 @@ function config(models: ModelConfigView[], activeKey?: string): PaperAgentConfig
 	return {
 		version: 1,
 		path: "/tmp/.paper-agent/config",
-		interface: { port: 0, openBrowser: false },
+		interface: { port: 0, openBrowser: false, pdfReader: "pdfjs" },
 		storage: { defaultNamespace: "default" },
 		externalTools: { commandDirectories: [] },
 		confirmations: {
@@ -61,7 +61,9 @@ const relayModel: ModelConfigView = {
 
 describe("model provider settings helpers", () => {
 	it("groups configured models by provider without duplicating the active model", () => {
-		const groups = providerGroups(config([relayModel, { ...relayModel, modelId: "small" }], "research-relay/big-context"));
+		const groups = providerGroups(
+			config([relayModel, { ...relayModel, modelId: "small" }], "research-relay/big-context"),
+		);
 		expect(groups).toHaveLength(1);
 		expect(groups[0].models.map((model) => model.modelId)).toEqual(["big-context", "small"]);
 		expect(groups[0].credentialsAvailable).toBe(true);

@@ -5,6 +5,15 @@ export function mozillaPdfViewerUrl(url: string, origin: string): string {
 	return `${PDFJS_VIEWER_PATH}?file=${encodeURIComponent(absolutePdfUrl)}#page=1&zoom=page-width`;
 }
 
-export function usesMozillaPdfViewer(outputMode: "mono" | "dual" | undefined): boolean {
-	return outputMode === "dual";
+export type PdfReaderPreference = "pdfjs" | "native";
+
+export function usesMozillaPdfViewer(preference: PdfReaderPreference | undefined): boolean {
+	return preference !== "native";
+}
+
+export function enablesBilingualPdfSelection(
+	preference: PdfReaderPreference | undefined,
+	outputMode: "mono" | "dual" | undefined,
+): boolean {
+	return usesMozillaPdfViewer(preference) && outputMode === "dual";
 }

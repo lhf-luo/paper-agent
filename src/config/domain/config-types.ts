@@ -62,6 +62,7 @@ export interface PaperAgentConfig {
 	interface: {
 		port: number;
 		openBrowser: boolean;
+		pdfReader: "pdfjs" | "native";
 	};
 	storage: {
 		dataRoot?: string;

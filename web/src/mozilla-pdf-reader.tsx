@@ -3,7 +3,15 @@ import { BrowserPdfReader } from "./browser-pdf-reader";
 import { connectPdfJsBilingualSelectionBridge } from "./pdfjs-bilingual-selection";
 import { mozillaPdfViewerUrl } from "./pdfjs-viewer-url";
 
-export function MozillaPdfReader({ url, title }: { url: string; title: string }) {
+export function MozillaPdfReader({
+	url,
+	title,
+	enableBilingualSelection,
+}: {
+	url: string;
+	title: string;
+	enableBilingualSelection: boolean;
+}) {
 	const [status, setStatus] = useState<"checking" | "ready" | "error">("checking");
 	const [error, setError] = useState("");
 	const [retry, setRetry] = useState(0);
@@ -75,7 +83,7 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 				ref={frameRef}
 				className="browser-pdf-frame mozilla-pdf-frame"
 				src={viewerUrl}
-				title={`${title} 双语 PDF`}
+				title={`${title} PDF`}
 				onError={() => {
 					bridgeCleanup.current();
 					bridgeCleanup.current = () => undefined;
@@ -91,10 +99,12 @@ export function MozillaPdfReader({ url, title }: { url: string; title: string })
 						setStatus("error");
 						return;
 					}
-					try {
-						bridgeCleanup.current = connectPdfJsBilingualSelectionBridge(frame);
-					} catch (reason) {
-						console.warn("Unable to attach the bilingual PDF selection bridge", reason);
+					if (enableBilingualSelection) {
+						try {
+							bridgeCleanup.current = connectPdfJsBilingualSelectionBridge(frame);
+						} catch (reason) {
+							console.warn("Unable to attach the bilingual PDF selection bridge", reason);
+						}
 					}
 				}}
 			/>

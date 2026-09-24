@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mozillaPdfViewerUrl, PDFJS_VIEWER_PATH, usesMozillaPdfViewer } from "../web/src/pdfjs-viewer-url.ts";
+import {
+	enablesBilingualPdfSelection,
+	mozillaPdfViewerUrl,
+	PDFJS_VIEWER_PATH,
+	usesMozillaPdfViewer,
+} from "../web/src/pdfjs-viewer-url.ts";
 
 describe("Mozilla PDF.js bilingual reader", () => {
 	it("builds a same-origin viewer URL without losing PDF query parameters", () => {
@@ -12,10 +17,16 @@ describe("Mozilla PDF.js bilingual reader", () => {
 		);
 	});
 
-	it("selects the Mozilla viewer only for structured dual output", () => {
-		expect(usesMozillaPdfViewer("dual")).toBe(true);
-		expect(usesMozillaPdfViewer("mono")).toBe(false);
-		expect(usesMozillaPdfViewer(undefined)).toBe(false);
+	it("uses the configured viewer for every PDF version", () => {
+		expect(usesMozillaPdfViewer("pdfjs")).toBe(true);
+		expect(usesMozillaPdfViewer(undefined)).toBe(true);
+		expect(usesMozillaPdfViewer("native")).toBe(false);
 	});
 
+	it("enables bilingual selection only for dual output in PDF.js", () => {
+		expect(enablesBilingualPdfSelection("pdfjs", "dual")).toBe(true);
+		expect(enablesBilingualPdfSelection("pdfjs", "mono")).toBe(false);
+		expect(enablesBilingualPdfSelection("pdfjs", undefined)).toBe(false);
+		expect(enablesBilingualPdfSelection("native", "dual")).toBe(false);
+	});
 });

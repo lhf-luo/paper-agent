@@ -544,7 +544,7 @@ export interface PaperAsset {
 export interface PaperAgentConfigView {
 	version: 1;
 	path: string;
-	interface: { port: number; openBrowser: boolean };
+	interface: { port: number; openBrowser: boolean; pdfReader: "pdfjs" | "native" };
 	storage: { dataRoot?: string; corpusRoot?: string; defaultNamespace: string };
 	externalTools: { commandDirectories: string[] };
 	confirmations: OperationConfirmationSettingsView;
@@ -715,6 +715,7 @@ export interface ApplicationStatus {
 	defaultNamespace: string;
 	personalNamespaces: string[];
 	defaultRecordCount: number;
+	pdfReader: "pdfjs" | "native";
 	confirmations: OperationConfirmationSettingsView;
 	jobs: { queued: number; running: number; failed: number };
 }

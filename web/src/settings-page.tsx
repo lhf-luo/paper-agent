@@ -260,12 +260,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 				</AccessibleModal>
 			)}
 			<div className="settings-form">
-				<ModelProvidersPanel
-					config={config}
-					saveNow={saveNow}
-					onSaved={load}
-					busy={busy}
-				/>
+				<ModelProvidersPanel config={config} saveNow={saveNow} onSaved={load} busy={busy} />
 				<section className="panel form-panel">
 					<span className="eyebrow">LOCAL WORKSPACE · 界面与存储</span>
 					<h2>界面与存储</h2>
@@ -346,6 +341,38 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 						/>
 						<span>启动时自动打开浏览器</span>
 					</label>
+					<div className="translation-engine-options" role="radiogroup" aria-label="PDF 阅读器">
+						<label className={config.interface.pdfReader === "pdfjs" ? "active" : ""}>
+							<input
+								type="radio"
+								name="pdf-reader"
+								value="pdfjs"
+								checked={config.interface.pdfReader === "pdfjs"}
+								onChange={() =>
+									update((next) => {
+										next.interface.pdfReader = "pdfjs";
+									})
+								}
+							/>
+							<strong>Mozilla PDF.js（默认）</strong>
+							<span>所有论文使用完整 Viewer，双语版本支持选区联动</span>
+						</label>
+						<label className={config.interface.pdfReader === "native" ? "active" : ""}>
+							<input
+								type="radio"
+								name="pdf-reader"
+								value="native"
+								checked={config.interface.pdfReader === "native"}
+								onChange={() =>
+									update((next) => {
+										next.interface.pdfReader = "native";
+									})
+								}
+							/>
+							<strong>浏览器原生阅读器</strong>
+							<span>在 Edge 中使用 Edge 内置 PDF 阅读器，不提供双语选区联动</span>
+						</label>
+					</div>
 					<p className="form-hint">
 						配置文件：<code>{config.path}</code>
 					</p>

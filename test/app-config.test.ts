@@ -80,6 +80,7 @@ describe("Paper Agent local configuration", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-config-"));
 		const value = defaultPaperAgentConfig();
 		value.storage.defaultNamespace = "researcher-a";
+		value.interface.pdfReader = "native";
 		value.externalTools.commandDirectories = [join(root, "tools", "poppler"), join(root, "tools", "tesseract")];
 		value.agent.builtinTools = ["read", "grep", "find", "ls"];
 		value.agent.shellPath = join(root, "tools", "bash.exe");
@@ -96,6 +97,7 @@ describe("Paper Agent local configuration", () => {
 		await savePaperAgentConfig(root, value);
 		const loaded = await loadPaperAgentConfig(root);
 		expect(loaded).toMatchObject({
+			interface: { pdfReader: "native" },
 			storage: { defaultNamespace: "researcher-a" },
 			externalTools: {
 				commandDirectories: [join(root, "tools", "poppler"), join(root, "tools", "tesseract")],
@@ -112,6 +114,7 @@ describe("Paper Agent local configuration", () => {
 		expect(raw).not.toContain("PAPER_AGENT_RELAY_API_KEY");
 		expect(raw).not.toContain("sk-");
 		expect(JSON.parse(appRaw)).toMatchObject({
+			interface: { pdfReader: "native" },
 			externalTools: {
 				commandDirectories: [join(root, "tools", "poppler"), join(root, "tools", "tesseract")],
 			},
@@ -178,6 +181,22 @@ describe("Paper Agent local configuration", () => {
 				},
 			}),
 		).rejects.toThrow("confirmations.requireResearchConfirmation must be a boolean");
+	});
+
+	it("defaults and validates the PDF reader preference", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-reader-config-"));
+		await savePaperAgentConfig(root, {
+			...defaultPaperAgentConfig(),
+			interface: { port: 0, openBrowser: false },
+		});
+		expect((await loadPaperAgentConfig(root)).interface.pdfReader).toBe("pdfjs");
+
+		await expect(
+			savePaperAgentConfig(root, {
+				...defaultPaperAgentConfig(),
+				interface: { port: 0, openBrowser: false, pdfReader: "embedded" },
+			}),
+		).rejects.toThrow("interface.pdfReader must be pdfjs or native");
 	});
 
 	it("defaults and validates the PDF translation engine", async () => {

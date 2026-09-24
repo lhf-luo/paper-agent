@@ -7,7 +7,7 @@ import { formatFileSize } from "./components";
 import { MineruControl } from "./mineru-control";
 import { MozillaPdfReader } from "./mozilla-pdf-reader";
 import { PdfTranslationControl } from "./pdf-translation-control";
-import { usesMozillaPdfViewer } from "./pdfjs-viewer-url";
+import { enablesBilingualPdfSelection, type PdfReaderPreference, usesMozillaPdfViewer } from "./pdfjs-viewer-url";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
 import { readerTabsStorageKey, readerVersionName, readerVersionState, restoredReaderTabs } from "./reader-state";
 import type {
@@ -28,9 +28,17 @@ export interface ReaderPageProps {
 	initialPrompt?: string;
 	onPromptConsumed?: () => void;
 	focusSessionId?: string;
+	pdfReader: PdfReaderPreference;
 }
 
-export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, focusSessionId }: ReaderPageProps) {
+export function ReaderPage({
+	reader,
+	onBack,
+	initialPrompt,
+	onPromptConsumed,
+	focusSessionId,
+	pdfReader,
+}: ReaderPageProps) {
 	const restored = useRef(restoredReaderTabs(reader));
 	const focusAgent = Boolean(focusSessionId || initialPrompt);
 	const [activeReader, setActiveReader] = useState(reader);
@@ -368,8 +376,15 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				style={{ "--paper-agent-pane-width": `${readerWorkspaceWidth}px` } as React.CSSProperties}
 			>
 				<div className="browser-pdf-shell">
-					{usesMozillaPdfViewer(activeReader.translationOutputMode) ? (
-						<MozillaPdfReader url={activeReader.url} title={activeReader.title} />
+					{usesMozillaPdfViewer(pdfReader) ? (
+						<MozillaPdfReader
+							url={activeReader.url}
+							title={activeReader.title}
+							enableBilingualSelection={enablesBilingualPdfSelection(
+								pdfReader,
+								activeReader.translationOutputMode,
+							)}
+						/>
 					) : (
 						<BrowserPdfReader url={activeReader.url} title={activeReader.title} />
 					)}
