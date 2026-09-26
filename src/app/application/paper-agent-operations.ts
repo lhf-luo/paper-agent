@@ -25,6 +25,8 @@ import type {
 import { PaperAgentResearch } from "./paper-agent-research.ts";
 
 export abstract class PaperAgentOperations extends PaperAgentResearch {
+	private runtimeNetworkSnapshot?: string;
+
 	protected pdfAnnotationStore(): PdfAnnotationStore {
 		return new PdfAnnotationStore(join(this.dataRoot, "pdf-annotations"));
 	}
@@ -173,6 +175,7 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 	async writeConfiguration(value: unknown, grant: ConfirmationGrant) {
 		const prepared = this.configurationWritePlan(value);
 		await this.consent.consume(grant, prepared.plan);
+		this.runtimeNetworkSnapshot ??= JSON.stringify((await loadPaperAgentConfig(this.projectRoot)).network ?? null);
 		const saved = await savePaperAgentConfig(this.projectRoot, prepared.config);
 		setProviderCredentials(saved.config.credentials ?? {});
 		applyExternalToolDirectories(saved.config.externalTools.commandDirectories);
@@ -183,7 +186,8 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 			restartRequired:
 				saved.config.storage.dataRoot !== this.dataRoot ||
 				saved.config.storage.corpusRoot !== this.corpusRoot ||
-				saved.config.storage.defaultNamespace !== this.defaultNamespace,
+				saved.config.storage.defaultNamespace !== this.defaultNamespace ||
+				JSON.stringify(saved.config.network ?? null) !== this.runtimeNetworkSnapshot,
 		};
 	}
 

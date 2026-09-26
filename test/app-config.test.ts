@@ -942,7 +942,7 @@ describe("Paper Agent local configuration", () => {
 		}
 	});
 
-	it("requires a restart only for storage changes, not for model list changes", async () => {
+	it("requires a restart for proxy and storage changes, but not model list changes", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-model-restart-"));
 		const application = new PaperAgentApplication({ projectRoot: root });
 		try {
@@ -972,6 +972,38 @@ describe("Paper Agent local configuration", () => {
 			const next = await application.prepareConfigurationWrite(withModel);
 			const nextGrant = await application.confirmOperation(next.operationId, next.manifestFingerprint);
 			await expect(application.writeConfiguration(withModel, nextGrant)).resolves.toMatchObject({
+				restartRequired: false,
+			});
+
+			await expect(
+				application.prepareConfigurationWrite({ ...withModel, network: { proxyEnabled: true } }),
+			).rejects.toThrow("network.proxyUrl is required");
+			const withProxy = {
+				...withModel,
+				network: { proxyEnabled: true, proxyUrl: "http://127.0.0.1:7890", noProxyHosts: ["localhost"] },
+			};
+			const proxyPrepared = await application.prepareConfigurationWrite(withProxy);
+			const proxyGrant = await application.confirmOperation(
+				proxyPrepared.operationId,
+				proxyPrepared.manifestFingerprint,
+			);
+			await expect(application.writeConfiguration(withProxy, proxyGrant)).resolves.toMatchObject({
+				restartRequired: true,
+			});
+			const proxyAgain = await application.prepareConfigurationWrite(withProxy);
+			const proxyAgainGrant = await application.confirmOperation(
+				proxyAgain.operationId,
+				proxyAgain.manifestFingerprint,
+			);
+			await expect(application.writeConfiguration(withProxy, proxyAgainGrant)).resolves.toMatchObject({
+				restartRequired: true,
+			});
+			const revertProxy = await application.prepareConfigurationWrite(withModel);
+			const revertGrant = await application.confirmOperation(
+				revertProxy.operationId,
+				revertProxy.manifestFingerprint,
+			);
+			await expect(application.writeConfiguration(withModel, revertGrant)).resolves.toMatchObject({
 				restartRequired: false,
 			});
 

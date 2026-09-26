@@ -398,6 +398,9 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		if (typeof proxyEnabled !== "boolean") {
 			throw new Error("network.proxyEnabled must be a boolean");
 		}
+		if (network.proxyEnabled === true && !proxyUrlValue) {
+			throw new Error("network.proxyUrl is required when the proxy is enabled");
+		}
 		if (proxyUrlValue !== undefined && proxyUrlValue !== "") {
 			const raw = String(proxyUrlValue);
 			let parsed: URL;

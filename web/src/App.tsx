@@ -286,7 +286,7 @@ function AppShell() {
 						)}
 						<div
 							key={page}
-							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : ""}`}
+							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : page === "settings" ? " page-content-settings" : ""}`}
 						>
 							{error && <div className="error-banner">{error}</div>}
 							<Suspense fallback={<LoadingBlock text="正在加载工作区…" />}>

@@ -561,6 +561,7 @@ export interface PaperAgentConfigView {
 		queryExpansions: string[];
 		reuseCorpus: boolean;
 	};
+	network?: { proxyEnabled?: boolean; proxyUrl?: string; noProxyHosts?: string[] };
 	model?: ModelConfigView;
 	models?: ModelConfigView[];
 	updatedAt: string;

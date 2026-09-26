@@ -425,6 +425,18 @@ code {
 	overflow: hidden;
 }
 
+.page-content.page-content-settings {
+	width: 100%;
+	max-width: none;
+	min-height: calc(100vh - 57px);
+	padding: 0;
+}
+
+.page-content-settings > .error-banner,
+.page-content-settings > .success-banner {
+	margin: 16px 24px;
+}
+
 .page-heading {
 	display: flex;
 	align-items: flex-end;
@@ -3620,10 +3632,102 @@ body.paper-reader-resizing .browser-pdf-frame {
 	font-size: 11px;
 }
 
-.settings-form {
+.settings-layout {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: 220px minmax(0, 1fr);
+	min-height: calc(100vh - 57px);
+}
+
+.settings-navigation {
+	position: sticky;
+	top: 56px;
+	display: grid;
+	align-content: start;
+	gap: 2px;
+	height: calc(100vh - 57px);
+	max-height: none;
+	padding: 12px 8px;
+	border: 0;
+	border-right: 1px solid var(--line);
+	border-radius: 0;
+	background: var(--surface-base);
+	box-shadow: none;
+	overflow-y: auto;
+}
+
+.settings-navigation button {
+	width: 100%;
+	padding: 8px 11px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.settings-navigation button:hover,
+.settings-navigation button.active {
+	background: var(--green-100);
+	color: var(--green-700);
+}
+
+.settings-navigation button.active {
+	font-weight: 700;
+}
+
+.settings-navigation button:focus-visible {
+	outline: 2px solid var(--green-700);
+	outline-offset: 2px;
+}
+
+.settings-form {
+	min-width: 0;
+	padding: 18px 24px 48px;
+}
+
+.settings-save-row {
+	display: flex;
+	justify-content: flex-end;
+	margin-bottom: 12px;
+}
+
+.settings-section {
+	display: grid;
 	gap: 16px;
+}
+
+.settings-section[hidden] {
+	display: none;
+}
+
+.settings-section > .panel {
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.settings-section .form-grid {
+	gap: 12px 16px;
+	margin-top: 14px;
+}
+
+.settings-section .form-grid:not(.two) {
+	max-width: 720px;
+}
+
+.settings-section .form-grid label > span {
+	margin-bottom: 4px;
+}
+
+.settings-section .form-grid input,
+.settings-section .form-grid select,
+.settings-section .form-grid textarea {
+	padding: 8px 10px;
 }
 
 .form-panel {
@@ -3636,10 +3740,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-}
-
-.search-provider-probe-panel {
-	grid-column: 1 / -1;
 }
 
 .search-provider-probe-heading {
@@ -3832,11 +3932,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 }
 
 /* --- Model providers: 模型与供应商 ---------------------------------------- */
-/* 供应商列表横跨设置页的两列网格，内部的模型行自己排列。 */
-.settings-form > .model-providers-panel {
-	grid-column: 1 / -1;
-}
-
 .model-providers-heading {
 	display: flex;
 	align-items: flex-start;
@@ -5365,8 +5460,7 @@ body.paper-reader-resizing .browser-pdf-frame {
 		grid-template-columns: 1fr;
 	}
 	.research-board,
-	.settings-grid,
-	.settings-form {
+	.settings-grid {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 	.library-layout {
@@ -5398,6 +5492,29 @@ body.paper-reader-resizing .browser-pdf-frame {
 }
 
 @media (max-width: 800px) {
+	.settings-layout {
+		grid-template-columns: minmax(0, 1fr);
+		min-height: 0;
+	}
+	.settings-navigation {
+		position: static;
+		display: flex;
+		height: auto;
+		max-height: none;
+		padding: 8px 12px;
+		border-right: 0;
+		border-bottom: 1px solid var(--line);
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+	.settings-navigation button {
+		flex: none;
+		width: auto;
+		white-space: nowrap;
+	}
+	.settings-form {
+		padding: 16px 18px 36px;
+	}
 	.app-shell {
 		display: block;
 	}
@@ -5504,7 +5621,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 	.metric-grid,
 	.research-board,
 	.settings-grid,
-	.settings-form,
 	.library-layout,
 	.reader-grid,
 	.confirmation-setting-list {
