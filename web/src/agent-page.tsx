@@ -3,6 +3,7 @@ import {
 	ArrowUpRight,
 	Bot,
 	Brain,
+	Check,
 	ChevronLeft,
 	ChevronRight,
 	Edit3,
@@ -13,10 +14,12 @@ import {
 	Plus,
 	ShieldCheck,
 	Sparkles,
+	Square,
 	Trash2,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResultOutput } from "./agent-results";
@@ -102,8 +105,6 @@ const taskTemplates = [
 			"查询团队知识库中与“请替换为主题”有关的已批准内容；如需提出共享提议，先展示将提交的记录与隐私边界，并等待人工确认。",
 	},
 ];
-
-const paperQuickPrompts = ["概括论文", "解释方法", "分析实验", "总结局限"];
 
 interface FlatPaperRow {
 	key: string;
@@ -813,16 +814,26 @@ export interface PaperAgentContext {
 
 export function AgentPage({
 	initialPrompt = "",
+	selectionDraft,
+	onSelectionDraftConsumed,
 	onPromptConsumed,
 	embedded = false,
 	paperContext,
 	focusSessionId,
+	onPaperSessionTitleChange,
+	paperSessionMenuContainer,
+	onPaperSessionMenuClose,
 }: {
 	initialPrompt?: string;
+	selectionDraft?: { text: string; pages: number[] };
+	onSelectionDraftConsumed?: () => void;
 	onPromptConsumed?: () => void;
 	embedded?: boolean;
 	paperContext?: PaperAgentContext;
 	focusSessionId?: string;
+	onPaperSessionTitleChange?: (title: string) => void;
+	paperSessionMenuContainer?: HTMLElement | null;
+	onPaperSessionMenuClose?: () => void;
 }) {
 	const paperContextNamespace = paperContext?.namespace;
 	const paperContextPaperId = paperContext?.paperId;
@@ -1066,8 +1077,19 @@ export function AgentPage({
 			onPromptConsumed?.();
 		}
 	}, [initialPrompt, onPromptConsumed]);
+	const lastSelectionDraft = useRef<typeof selectionDraft>(undefined);
+	useEffect(() => {
+		if (!selectionDraft || lastSelectionDraft.current === selectionDraft) return;
+		lastSelectionDraft.current = selectionDraft;
+		const quote = `[PDF 第 ${selectionDraft.pages.join("、")} 页选区]\n> ${selectionDraft.text.replace(/\n/g, "\n> ")}`;
+		setPrompt((current) => (current.trim() ? `${current.trimEnd()}\n\n${quote}\n` : `${quote}\n`));
+		onSelectionDraftConsumed?.();
+	}, [selectionDraft, onSelectionDraftConsumed]);
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
+	useEffect(() => {
+		if (embedded && !loading) onPaperSessionTitleChange?.(active?.title || "新会话");
+	}, [active?.title, embedded, loading, onPaperSessionTitleChange]);
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const modelNoticeTimer = useRef<number | undefined>(undefined);
@@ -1514,7 +1536,6 @@ export function AgentPage({
 			if (!targetSession) return;
 			const messageAttachments = [
 				...attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
-				...(paperContext ? [{ path: paperContext.pdfPath, name: `${paperContext.title}.pdf` }] : []),
 			].filter((attachment, index, all) => all.findIndex((entry) => entry.path === attachment.path) === index);
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(targetSession.id)}/messages`,
@@ -1523,6 +1544,7 @@ export function AgentPage({
 					body: JSON.stringify({
 						message: prompt,
 						attachments: messageAttachments,
+						...(paperContext ? { paperContext } : {}),
 					}),
 				},
 			);
@@ -1577,17 +1599,96 @@ export function AgentPage({
 		() => [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
 		[sessions],
 	);
+	const paperSessionMenu =
+		embedded && paperContext && paperSessionMenuContainer
+			? createPortal(
+					<div className="reader-rail-popover reader-agent-menu" role="dialog" aria-label="论文会话">
+						<header>
+							<strong>论文会话</strong>
+							<span>{sessions.length} 个</span>
+						</header>
+						<div className="reader-rail-list">
+							{loading ? (
+								<p>正在加载会话…</p>
+							) : (
+								<>
+									{orderedSessions.map((session) => (
+										<button
+											type="button"
+											key={session.id}
+											className={active?.id === session.id ? "selected" : ""}
+											title={session.title}
+											disabled={busy}
+											onClick={() => {
+												void selectSession(session.id);
+												onPaperSessionMenuClose?.();
+											}}
+										>
+											<Bot size={15} />
+											<span>
+												<strong>{session.title}</strong>
+											</span>
+											{active?.id === session.id && <Check size={15} />}
+										</button>
+									))}
+									{!orderedSessions.length && <p>当前论文还没有会话。</p>}
+								</>
+							)}
+						</div>
+						{!loading && (
+							<div className="reader-agent-menu-actions">
+								<button
+									type="button"
+									className="reader-rail-create"
+									disabled={busy}
+									onClick={() => {
+										setActive(undefined);
+										setAttachments([]);
+										onPaperSessionMenuClose?.();
+									}}
+								>
+									<Plus size={15} />
+									新建会话
+								</button>
+								<button
+									type="button"
+									className="reader-agent-menu-rename"
+									disabled={busy || !active}
+									onClick={() => active && void renameSession(active.id)}
+								>
+									<Edit3 size={15} />
+									重命名当前会话
+								</button>
+								<button
+									type="button"
+									className="reader-agent-menu-delete"
+									disabled={busy || !active}
+									onClick={() => active && void deleteSession(active.id)}
+								>
+									<Trash2 size={15} />
+									删除当前会话
+								</button>
+							</div>
+						)}
+					</div>,
+					paperSessionMenuContainer,
+				)
+			: null;
 
 	if (loading) {
 		return (
-			<section className={embedded ? "agent-embedded-loading" : "panel"}>
-				<h2>正在加载 Agent 对话…</h2>
-			</section>
+			<>
+				{paperSessionMenu}
+				<section className={embedded ? "agent-embedded-loading" : "panel"}>
+					<h2>正在加载 Agent 对话…</h2>
+				</section>
+			</>
 		);
 	}
 
 	return (
 		<>
+			{paperSessionMenu}
 			{error && <DismissibleErrorBanner message={error} onDismiss={() => setError("")} />}
 			{notice && <div className="success-banner">{notice}</div>}
 
@@ -1764,8 +1865,8 @@ export function AgentPage({
 
 				<section className={`panel agent-chat-panel${embedded ? " agent-chat-panel-embedded" : ""}`}>
 					<div className="agent-chat-column">
-						<div className="agent-chat-heading">
-							{!embedded && (
+						{!embedded && (
+							<div className="agent-chat-heading">
 								<button
 									className="agent-sidebar-toggle"
 									type="button"
@@ -1780,55 +1881,17 @@ export function AgentPage({
 								>
 									{sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
 								</button>
-							)}
-							<h2 className="agent-chat-title">{embedded ? "论文助手" : (active?.title ?? "")}</h2>
-							{embedded && paperContext && (
-								<div className="paper-session-controls">
-									<select
-										aria-label="论文会话"
-										value={active?.id ?? ""}
-										onChange={(event) => {
-											if (event.target.value) void selectSession(event.target.value);
-											else setActive(undefined);
-										}}
-									>
-										<option value="">新会话</option>
-										{orderedSessions.map((session) => (
-											<option key={session.id} value={session.id}>
-												{session.title}
-											</option>
-										))}
-									</select>
+								<h2 className="agent-chat-title">{active?.title ?? ""}</h2>
+								{running && (
 									<button
+										className="agent-stop-button"
 										type="button"
-										disabled={busy || !active}
-										onClick={() => {
-											setActive(undefined);
-											setAttachments([]);
-										}}
+										disabled={busy}
+										onClick={() => void stop()}
 									>
-										新建
+										停止生成
 									</button>
-									<button
-										type="button"
-										disabled={busy || !active}
-										onClick={() => active && void deleteSession(active.id)}
-									>
-										删除
-									</button>
-								</div>
-							)}
-							{running && (
-								<button className="agent-stop-button" type="button" disabled={busy} onClick={() => void stop()}>
-									停止生成
-								</button>
-							)}
-						</div>
-						{embedded && paperContext && (
-							<div className="paper-agent-context">
-								<span>当前 PDF</span>
-								<strong>{paperContext.title}</strong>
-								{paperContext.pdfSha256 && <code>{paperContext.pdfSha256.slice(0, 10)}</code>}
+								)}
 							</div>
 						)}
 
@@ -1874,6 +1937,16 @@ export function AgentPage({
 													"本轮主要执行了工具调用。"
 												) : null}
 											</div>
+											{message.role === "user" && Boolean(message.attachmentNames?.length) && (
+												<div className="agent-message-attachment-list">
+													{message.attachmentNames?.map((name, index) => (
+														<span key={`${index}-${name}`}>
+															<Paperclip size={12} />
+															{name}
+														</span>
+													))}
+												</div>
+											)}
 											{messageResults.length > 0 && (
 												<div className="agent-result-card-list">
 													{messageResults.map((document) => (
@@ -1936,15 +2009,6 @@ export function AgentPage({
 						</div>
 
 						<div className="agent-composer">
-							{embedded && (
-								<div className="paper-agent-quick-prompts">
-									{paperQuickPrompts.map((quickPrompt) => (
-										<button type="button" key={quickPrompt} onClick={() => setPrompt(quickPrompt)}>
-											{quickPrompt}
-										</button>
-									))}
-								</div>
-							)}
 							<div className="agent-composer-card">
 								{skillPaletteOpen && (
 									<div className="agent-skill-palette">
@@ -2043,6 +2107,7 @@ export function AgentPage({
 											<select
 												className="agent-composer-pill-select"
 												aria-label="思考强度"
+												title={thinkingLevelOptions.find((option) => option.value === thinkingLevel)?.label}
 												value={thinkingLevel}
 												disabled={busy}
 												onChange={(event) =>
@@ -2068,6 +2133,9 @@ export function AgentPage({
 											<select
 												className="agent-composer-pill-select"
 												aria-label="权限模式"
+												title={
+													permissionModeOptions.find((option) => option.value === permissionMode)?.label
+												}
 												value={permissionMode}
 												disabled={busy}
 												onChange={(event) =>
@@ -2088,6 +2156,10 @@ export function AgentPage({
 											<select
 												className="agent-model-switcher"
 												aria-label="切换对话模型"
+												title={
+													config?.configuredModels.find((model) => model.key === configuredKey)?.modelId ??
+													"选择模型"
+												}
 												value={configuredKey}
 												disabled={busy || running || !config?.configuredModels.length}
 												onChange={(event) => void applyConfigured(event.target.value)}
@@ -2114,19 +2186,29 @@ export function AgentPage({
 											</select>
 										</div>
 										<button
-											className="agent-send-button"
+											className={`agent-send-button${embedded && running ? " is-stop" : ""}`}
 											type="button"
+											aria-label={embedded && running ? "停止生成" : running ? "正在生成中" : "发送"}
 											disabled={
-												(!active && !paperContext) ||
-												!prompt.trim() ||
-												running ||
-												busy ||
-												!configurationReady
+												embedded && running
+													? busy
+													: (!active && !paperContext) ||
+														!prompt.trim() ||
+														running ||
+														busy ||
+														!configurationReady
 											}
-											onClick={() => void send()}
-											title={running ? "正在生成中…" : "发送 (Ctrl+Enter)"}
+											onClick={() => void (embedded && running ? stop() : send())}
+											title={
+												embedded && running ? "停止生成" : running ? "正在生成中…" : "发送 (Ctrl+Enter)"
+											}
 										>
-											{running ? (
+											{embedded && running ? (
+												<>
+													<span>停止</span>
+													<Square size={12} fill="currentColor" />
+												</>
+											) : running ? (
 												<Loader2 size={15} className="agent-spinning" />
 											) : (
 												<>

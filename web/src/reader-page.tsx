@@ -1,15 +1,26 @@
-import { ArrowLeft, Bot, Check, ExternalLink, FileStack, FolderOpen, NotebookPen, Plus, X } from "lucide-react";
+import {
+	ArrowLeft,
+	Bot,
+	Check,
+	ExternalLink,
+	FileStack,
+	FolderOpen,
+	Languages,
+	NotebookPen,
+	Plus,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentPage } from "./agent-page";
 import { api } from "./api";
-import { BrowserPdfReader } from "./browser-pdf-reader";
 import { formatFileSize } from "./components";
 import { MineruControl } from "./mineru-control";
 import { MozillaPdfReader } from "./mozilla-pdf-reader";
 import { PdfTranslationControl } from "./pdf-translation-control";
-import { enablesBilingualPdfSelection, type PdfReaderPreference, usesMozillaPdfViewer } from "./pdfjs-viewer-url";
+import type { ReaderTextSelection } from "./pdfjs-reader-selection";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
 import { readerTabsStorageKey, readerVersionName, readerVersionState, restoredReaderTabs } from "./reader-state";
+import { ReaderTranslationPanel } from "./reader-translation-panel";
 import type {
 	PaperRecord,
 	PaperVersionView,
@@ -28,17 +39,9 @@ export interface ReaderPageProps {
 	initialPrompt?: string;
 	onPromptConsumed?: () => void;
 	focusSessionId?: string;
-	pdfReader: PdfReaderPreference;
 }
 
-export function ReaderPage({
-	reader,
-	onBack,
-	initialPrompt,
-	onPromptConsumed,
-	focusSessionId,
-	pdfReader,
-}: ReaderPageProps) {
+export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, focusSessionId }: ReaderPageProps) {
 	const restored = useRef(restoredReaderTabs(reader));
 	const focusAgent = Boolean(focusSessionId || initialPrompt);
 	const [activeReader, setActiveReader] = useState(reader);
@@ -47,12 +50,17 @@ export function ReaderPage({
 	const [linkedNotes, setLinkedNotes] = useState<ResearchNoteSummary[]>([]);
 	const [tabs, setTabs] = useState<ReaderWorkspaceTab[]>(() =>
 		focusAgent && !restored.current.tabs.some((tab) => tab.kind === "agent")
-			? [{ id: "agent", kind: "agent", title: "AI 对话" }, ...restored.current.tabs]
+			? [{ id: "agent", kind: "agent", title: "新会话" }, ...restored.current.tabs]
 			: restored.current.tabs,
 	);
 	const [activeTabId, setActiveTabId] = useState<string | undefined>(focusAgent ? "agent" : restored.current.activeId);
-	const [railMenu, setRailMenu] = useState<"notes" | "versions">();
-	const [mobilePane, setMobilePane] = useState<"pdf" | "workspace">(focusAgent ? "workspace" : "pdf");
+	const [railMenu, setRailMenu] = useState<"agent" | "notes" | "versions">();
+	const [agentMenuContainer, setAgentMenuContainer] = useState<HTMLDivElement | null>(null);
+	const [mobilePane, setMobilePane] = useState<"pdf" | "workspace" | "translation">(focusAgent ? "workspace" : "pdf");
+	const [translationOpen, setTranslationOpen] = useState(false);
+	const [translationActivation, setTranslationActivation] = useState(0);
+	const [selection, setSelection] = useState<ReaderTextSelection>();
+	const [selectionDraft, setSelectionDraft] = useState<ReaderTextSelection>();
 	const [readerWorkspaceWidth, setReaderWorkspaceWidth] = useState(() => {
 		const saved = Number(window.localStorage.getItem("paper-agent-reader-pane-width"));
 		return Number.isFinite(saved) && saved >= 320 ? saved : 420;
@@ -63,13 +71,24 @@ export function ReaderPage({
 	const readerLayoutRef = useRef<HTMLDivElement>(null);
 	const railRef = useRef<HTMLElement>(null);
 	const workspaceOpen = tabs.length > 0;
+	const toggleTranslation = () => {
+		setSelection(undefined);
+		setMobilePane("pdf");
+		if (!translationOpen) setTranslationActivation((current) => current + 1);
+		setTranslationOpen(!translationOpen);
+	};
 
-	const resizeReaderPane = useCallback((clientX: number) => {
-		const bounds = readerLayoutRef.current?.getBoundingClientRect();
-		if (!bounds) return;
-		const maximum = Math.max(320, Math.min(720, bounds.width - 468));
-		setReaderWorkspaceWidth(Math.max(320, Math.min(maximum, bounds.right - 46 - clientX)));
-	}, []);
+	const resizeReaderPane = useCallback(
+		(clientX: number) => {
+			const bounds = readerLayoutRef.current?.getBoundingClientRect();
+			if (!bounds) return;
+			const maximum = Math.max(320, Math.min(720, bounds.width - (translationOpen ? 792 : 468)));
+			setReaderWorkspaceWidth(
+				Math.max(320, Math.min(maximum, bounds.right - (translationOpen ? 366 : 46) - clientX)),
+			);
+		},
+		[translationOpen],
+	);
 
 	const startReaderResize = useCallback(
 		(event: React.PointerEvent<HTMLHRElement>) => {
@@ -83,15 +102,15 @@ export function ReaderPage({
 				window.removeEventListener("pointerup", onUp);
 				const bounds = readerLayoutRef.current?.getBoundingClientRect();
 				if (bounds) {
-					const maximum = Math.max(320, Math.min(720, bounds.width - 468));
-					const width = Math.max(320, Math.min(maximum, bounds.right - 46 - up.clientX));
+					const maximum = Math.max(320, Math.min(720, bounds.width - (translationOpen ? 792 : 468)));
+					const width = Math.max(320, Math.min(maximum, bounds.right - (translationOpen ? 366 : 46) - up.clientX));
 					window.localStorage.setItem("paper-agent-reader-pane-width", String(Math.round(width)));
 				}
 			};
 			window.addEventListener("pointermove", onMove);
 			window.addEventListener("pointerup", onUp, { once: true });
 		},
-		[resizeReaderPane],
+		[resizeReaderPane, translationOpen],
 	);
 
 	useEffect(() => () => document.body.classList.remove("paper-reader-resizing"), []);
@@ -126,6 +145,7 @@ export function ReaderPage({
 
 	useEffect(() => {
 		setActiveReader(reader);
+		setSelection(undefined);
 		void loadReaderData();
 	}, [loadReaderData, reader]);
 
@@ -176,13 +196,22 @@ export function ReaderPage({
 		setRailMenu(undefined);
 	};
 
-	const openAgent = () => {
+	const updateAgentTabTitle = useCallback((title: string) => {
+		setTabs((current) => {
+			if (!current.some((tab) => tab.kind === "agent" && tab.title !== title)) return current;
+			return current.map((tab) => (tab.kind === "agent" ? { ...tab, title } : tab));
+		});
+	}, []);
+
+	const openAgentMenu = () => {
 		setTabs((current) =>
 			current.some((tab) => tab.id === "agent")
 				? current
-				: [{ id: "agent", kind: "agent", title: "AI 对话" }, ...current],
+				: [{ id: "agent", kind: "agent", title: "新会话" }, ...current],
 		);
-		activateTab("agent");
+		setActiveTabId("agent");
+		setMobilePane("workspace");
+		setRailMenu((current) => (current === "agent" ? undefined : "agent"));
 	};
 
 	const openNote = (note: ResearchNoteSummary) => {
@@ -205,6 +234,7 @@ export function ReaderPage({
 	};
 
 	const closeTab = (id: string) => {
+		if (id === "agent") setRailMenu(undefined);
 		setTabs((current) => {
 			const index = current.findIndex((tab) => tab.id === id);
 			const next = current.filter((tab) => tab.id !== id);
@@ -231,7 +261,10 @@ export function ReaderPage({
 	};
 
 	const selectVersion = (version: PaperVersionView) => {
-		if (paper && reader.namespace) setActiveReader(readerVersionState(paper, reader.namespace, version));
+		if (paper && reader.namespace) {
+			setActiveReader(readerVersionState(paper, reader.namespace, version));
+			setSelection(undefined);
+		}
 		setRailMenu(undefined);
 	};
 
@@ -305,6 +338,15 @@ export function ReaderPage({
 					>
 						工作区
 					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={mobilePane === "translation"}
+						disabled={!translationOpen}
+						onClick={() => setMobilePane("translation")}
+					>
+						翻译
+					</button>
 				</div>
 				<PdfTranslationControl
 					key={`${activeReader.namespace ?? ""}:${activeReader.paperId ?? ""}:${activeReader.sha256 ?? ""}`}
@@ -333,6 +375,7 @@ export function ReaderPage({
 							versionLabel: result.version.versionLabel,
 							translationOutputMode: result.outputMode,
 						});
+						setSelection(undefined);
 						void loadReaderData();
 					}}
 				/>
@@ -371,23 +414,29 @@ export function ReaderPage({
 				</div>
 			)}
 			<div
-				className={`paper-reader-layout ${workspaceOpen ? "has-workspace" : "workspace-collapsed"} show-${mobilePane}`}
+				className={`paper-reader-layout ${workspaceOpen ? "has-workspace" : "workspace-collapsed"} ${translationOpen ? "has-translation" : ""} show-${mobilePane}`}
 				ref={readerLayoutRef}
 				style={{ "--paper-agent-pane-width": `${readerWorkspaceWidth}px` } as React.CSSProperties}
 			>
 				<div className="browser-pdf-shell">
-					{usesMozillaPdfViewer(pdfReader) ? (
-						<MozillaPdfReader
-							url={activeReader.url}
-							title={activeReader.title}
-							enableBilingualSelection={enablesBilingualPdfSelection(
-								pdfReader,
-								activeReader.translationOutputMode,
-							)}
-						/>
-					) : (
-						<BrowserPdfReader url={activeReader.url} title={activeReader.title} />
-					)}
+					<MozillaPdfReader
+						url={activeReader.url}
+						title={activeReader.title}
+						enableBilingualSelection={activeReader.translationOutputMode === "dual"}
+						translationEnabled={translationOpen}
+						translationActivation={translationActivation}
+						onSelection={setSelection}
+						onExplain={(value) => {
+							setSelectionDraft(value);
+							setTabs((current) =>
+								current.some((tab) => tab.id === "agent")
+									? current
+									: [{ id: "agent", kind: "agent", title: "新会话" }, ...current],
+							);
+							setActiveTabId("agent");
+							setMobilePane("workspace");
+						}}
+					/>
 				</div>
 				{workspaceOpen && (
 					<>
@@ -419,6 +468,7 @@ export function ReaderPage({
 											type="button"
 											role="tab"
 											aria-selected={activeTabId === tab.id}
+											title={tab.title}
 											onClick={() => activateTab(tab.id)}
 										>
 											{tab.kind === "agent" ? <Bot size={14} /> : <NotebookPen size={14} />}
@@ -443,7 +493,12 @@ export function ReaderPage({
 											paperContext={paperContext}
 											focusSessionId={focusSessionId}
 											initialPrompt={initialPrompt}
+											selectionDraft={selectionDraft}
+											onSelectionDraftConsumed={() => setSelectionDraft(undefined)}
 											onPromptConsumed={onPromptConsumed}
+											onPaperSessionTitleChange={updateAgentTabTitle}
+											paperSessionMenuContainer={agentMenuContainer}
+											onPaperSessionMenuClose={() => setRailMenu(undefined)}
 										/>
 									</div>
 								)}
@@ -472,15 +527,35 @@ export function ReaderPage({
 						</aside>
 					</>
 				)}
+				<ReaderTranslationPanel
+					selection={selection}
+					open={translationOpen}
+					onClose={() => {
+						setTranslationOpen(false);
+						setSelection(undefined);
+						setMobilePane("pdf");
+					}}
+				/>
 				<aside className="reader-tool-rail" aria-label="阅读工具" ref={railRef}>
 					<button
 						type="button"
 						className={activeTabId === "agent" ? "active" : ""}
-						onClick={openAgent}
+						onClick={openAgentMenu}
 						title="AI 对话"
 						aria-label="AI 对话"
+						aria-haspopup="dialog"
+						aria-expanded={railMenu === "agent"}
 					>
 						<Bot size={19} />
+					</button>
+					<button
+						type="button"
+						className={translationOpen ? "active" : ""}
+						onClick={toggleTranslation}
+						title="选区翻译"
+						aria-label="选区翻译"
+					>
+						<Languages size={19} />
 					</button>
 					<button
 						type="button"
@@ -511,6 +586,7 @@ export function ReaderPage({
 					>
 						<FolderOpen size={19} />
 					</button>
+					{railMenu === "agent" && <div ref={setAgentMenuContainer} />}
 					{railMenu === "notes" && (
 						<div className="reader-rail-popover reader-note-menu">
 							<header>

@@ -50,6 +50,7 @@ describe("local Web Agent routes", () => {
 		};
 		let closed = false;
 		let createdContext: unknown;
+		let sentPaperContext: unknown;
 		let listedFilter: unknown;
 		const listeners = new Set<(event: WebAgentEvent) => void>();
 		const agentService: WebAgentServiceApi = {
@@ -86,6 +87,7 @@ describe("local Web Agent routes", () => {
 			getSession: () => snapshot,
 			deleteSession: () => undefined,
 			sendMessage: (_id, input) => {
+				sentPaperContext = input.paperContext;
 				snapshot = {
 					...snapshot,
 					status: "running",
@@ -162,6 +164,23 @@ describe("local Web Agent routes", () => {
 				status: "running",
 				messages: [{ content: "route hello" }],
 			});
+			const readingContext = {
+				namespace: "alternate",
+				paperId: "paper-one",
+				title: "Example paper",
+				pdfPath: "/tmp/example.pdf",
+			};
+			const paperMessageResponse = await authenticated("/api/agent/sessions/session-one/messages", {
+				method: "POST",
+				body: JSON.stringify({ message: "read this", paperContext: readingContext }),
+			});
+			expect(paperMessageResponse.status).toBe(202);
+			expect(sentPaperContext).toEqual(readingContext);
+			const invalidPaperMessage = await authenticated("/api/agent/sessions/session-one/messages", {
+				method: "POST",
+				body: JSON.stringify({ message: "read this", paperContext: { title: "missing identity" } }),
+			});
+			expect(invalidPaperMessage.status).toBe(400);
 
 			const controller = new AbortController();
 			const eventResponse = await fetch(`${server.url}/api/agent/sessions/session-one/events`, {

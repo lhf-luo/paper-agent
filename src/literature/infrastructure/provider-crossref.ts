@@ -91,7 +91,8 @@ export async function searchCrossrefPage(options: ProviderSearchOptions): Promis
 	url.searchParams.set("query.bibliographic", options.query);
 	url.searchParams.set("rows", String(options.limit));
 	url.searchParams.set("offset", String(offset));
-	const crossrefMailto = providerCredentials.crossrefPoliteEmail ?? process.env.CROSSREF_POLITE_EMAIL;
+	const crossrefMailto =
+		options.crossrefPoliteEmail ?? providerCredentials.crossrefPoliteEmail ?? process.env.CROSSREF_POLITE_EMAIL;
 	if (crossrefMailto) url.searchParams.set("mailto", crossrefMailto);
 	if (options.filters?.yearFrom || options.filters?.yearTo) {
 		const from = options.filters.yearFrom ?? 1000;

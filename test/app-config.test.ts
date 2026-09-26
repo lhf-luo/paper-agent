@@ -27,6 +27,7 @@ import {
 	resolveConfiguredModel,
 } from "../src/config/application/model-service.ts";
 import type { PaperAgentModelConfig } from "../src/config/domain/config-types.ts";
+import { providerCredentials, setProviderCredentials } from "../src/literature/infrastructure/provider-common.ts";
 
 function modelCapabilities(): Pick<PaperAgentModelConfig, "reasoning" | "input" | "contextWindow" | "maxTokens"> {
 	return { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 16_384 };
@@ -80,7 +81,15 @@ describe("Paper Agent local configuration", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-config-"));
 		const value = defaultPaperAgentConfig();
 		value.storage.defaultNamespace = "researcher-a";
-		value.interface.pdfReader = "native";
+		value.readerTranslation.defaultProvider = "deepl";
+		value.credentials = {
+			googleTranslateApiKey: "google-secret",
+			deeplApiKey: "deepl-secret",
+			youdaoAppId: "app-id",
+			youdaoAppSecret: "youdao-secret",
+			baiduTranslateAppId: "baidu-app-id",
+			baiduTranslateAppSecret: "baidu-secret",
+		};
 		value.externalTools.commandDirectories = [join(root, "tools", "poppler"), join(root, "tools", "tesseract")];
 		value.agent.builtinTools = ["read", "grep", "find", "ls"];
 		value.agent.shellPath = join(root, "tools", "bash.exe");
@@ -97,7 +106,7 @@ describe("Paper Agent local configuration", () => {
 		await savePaperAgentConfig(root, value);
 		const loaded = await loadPaperAgentConfig(root);
 		expect(loaded).toMatchObject({
-			interface: { pdfReader: "native" },
+			readerTranslation: { defaultProvider: "deepl" },
 			storage: { defaultNamespace: "researcher-a" },
 			externalTools: {
 				commandDirectories: [join(root, "tools", "poppler"), join(root, "tools", "tesseract")],
@@ -114,7 +123,7 @@ describe("Paper Agent local configuration", () => {
 		expect(raw).not.toContain("PAPER_AGENT_RELAY_API_KEY");
 		expect(raw).not.toContain("sk-");
 		expect(JSON.parse(appRaw)).toMatchObject({
-			interface: { pdfReader: "native" },
+			readerTranslation: { defaultProvider: "deepl" },
 			externalTools: {
 				commandDirectories: [join(root, "tools", "poppler"), join(root, "tools", "tesseract")],
 			},
@@ -140,6 +149,10 @@ describe("Paper Agent local configuration", () => {
 		});
 
 		expect(loaded.model?.headers).toEqual({ "user-agent": "paper-agent-test/1.0", "x-client": "research" });
+		expect(loaded.credentials).toMatchObject(value.credentials);
+		expect(await readFile(paths.credentialsFile, "utf8")).toContain("youdao-secret");
+		expect(await readFile(paths.credentialsFile, "utf8")).toContain("baidu-secret");
+		expect(appRaw).not.toContain("baidu-secret");
 		expect(raw).toContain("paper-agent-test/1.0");
 
 		await expect(
@@ -183,20 +196,25 @@ describe("Paper Agent local configuration", () => {
 		).rejects.toThrow("confirmations.requireResearchConfirmation must be a boolean");
 	});
 
-	it("defaults and validates the PDF reader preference", async () => {
-		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-reader-config-"));
+	it("uses PDF.js and validates the default selection translation service", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-reader-translation-config-"));
 		await savePaperAgentConfig(root, {
 			...defaultPaperAgentConfig(),
 			interface: { port: 0, openBrowser: false },
 		});
-		expect((await loadPaperAgentConfig(root)).interface.pdfReader).toBe("pdfjs");
+		expect((await loadPaperAgentConfig(root)).readerTranslation.defaultProvider).toBe("google");
+		await savePaperAgentConfig(root, {
+			...defaultPaperAgentConfig(),
+			readerTranslation: { defaultProvider: "baidu" },
+		});
+		expect((await loadPaperAgentConfig(root)).readerTranslation.defaultProvider).toBe("baidu");
 
 		await expect(
 			savePaperAgentConfig(root, {
 				...defaultPaperAgentConfig(),
-				interface: { port: 0, openBrowser: false, pdfReader: "embedded" },
+				readerTranslation: { defaultProvider: "embedded" },
 			}),
-		).rejects.toThrow("interface.pdfReader must be pdfjs or native");
+		).rejects.toThrow("readerTranslation.defaultProvider must be google, deepl, youdao, or baidu");
 	});
 
 	it("defaults and validates the PDF translation engine", async () => {
@@ -297,17 +315,21 @@ describe("Paper Agent local configuration", () => {
 		});
 	});
 
-	it("redacts optional GitHub and Zotero keys from configuration output", () => {
+	it("redacts optional GitHub, Zotero, and translation keys from configuration output", () => {
 		const value = defaultPaperAgentConfig();
 		value.credentials = {
 			githubToken: "github-test-token",
 			zoteroLocalApiKey: "zotero-test-key",
 			zoteroServerId: "server-one",
+			baiduTranslateAppId: "baidu-app-id",
+			baiduTranslateAppSecret: "baidu-secret",
 		};
 		expect(redactPaperAgentConfig(value).credentials).toMatchObject({
 			githubToken: "[redacted]",
 			zoteroLocalApiKey: "[redacted]",
 			zoteroServerId: "server-one",
+			baiduTranslateAppId: "baidu-app-id",
+			baiduTranslateAppSecret: "[redacted]",
 		});
 	});
 
@@ -323,7 +345,12 @@ describe("Paper Agent local configuration", () => {
 			apiKey: "original-model-secret",
 		};
 		configured.models = [configured.model];
-		configured.credentials = { coreApiKey: "original-core-secret", githubToken: "original-github-secret" };
+		configured.credentials = {
+			coreApiKey: "original-core-secret",
+			githubToken: "original-github-secret",
+			baiduTranslateAppId: "baidu-app-id",
+			baiduTranslateAppSecret: "original-baidu-secret",
+		};
 		await savePaperAgentConfig(root, configured);
 
 		const fromWeb = redactPaperAgentConfig(await loadPaperAgentConfig(root));
@@ -333,6 +360,8 @@ describe("Paper Agent local configuration", () => {
 		const reloaded = await loadPaperAgentConfig(root);
 		expect(reloaded.model?.apiKey).toBe("original-model-secret");
 		expect(reloaded.credentials).toMatchObject({
+			baiduTranslateAppId: "baidu-app-id",
+			baiduTranslateAppSecret: "original-baidu-secret",
 			coreApiKey: "original-core-secret",
 			githubToken: "original-github-secret",
 		});
@@ -680,6 +709,7 @@ describe("Paper Agent local configuration", () => {
 		try {
 			const next = defaultPaperAgentConfig();
 			next.storage.defaultNamespace = "approved";
+			next.credentials = { ...next.credentials, coreApiKey: "fresh-core-key" };
 			const prepared = await application.prepareConfigurationWrite(next);
 			const grant = await application.confirmOperation(prepared.operationId, prepared.manifestFingerprint);
 			await expect(
@@ -688,7 +718,9 @@ describe("Paper Agent local configuration", () => {
 			await expect(application.writeConfiguration(next, grant)).resolves.toMatchObject({
 				config: { storage: { defaultNamespace: "approved" } },
 			});
+			expect(providerCredentials.coreApiKey).toBe("fresh-core-key");
 		} finally {
+			setProviderCredentials({});
 			await application.close();
 		}
 	});

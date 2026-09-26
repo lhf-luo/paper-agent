@@ -187,7 +187,7 @@ export function validatedBaseUrl(value: string): string {
 }
 
 export function cloneMessage(message: WebAgentMessageView): WebAgentMessageView {
-	return { ...message };
+	return { ...message, attachmentNames: message.attachmentNames ? [...message.attachmentNames] : undefined };
 }
 
 export function cloneTool(tool: WebAgentToolView): WebAgentToolView {

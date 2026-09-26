@@ -34,10 +34,10 @@ export function readerTabsStorageKey(reader: ReaderState): string | undefined {
 
 export function restoredReaderTabs(reader: ReaderState): { tabs: ReaderWorkspaceTab[]; activeId?: string } {
 	const key = readerTabsStorageKey(reader);
-	if (!key) return { tabs: [{ id: "agent", kind: "agent", title: "AI 对话" }], activeId: "agent" };
+	if (!key) return { tabs: [{ id: "agent", kind: "agent", title: "新会话" }], activeId: "agent" };
 	try {
 		const raw = window.localStorage.getItem(key);
-		if (!raw) return { tabs: [{ id: "agent", kind: "agent", title: "AI 对话" }], activeId: "agent" };
+		if (!raw) return { tabs: [{ id: "agent", kind: "agent", title: "新会话" }], activeId: "agent" };
 		const parsed = JSON.parse(raw) as { tabs?: ReaderWorkspaceTab[]; activeId?: string };
 		const tabs = (parsed.tabs ?? []).filter(
 			(tab): tab is ReaderWorkspaceTab =>
@@ -46,6 +46,6 @@ export function restoredReaderTabs(reader: ReaderState): { tabs: ReaderWorkspace
 		);
 		return { tabs, activeId: tabs.some((tab) => tab.id === parsed.activeId) ? parsed.activeId : tabs[0]?.id };
 	} catch {
-		return { tabs: [{ id: "agent", kind: "agent", title: "AI 对话" }], activeId: "agent" };
+		return { tabs: [{ id: "agent", kind: "agent", title: "新会话" }], activeId: "agent" };
 	}
 }

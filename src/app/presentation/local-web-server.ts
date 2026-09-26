@@ -19,6 +19,7 @@ import { handleAgentResearchLaunch, handleAgentRoutes } from "./agent-routes.ts"
 import { handleConnectorRoutes } from "./connector-routes.ts";
 import { handleJobRoutes } from "./job-routes.ts";
 import { handleLibraryRoutes } from "./library-routes.ts";
+import { handleReaderTranslationRoutes } from "./reader-translation-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
 import { handleSearchRoutes } from "./search-routes.ts";
 import { handleTeamRoutes } from "./team-routes.ts";
@@ -135,6 +136,7 @@ export async function startLocalWebServer(
 			if (await handleConnectorRoutes(application, request, response, url)) return;
 			if (await handleZoteroRoutes(application, request, response, url)) return;
 			if (await handlePdfTranslationRoutes(application, request, response, url)) return;
+			if (await handleReaderTranslationRoutes(application, request, response, url)) return;
 			if (await handleMineruRoutes(application, request, response, url)) return;
 			if (await handleWikiRoutes(application, request, response, url)) return;
 			if (url.pathname === "/api/agent/research/start") {

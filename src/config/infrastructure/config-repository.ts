@@ -104,6 +104,7 @@ function mergeConfigParts(
 		...base,
 		...(hasOwn(app, "version") ? { version: app.version } : {}),
 		...(hasOwn(app, "interface") ? { interface: app.interface } : {}),
+		...(hasOwn(app, "readerTranslation") ? { readerTranslation: app.readerTranslation } : {}),
 		...(hasOwn(app, "storage") ? { storage: app.storage } : {}),
 		...(hasOwn(app, "externalTools") ? { externalTools: app.externalTools } : {}),
 		...(hasOwn(app, "agent") ? { agent: app.agent } : {}),
@@ -296,6 +297,7 @@ export async function savePaperAgentConfig(
 		writeJsonAtomic(paths.appFile, {
 			version: config.version,
 			interface: config.interface,
+			readerTranslation: config.readerTranslation,
 			storage: config.storage,
 			externalTools: config.externalTools,
 			agent: config.agent,

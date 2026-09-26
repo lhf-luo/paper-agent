@@ -1,0 +1,14 @@
+.paper-agent-explain-selection {
+	position: fixed;
+	z-index: 10000;
+	padding: 7px 12px;
+	border: 1px solid #9fc7b6;
+	border-radius: 7px;
+	background: #fff;
+	color: #165b48;
+	box-shadow: 0 3px 14px #0003;
+	font: 13px sans-serif;
+	cursor: pointer;
+}
+
+.paper-agent-explain-selection[hidden] { display: none; }

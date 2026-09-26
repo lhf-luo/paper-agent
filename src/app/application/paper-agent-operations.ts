@@ -9,7 +9,9 @@ import {
 	validatePaperAgentConfig,
 } from "../../config/application/config-service.ts";
 import { discoverModelEndpointModels, probeModelToolCalling } from "../../config/application/model-service.ts";
-import type { ArtifactManifest } from "../../literature/domain/literature-types.ts";
+import { probeLiteratureProvider } from "../../literature/application/literature-provider-probe.ts";
+import type { ArtifactManifest, LiteratureProvider } from "../../literature/domain/literature-types.ts";
+import { setProviderCredentials } from "../../literature/infrastructure/literature-providers.ts";
 import type { PdfBox } from "../../pdf/domain/pdf-types.ts";
 import { PdfAnnotationStore } from "../../pdf/infrastructure/pdf-annotation-store.ts";
 import type { ConfirmationGrant, PreparedOperation } from "../../shared/application/operation-consent.ts";
@@ -172,6 +174,7 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 		const prepared = this.configurationWritePlan(value);
 		await this.consent.consume(grant, prepared.plan);
 		const saved = await savePaperAgentConfig(this.projectRoot, prepared.config);
+		setProviderCredentials(saved.config.credentials ?? {});
 		applyExternalToolDirectories(saved.config.externalTools.commandDirectories);
 		// 模型列表不再列入重启条件：Web Agent 在读取配置视图与切换模型时会重新对齐
 		// 磁盘上的 models.json，设置页的增删会立即出现在对话页。
@@ -182,6 +185,12 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 				saved.config.storage.corpusRoot !== this.corpusRoot ||
 				saved.config.storage.defaultNamespace !== this.defaultNamespace,
 		};
+	}
+
+	async probeSearchProvider(providerId: LiteratureProvider) {
+		const config = await loadPaperAgentConfig(this.projectRoot);
+		setProviderCredentials(config.credentials ?? {});
+		return probeLiteratureProvider(providerId, config.credentials ?? {});
 	}
 
 	/**

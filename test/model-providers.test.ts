@@ -17,7 +17,8 @@ function config(models: ModelConfigView[], activeKey?: string): PaperAgentConfig
 	return {
 		version: 1,
 		path: "/tmp/.paper-agent/config",
-		interface: { port: 0, openBrowser: false, pdfReader: "pdfjs" },
+		interface: { port: 0, openBrowser: false },
+		readerTranslation: { defaultProvider: "google" },
 		storage: { defaultNamespace: "default" },
 		externalTools: { commandDirectories: [] },
 		confirmations: {

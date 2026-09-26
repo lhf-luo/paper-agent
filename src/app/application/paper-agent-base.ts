@@ -141,7 +141,6 @@ export abstract class PaperAgentApplicationBase {
 			defaultNamespace: this.defaultNamespace,
 			personalNamespaces: namespaces,
 			defaultRecordCount: records.length,
-			pdfReader: config.interface.pdfReader,
 			confirmations: config.confirmations,
 			jobs: {
 				queued: this.jobs.list({ status: "queued" }).length,

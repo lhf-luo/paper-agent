@@ -57,6 +57,7 @@ export interface WebAgentMessageView {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	attachmentNames?: string[];
 	thinking?: string;
 	status: "complete" | "streaming" | "error" | "aborted";
 	createdAt: string;
@@ -149,6 +150,15 @@ export interface WebAgentAttachmentRef {
 	name: string;
 }
 
+/** The PDF currently selected in a paper-bound reading workspace. */
+export interface WebAgentPaperMessageContext {
+	namespace: string;
+	paperId: string;
+	title: string;
+	pdfPath: string;
+	pdfSha256?: string;
+}
+
 export interface WebAgentAttachment extends WebAgentAttachmentRef {
 	size: number;
 }
@@ -181,7 +191,7 @@ export interface WebAgentServiceApi {
 	dismissError?(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	sendMessage(
 		id: string,
-		input: { message: string; attachments?: WebAgentAttachmentRef[] },
+		input: { message: string; attachments?: WebAgentAttachmentRef[]; paperContext?: WebAgentPaperMessageContext },
 	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	uploadAttachment(
 		id: string,

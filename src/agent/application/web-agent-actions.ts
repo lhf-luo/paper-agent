@@ -5,6 +5,7 @@ import {
 	type WebAgentAttachment,
 	type WebAgentAttachmentRef,
 	type WebAgentMessageView,
+	type WebAgentPaperMessageContext,
 	WebAgentServiceError,
 	type WebAgentSessionSnapshot,
 } from "../domain/web-agent-contracts.ts";
@@ -60,7 +61,7 @@ export class WebAgentActions extends WebAgentRuntime {
 	}
 	async sendMessage(
 		id: string,
-		input: { message: string; attachments?: WebAgentAttachmentRef[] },
+		input: { message: string; attachments?: WebAgentAttachmentRef[]; paperContext?: WebAgentPaperMessageContext },
 	): Promise<WebAgentSessionSnapshot> {
 		this.assertOpen();
 		const session = this.managedSession(id);
@@ -70,14 +71,37 @@ export class WebAgentActions extends WebAgentRuntime {
 			throw new WebAgentServiceError(400, "消息必须包含 1-20000 个字符");
 		}
 		const attachments = (input.attachments ?? []).slice(0, 10);
+		const reading = input.paperContext;
+		if (
+			reading &&
+			(session.context?.kind !== "paper" ||
+				reading.namespace !== session.context.namespace ||
+				reading.paperId !== session.context.paperId)
+		) {
+			throw new WebAgentServiceError(400, "当前阅读论文与 Agent 会话绑定的论文不一致");
+		}
 		let text = message;
 		if (attachments.length > 0) {
 			const lines = attachments.map((attachment) => `- ${attachment.name} (${attachment.path})`).join("\n");
 			text += `\n\n[附件]\n${lines}`;
 		}
-		const promptText = session.context?.kind === "paper"
-			? `[论文会话上下文]\nnamespace: ${session.context.namespace}\npaper_id: ${session.context.paperId}\n\n${text}`
-			: text;
+		const paperHeader =
+			session.context?.kind === "paper"
+				? [
+						"[当前阅读论文]",
+						`namespace: ${JSON.stringify(session.context.namespace)}`,
+						`paper_id: ${JSON.stringify(session.context.paperId)}`,
+						...(reading
+							? [
+									`title: ${JSON.stringify(reading.title)}`,
+									`current_pdf_path: ${JSON.stringify(reading.pdfPath)}`,
+									...(reading.pdfSha256 ? [`current_pdf_sha256: ${reading.pdfSha256}`] : []),
+								]
+							: []),
+						"用户说“这篇论文”时默认指此论文；若用户明确指定其他来源，以用户要求为准。PDF 路径仅用于按需读取，不表示已阅读其内容。",
+					].join("\n")
+				: undefined;
+		const promptText = paperHeader ? `${paperHeader}\n\n${text}` : text;
 		const revision = this.configRevision;
 		const pi = await this.ensurePiSession(session, revision);
 		if (revision !== this.configRevision || !this.sessions.has(id)) {
@@ -87,12 +111,15 @@ export class WebAgentActions extends WebAgentRuntime {
 		session.error = undefined;
 		session.status = "running";
 		session.abortRequested = false;
-		const safeMessage = this.redact(text);
+		const safeMessage = this.redact(message);
 		const safePrompt = this.redact(promptText);
 		const userMessage: WebAgentMessageView = {
 			id: randomUUID(),
 			role: "user",
 			content: safeMessage,
+			...(attachments.length
+				? { attachmentNames: attachments.map((attachment) => this.redact(attachment.name)) }
+				: {}),
 			status: "complete",
 			createdAt: timestamp(),
 		};

@@ -9,15 +9,20 @@ import {
 
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 
-async function exaMCPCall(method: string, params: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
+async function exaMCPCall(
+	method: string,
+	params: unknown,
+	signal?: AbortSignal,
+	apiKey?: string,
+): Promise<Record<string, unknown>> {
 	const response = await fetch(EXA_MCP_URL, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
 			accept: "application/json, text/event-stream",
 			// 可选: 设置 EXA_API_KEY 环境变量走自有配额; 未设置则匿名(配额较低)
-			...((providerCredentials.exaApiKey ?? process.env.EXA_API_KEY)
-				? { "x-api-key": providerCredentials.exaApiKey ?? process.env.EXA_API_KEY }
+			...((apiKey ?? providerCredentials.exaApiKey ?? process.env.EXA_API_KEY)
+				? { "x-api-key": apiKey ?? providerCredentials.exaApiKey ?? process.env.EXA_API_KEY }
 				: {}),
 		},
 		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -79,6 +84,7 @@ export async function searchExaPage(options: ProviderSearchOptions): Promise<Pro
 				clientInfo: { name: "paper-agent", version: "0.2" },
 			},
 			options.signal,
+			options.exaApiKey,
 		);
 	} catch {
 		// 部分部署无需 initialize; 失败忽略, 后续 tools/call 会暴露真实错误。
@@ -91,6 +97,7 @@ export async function searchExaPage(options: ProviderSearchOptions): Promise<Pro
 			arguments: { query: options.query, numResults },
 		},
 		options.signal,
+		options.exaApiKey,
 	);
 	const content = result.content;
 	const text = Array.isArray(content)

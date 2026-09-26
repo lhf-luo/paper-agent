@@ -13,6 +13,8 @@ export interface ProviderSearchOptions {
 	openAlexMailto?: string;
 	semanticScholarApiKey?: string;
 	coreApiKey?: string;
+	exaApiKey?: string;
+	crossrefPoliteEmail?: string;
 	unpaywallEmail?: string;
 }
 

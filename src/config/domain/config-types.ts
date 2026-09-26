@@ -5,6 +5,7 @@ export type ModelInputModality = "text" | "image";
 export type PiBuiltinToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
 export type PdfTranslationEngine = "siliconflowfree" | "active-model";
 export type MineruModelVersion = "pipeline" | "vlm";
+export type ReaderTranslationProvider = "google" | "deepl" | "youdao" | "baidu";
 
 export function supportsAutomaticToolCallingProbe(api: ModelApiKind): boolean {
 	return api === "openai-completions" || api === "openai-responses";
@@ -62,8 +63,8 @@ export interface PaperAgentConfig {
 	interface: {
 		port: number;
 		openBrowser: boolean;
-		pdfReader: "pdfjs" | "native";
 	};
+	readerTranslation: { defaultProvider: ReaderTranslationProvider };
 	storage: {
 		dataRoot?: string;
 		corpusRoot?: string;
@@ -115,6 +116,12 @@ export interface PaperAgentConfig {
 		zoteroLocalApiKey?: string;
 		zoteroServerId?: string;
 		mineruApiKey?: string;
+		googleTranslateApiKey?: string;
+		deeplApiKey?: string;
+		youdaoAppId?: string;
+		youdaoAppSecret?: string;
+		baiduTranslateAppId?: string;
+		baiduTranslateAppSecret?: string;
 	};
 	model?: PaperAgentModelConfig;
 	models?: PaperAgentModelConfig[];

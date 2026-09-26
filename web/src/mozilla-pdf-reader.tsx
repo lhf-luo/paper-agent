@@ -1,23 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserPdfReader } from "./browser-pdf-reader";
 import { connectPdfJsBilingualSelectionBridge } from "./pdfjs-bilingual-selection";
+import { connectPdfJsReaderSelection, type ReaderTextSelection } from "./pdfjs-reader-selection";
 import { mozillaPdfViewerUrl } from "./pdfjs-viewer-url";
 
 export function MozillaPdfReader({
 	url,
 	title,
 	enableBilingualSelection,
+	translationEnabled,
+	translationActivation,
+	onSelection,
+	onExplain,
 }: {
 	url: string;
 	title: string;
 	enableBilingualSelection: boolean;
+	translationEnabled: boolean;
+	translationActivation: number;
+	onSelection: (selection: ReaderTextSelection) => void;
+	onExplain: (selection: ReaderTextSelection) => void;
 }) {
 	const [status, setStatus] = useState<"checking" | "ready" | "error">("checking");
 	const [error, setError] = useState("");
 	const [retry, setRetry] = useState(0);
-	const [useNativeReader, setUseNativeReader] = useState(false);
 	const frameRef = useRef<HTMLIFrameElement>(null);
 	const bridgeCleanup = useRef<() => void>(() => undefined);
+	const onSelectionRef = useRef(onSelection);
+	const onExplainRef = useRef(onExplain);
+	const translationModeRef = useRef({ enabled: translationEnabled, activation: translationActivation });
+	onSelectionRef.current = onSelection;
+	onExplainRef.current = onExplain;
+	translationModeRef.current = { enabled: translationEnabled, activation: translationActivation };
 	const viewerUrl = useMemo(() => mozillaPdfViewerUrl(url, window.location.origin), [url]);
 
 	useEffect(() => {
@@ -26,7 +39,6 @@ export function MozillaPdfReader({
 		bridgeCleanup.current = () => undefined;
 		setStatus("checking");
 		setError("");
-		setUseNativeReader(false);
 		void fetch(url, { method: "HEAD", signal: controller.signal, cache: retry ? "reload" : "default" })
 			.then((response) => {
 				if (!response.ok) throw new Error(`PDF 加载失败（HTTP ${response.status}）`);
@@ -49,14 +61,10 @@ export function MozillaPdfReader({
 		},
 		[],
 	);
+	useEffect(() => {
+		if (translationActivation > 0) frameRef.current?.contentWindow?.getSelection()?.removeAllRanges();
+	}, [translationActivation]);
 
-	const useBrowserReader = () => {
-		bridgeCleanup.current();
-		bridgeCleanup.current = () => undefined;
-		setUseNativeReader(true);
-	};
-
-	if (useNativeReader) return <BrowserPdfReader url={url} title={title} />;
 	if (status === "checking") return <div className="browser-pdf-status">正在加载 Mozilla PDF.js…</div>;
 	if (status === "error") {
 		return (
@@ -67,18 +75,12 @@ export function MozillaPdfReader({
 					<button type="button" className="button secondary" onClick={() => setRetry((current) => current + 1)}>
 						重试
 					</button>
-					<button type="button" className="button primary" onClick={useBrowserReader}>
-						使用浏览器阅读器
-					</button>
 				</div>
 			</div>
 		);
 	}
 	return (
 		<div className="mozilla-pdf-reader">
-			<button type="button" className="mozilla-pdf-native-fallback" onClick={useBrowserReader}>
-				使用浏览器阅读器
-			</button>
 			<iframe
 				ref={frameRef}
 				className="browser-pdf-frame mozilla-pdf-frame"
@@ -99,13 +101,29 @@ export function MozillaPdfReader({
 						setStatus("error");
 						return;
 					}
+					const cleanups: Array<() => void> = [];
+					try {
+						cleanups.push(
+							connectPdfJsReaderSelection(
+								frame,
+								(value) => onSelectionRef.current(value),
+								(value) => onExplainRef.current(value),
+								() => translationModeRef.current,
+							),
+						);
+					} catch (reason) {
+						console.warn("Unable to attach PDF selection bridge", reason);
+					}
 					if (enableBilingualSelection) {
 						try {
-							bridgeCleanup.current = connectPdfJsBilingualSelectionBridge(frame);
+							cleanups.push(connectPdfJsBilingualSelectionBridge(frame));
 						} catch (reason) {
 							console.warn("Unable to attach the bilingual PDF selection bridge", reason);
 						}
 					}
+					bridgeCleanup.current = () => {
+						for (const cleanup of cleanups) cleanup();
+					};
 				}}
 			/>
 		</div>

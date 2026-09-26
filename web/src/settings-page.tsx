@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, jsonBody } from "./api";
 import { AccessibleModal, ConsentCard, confirmOperation, LoadingBlock, PageHeading, StatusPill } from "./components";
 import { ModelProvidersPanel } from "./model-providers-panel";
+import { SearchProviderProbePanel } from "./search-provider-probe-panel";
 import type {
 	ConfirmationGrant,
 	PaperAgentConfigView,
@@ -38,6 +39,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [dirty, setDirty] = useState(false);
+	const [probeRevision, setProbeRevision] = useState(0);
 
 	const load = useCallback(async () => {
 		const loaded = await api<PaperAgentConfigView>("/api/config");
@@ -158,6 +160,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 			);
 			setConfig(next);
 			setDirty(false);
+			setProbeRevision((current) => current + 1);
 			setMessage(
 				result.restartRequired
 					? "已保存。存储路径或 namespace 有变化，请重启 Paper Agent 使其生效。"
@@ -188,6 +191,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 			);
 			setPending(undefined);
 			setPendingConfig(undefined);
+			setProbeRevision((current) => current + 1);
 			await load();
 			await onConfigurationSaved();
 		} catch (reason) {
@@ -341,41 +345,120 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 						/>
 						<span>启动时自动打开浏览器</span>
 					</label>
-					<div className="translation-engine-options" role="radiogroup" aria-label="PDF 阅读器">
-						<label className={config.interface.pdfReader === "pdfjs" ? "active" : ""}>
-							<input
-								type="radio"
-								name="pdf-reader"
-								value="pdfjs"
-								checked={config.interface.pdfReader === "pdfjs"}
-								onChange={() =>
-									update((next) => {
-										next.interface.pdfReader = "pdfjs";
-									})
-								}
-							/>
-							<strong>Mozilla PDF.js（默认）</strong>
-							<span>所有论文使用完整 Viewer，双语版本支持选区联动</span>
-						</label>
-						<label className={config.interface.pdfReader === "native" ? "active" : ""}>
-							<input
-								type="radio"
-								name="pdf-reader"
-								value="native"
-								checked={config.interface.pdfReader === "native"}
-								onChange={() =>
-									update((next) => {
-										next.interface.pdfReader = "native";
-									})
-								}
-							/>
-							<strong>浏览器原生阅读器</strong>
-							<span>在 Edge 中使用 Edge 内置 PDF 阅读器，不提供双语选区联动</span>
-						</label>
-					</div>
 					<p className="form-hint">
 						配置文件：<code>{config.path}</code>
 					</p>
+				</section>
+				<section className="panel form-panel">
+					<span className="eyebrow">READER TRANSLATION · 选区翻译</span>
+					<h2>PDF 选区翻译</h2>
+					<p className="form-hint">
+						选中 PDF 文字后自动请求所选服务。密钥只保存在本地配置，浏览器不直接连接翻译服务。
+					</p>
+					<div className="form-grid">
+						<label>
+							<span>默认服务</span>
+							<select
+								value={config.readerTranslation.defaultProvider}
+								onChange={(event) =>
+									update((next) => {
+										next.readerTranslation.defaultProvider = event.target.value as
+											| "google"
+											| "deepl"
+											| "youdao"
+											| "baidu";
+									})
+								}
+							>
+								<option value="google">Google Cloud Translation</option>
+								<option value="deepl">DeepL</option>
+								<option value="youdao">有道翻译</option>
+								<option value="baidu">百度通用翻译</option>
+							</select>
+						</label>
+						<label>
+							<span>Google Cloud Translation API Key</span>
+							<input
+								type="password"
+								autoComplete="off"
+								value={config.credentials?.googleTranslateApiKey ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.googleTranslateApiKey = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+						<label>
+							<span>DeepL API Key</span>
+							<input
+								type="password"
+								autoComplete="off"
+								value={config.credentials?.deeplApiKey ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.deeplApiKey = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+						<label>
+							<span>有道应用 ID</span>
+							<input
+								autoComplete="off"
+								value={config.credentials?.youdaoAppId ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.youdaoAppId = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+						<label>
+							<span>有道应用密钥</span>
+							<input
+								type="password"
+								autoComplete="off"
+								value={config.credentials?.youdaoAppSecret ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.youdaoAppSecret = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+						<label>
+							<span>百度翻译 APP ID</span>
+							<input
+								autoComplete="off"
+								value={config.credentials?.baiduTranslateAppId ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.baiduTranslateAppId = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+						<label>
+							<span>百度翻译 APP 密钥</span>
+							<input
+								type="password"
+								autoComplete="off"
+								value={config.credentials?.baiduTranslateAppSecret ?? ""}
+								onChange={(event) =>
+									update((next) => {
+										next.credentials ??= {};
+										next.credentials.baiduTranslateAppSecret = event.target.value || undefined;
+									})
+								}
+							/>
+						</label>
+					</div>
 				</section>
 				<section className="panel form-panel">
 					<span className="eyebrow">RESEARCH WIKI · 知识库与 Obsidian</span>
@@ -691,6 +774,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 						<span>检索时优先复用个人库已有记录</span>
 					</label>
 				</section>
+				<SearchProviderProbePanel key={probeRevision} />
 				<section className="panel form-panel team-access-panel">
 					<span className="eyebrow">TEAM NODE · 团队接入</span>
 					<h2>团队接入</h2>

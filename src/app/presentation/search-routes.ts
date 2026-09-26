@@ -16,6 +16,23 @@ export async function handleSearchRoutes(
 	response: ServerResponse,
 	url: URL,
 ): Promise<void> {
+	if (request.method === "POST" && url.pathname === "/api/search/providers/probe") {
+		const body = await readJson(request);
+		const supported = application
+			.providerCatalog()
+			.filter((provider) => provider.capabilities.includes("keyword-search"));
+		if (typeof body.providerId !== "string" || !supported.some((provider) => provider.id === body.providerId)) {
+			throw new ApiError(400, "Unsupported keyword search provider");
+		}
+		json(
+			response,
+			200,
+			await application.probeSearchProvider(
+				body.providerId as Parameters<typeof application.probeSearchProvider>[0],
+			),
+		);
+		return;
+	}
 	if (request.method === "GET" && url.pathname === "/api/search/runs") {
 		const runs = await application.listSearchRuns(namespaceValue(url.searchParams.get("namespace")));
 		json(response, 200, {
@@ -44,9 +61,7 @@ export async function handleSearchRoutes(
 		);
 		if (!run) throw new ApiError(404, "search run not found");
 		const paperId = decodeURIComponent(searchRunPaperRoute[2]);
-		const paper = run.results.find(
-			(candidate) => candidate.id === paperId || candidate.mergedFrom.includes(paperId),
-		);
+		const paper = run.results.find((candidate) => candidate.id === paperId || candidate.mergedFrom.includes(paperId));
 		if (!paper) throw new ApiError(404, "paper not found in search run");
 		json(response, 200, { paperId: paper.id, abstract: paper.abstract ?? null });
 		return;

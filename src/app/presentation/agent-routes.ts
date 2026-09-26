@@ -6,6 +6,7 @@ import type {
 	WebAgentConfigUpdate,
 	WebAgentEvent,
 	WebAgentMode,
+	WebAgentPaperMessageContext,
 	WebAgentServiceApi,
 	WebAgentSessionContext,
 	WebAgentSessionFilter,
@@ -330,16 +331,32 @@ async function handleMessageAction(context: AgentRouteContext, agentService: Web
 		const attachments = Array.isArray(body.attachments)
 			? body.attachments.filter(isAttachment).slice(0, 10)
 			: undefined;
+		if (body.paperContext !== undefined && !isPaperMessageContext(body.paperContext)) {
+			throw new ApiError(400, "Invalid paper reading context");
+		}
 		json(
 			response,
 			202,
 			await agentService.sendMessage(id, {
 				message: typeof body.message === "string" ? body.message : "",
 				attachments,
+				paperContext: body.paperContext as WebAgentPaperMessageContext | undefined,
 			}),
 		);
 	}
 	return true;
+}
+
+function isPaperMessageContext(value: unknown): value is WebAgentPaperMessageContext {
+	if (typeof value !== "object" || value === null) return false;
+	const context = value as Record<string, unknown>;
+	return (
+		["namespace", "paperId", "title", "pdfPath"].every(
+			(key) => typeof context[key] === "string" && context[key].length > 0 && context[key].length <= 2_000,
+		) &&
+		(context.pdfSha256 === undefined ||
+			(typeof context.pdfSha256 === "string" && /^[a-f0-9]{64}$/i.test(context.pdfSha256)))
+	);
 }
 
 function isAttachment(value: unknown): value is { path: string; name: string } {

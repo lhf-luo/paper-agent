@@ -41,7 +41,8 @@ const PI_BUILTIN_TOOLS = new Set<PiBuiltinToolName>(["read", "bash", "edit", "wr
 export function defaultPaperAgentConfig(): PaperAgentConfig {
 	return {
 		version: 1,
-		interface: { port: 43127, openBrowser: true, pdfReader: "pdfjs" },
+		interface: { port: 43127, openBrowser: true },
+		readerTranslation: { defaultProvider: "google" },
 		storage: { defaultNamespace: "default" },
 		externalTools: { commandDirectories: [] },
 		agent: { builtinTools: [] },
@@ -168,6 +169,14 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		return value === undefined ? confirmationDefaults[field] : value;
 	};
 	const searchSource = (source.search ?? {}) as Record<string, unknown>;
+	if (source.readerTranslation !== undefined && !isRecord(source.readerTranslation)) {
+		throw new Error("readerTranslation must be an object");
+	}
+	const readerTranslationSource = isRecord(source.readerTranslation) ? source.readerTranslation : {};
+	const defaultTranslationProvider = readerTranslationSource.defaultProvider ?? "google";
+	if (!["google", "deepl", "youdao", "baidu"].includes(String(defaultTranslationProvider))) {
+		throw new Error("readerTranslation.defaultProvider must be google, deepl, youdao, or baidu");
+	}
 	const pdfTranslationSource = (source.pdfTranslation ?? {}) as Record<string, unknown>;
 	const pdfTranslationEngine = pdfTranslationSource.engine ?? "siliconflowfree";
 	if (pdfTranslationEngine !== "siliconflowfree" && pdfTranslationEngine !== "active-model") {
@@ -202,10 +211,6 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 	const port = Number(interfaceSource.port ?? 0);
 	if (!Number.isInteger(port) || port < 0 || port > 65535)
 		throw new Error("interface.port must be 0 or a valid TCP port");
-	const pdfReader = interfaceSource.pdfReader ?? "pdfjs";
-	if (pdfReader !== "pdfjs" && pdfReader !== "native") {
-		throw new Error("interface.pdfReader must be pdfjs or native");
-	}
 	const namespace = String(storageSource.defaultNamespace ?? "default");
 	if (!SAFE_SEGMENT.test(namespace))
 		throw new Error("storage.defaultNamespace must be a safe 1-64 character identifier");
@@ -269,8 +274,8 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		interface: {
 			port,
 			openBrowser: interfaceSource.openBrowser !== false,
-			pdfReader,
 		},
+		readerTranslation: { defaultProvider: defaultTranslationProvider as "google" | "deepl" | "youdao" | "baidu" },
 		storage: {
 			dataRoot: optionalAbsolutePath(storageSource.dataRoot, "storage.dataRoot", projectRoot),
 			corpusRoot: optionalAbsolutePath(storageSource.corpusRoot, "storage.corpusRoot", projectRoot),
@@ -447,6 +452,20 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 				: {}),
 			...(boundedSecret("zoteroServerId", 512) ? { zoteroServerId: boundedSecret("zoteroServerId", 512) } : {}),
 			...(boundedSecret("mineruApiKey", 4_096) ? { mineruApiKey: boundedSecret("mineruApiKey", 4_096) } : {}),
+			...(boundedSecret("googleTranslateApiKey", 4_096)
+				? { googleTranslateApiKey: boundedSecret("googleTranslateApiKey", 4_096) }
+				: {}),
+			...(boundedSecret("deeplApiKey", 4_096) ? { deeplApiKey: boundedSecret("deeplApiKey", 4_096) } : {}),
+			...(boundedSecret("youdaoAppId", 512) ? { youdaoAppId: boundedSecret("youdaoAppId", 512) } : {}),
+			...(boundedSecret("youdaoAppSecret", 4_096)
+				? { youdaoAppSecret: boundedSecret("youdaoAppSecret", 4_096) }
+				: {}),
+			...(boundedSecret("baiduTranslateAppId", 512)
+				? { baiduTranslateAppId: boundedSecret("baiduTranslateAppId", 512) }
+				: {}),
+			...(boundedSecret("baiduTranslateAppSecret", 4_096)
+				? { baiduTranslateAppSecret: boundedSecret("baiduTranslateAppSecret", 4_096) }
+				: {}),
 		};
 	}
 	if (source.model !== undefined) {

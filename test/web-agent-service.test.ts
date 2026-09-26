@@ -277,6 +277,82 @@ describe("WebAgentService", () => {
 		expect(await pathExists(piFile)).toBe(false);
 	});
 
+	it("keeps the selected paper PDF in model context without adding it to the visible message", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-reading-context-"));
+		temporaryPaths.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		await store.upsertPaper({
+			id: "paper-reading",
+			title: "Reading paper",
+			authors: ["Researcher"],
+			identifiers: {},
+			links: [],
+			provenance: [{ provider: "json-import", query: "fixture", retrievedAt: new Date().toISOString() }],
+			mergedFrom: [],
+		});
+		const provider = await startFakeModelServer({ secret: "sk-reading-context-test" });
+		try {
+			const service = await WebAgentService.create({
+				projectRoot: root,
+				paperSessionDatabasePath: store.databasePath,
+			});
+			services.push(service);
+			await service.updateConfig({
+				providerId: "fake-provider",
+				modelId: "fake-model",
+				baseUrl: provider.baseUrl,
+				api: "openai-completions",
+				apiKey: "sk-reading-context-test",
+			});
+			const session = service.createSession({
+				mode: "persistent",
+				context: { kind: "paper", namespace: "default", paperId: "paper-reading" },
+			});
+			const reading = {
+				namespace: "default",
+				paperId: "paper-reading",
+				title: "Reading paper",
+				pdfPath: join(root, "first.pdf"),
+				pdfSha256: "a".repeat(64),
+			};
+			await expect(
+				service.sendMessage(session.id, {
+					message: "Explain the method",
+					paperContext: { ...reading, paperId: "different-paper" },
+				}),
+			).rejects.toThrow("不一致");
+			await service.sendMessage(session.id, {
+				message: "Explain the method",
+				paperContext: reading,
+				attachments: [{ path: join(root, "notes.txt"), name: "notes.txt" }],
+			});
+			await waitFor(() => service.getSession(session.id).status !== "running");
+			expect(service.getSession(session.id).messages[0].content).toBe("Explain the method");
+			expect(service.getSession(session.id).messages[0].attachmentNames).toEqual(["notes.txt"]);
+			const firstRequest = JSON.stringify(provider.requests[0].body.messages);
+			expect(firstRequest).toContain("Reading paper");
+			expect(firstRequest).toContain("first.pdf");
+			expect(firstRequest).toContain("paper-reading");
+			expect(firstRequest).toContain("路径仅用于按需读取");
+			await service.sendMessage(session.id, {
+				message: "Now compare the results",
+				paperContext: { ...reading, pdfPath: join(root, "second.pdf"), pdfSha256: "b".repeat(64) },
+			});
+			await waitFor(() => service.getSession(session.id).status !== "running");
+			const secondMessages = provider.requests[1].body.messages as Array<{ role: string; content: unknown }>;
+			const latestUser = [...secondMessages].reverse().find((entry) => entry.role === "user");
+			expect(JSON.stringify(latestUser)).toContain("second.pdf");
+			expect(
+				service
+					.getSession(session.id)
+					.messages.filter((entry) => entry.role === "user")
+					.map((entry) => entry.content),
+			).toEqual(["Explain the method", "Now compare the results"]);
+		} finally {
+			await provider.close();
+		}
+	});
+
 	it("streams through the real Pi SDK without persisting or returning the model API key", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-stream-"));
 		temporaryPaths.push(root);
@@ -814,9 +890,16 @@ describe("WebAgentService", () => {
 		});
 		const service = await WebAgentService.create({ projectRoot: root });
 		services.push(service);
-		expect(await service.getConfig()).toMatchObject({ configured: false, configuredModels: [{ key: "relay/vision" }] });
+		expect(await service.getConfig()).toMatchObject({
+			configured: false,
+			configuredModels: [{ key: "relay/vision" }],
+		});
 		await service.applyConfiguredModel("relay/vision");
-		expect(await service.getConfig()).toMatchObject({ configured: true, modelId: "vision", input: ["text", "image"] });
+		expect(await service.getConfig()).toMatchObject({
+			configured: true,
+			modelId: "vision",
+			input: ["text", "image"],
+		});
 	});
 
 	it("picks up providers added or removed on disk without a service restart", async () => {
@@ -915,9 +998,6 @@ describe("WebAgentService", () => {
 		});
 		const kept = await service.getConfig();
 		expect(kept).toMatchObject({ providerId: "alpha", modelId: "alpha-model", configured: true });
-		expect(kept.configuredModels.map((model) => model.key)).toEqual([
-			"alpha/alpha-model",
-			"gamma/gamma-model",
-		]);
+		expect(kept.configuredModels.map((model) => model.key)).toEqual(["alpha/alpha-model", "gamma/gamma-model"]);
 	});
 });

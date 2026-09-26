@@ -544,7 +544,8 @@ export interface PaperAsset {
 export interface PaperAgentConfigView {
 	version: 1;
 	path: string;
-	interface: { port: number; openBrowser: boolean; pdfReader: "pdfjs" | "native" };
+	interface: { port: number; openBrowser: boolean };
+	readerTranslation: { defaultProvider: "google" | "deepl" | "youdao" | "baidu" };
 	storage: { dataRoot?: string; corpusRoot?: string; defaultNamespace: string };
 	externalTools: { commandDirectories: string[] };
 	confirmations: OperationConfirmationSettingsView;
@@ -623,6 +624,7 @@ export interface AgentMessageView {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	attachmentNames?: string[];
 	thinking?: string;
 	status: "complete" | "streaming" | "error" | "aborted";
 	createdAt: string;
@@ -715,7 +717,6 @@ export interface ApplicationStatus {
 	defaultNamespace: string;
 	personalNamespaces: string[];
 	defaultRecordCount: number;
-	pdfReader: "pdfjs" | "native";
 	confirmations: OperationConfirmationSettingsView;
 	jobs: { queued: number; running: number; failed: number };
 }

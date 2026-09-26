@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
 import type { PaperRecord } from "../src/literature/domain/literature-types.ts";
@@ -83,6 +83,38 @@ describe("local Paper Agent web server", () => {
 					...init,
 					headers: { "content-type": "application/json", ...init.headers },
 				});
+			const translationProviders = await authenticated("/api/reader/translation/providers");
+			expect(await translationProviders.json()).toMatchObject({ providers: [] });
+			const missingBaiduCredentials = await authenticated("/api/reader/translate", {
+				method: "POST",
+				body: JSON.stringify({ text: "hello", provider: "baidu", targetLanguage: "zh-CN" }),
+			});
+			expect(missingBaiduCredentials.status).toBe(400);
+			expect(await missingBaiduCredentials.json()).toMatchObject({ error: "该翻译服务尚未配置密钥" });
+			const invalidProbe = await authenticated("/api/search/providers/probe", {
+				method: "POST",
+				body: JSON.stringify({ providerId: "unpaywall" }),
+			});
+			expect(invalidProbe.status).toBe(400);
+			const probeSpy = vi.spyOn(application, "probeSearchProvider").mockResolvedValue({
+				providerId: "arxiv",
+				status: "results",
+				credentialMode: "not-applicable",
+				checkedAt: new Date().toISOString(),
+				latencyMs: 4,
+				recordCount: 1,
+				sampleTitle: "Example",
+				message: "检索成功并返回论文。",
+			});
+			const probeResponse = await authenticated("/api/search/providers/probe", {
+				method: "POST",
+				body: JSON.stringify({ providerId: "arxiv" }),
+			});
+			expect(probeResponse.status).toBe(200);
+			expect(await probeResponse.json()).toMatchObject({ providerId: "arxiv", recordCount: 1 });
+			expect(probeSpy).toHaveBeenCalledWith("arxiv");
+			probeSpy.mockRestore();
+			expect((await (await authenticated("/api/search/runs")).json()).runs).toEqual([]);
 			const annotationPrepare = await authenticated("/api/library/annotations/prepare", {
 				method: "POST",
 				body: JSON.stringify({
