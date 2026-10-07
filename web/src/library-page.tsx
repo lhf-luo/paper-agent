@@ -1,5 +1,5 @@
-import { Search, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, CheckCircle2, FolderTree, MoreHorizontal, Search, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, apiBytes, jsonBody } from "./api";
 import {
@@ -18,7 +18,7 @@ import {
 	useConfirmationPolicy,
 } from "./confirmation-policy";
 import { CollectionSidebar } from "./library-collections";
-import { MineruControl } from "./mineru-control";
+import { PaperDetailFieldsCard } from "./paper-detail-fields";
 import { type AutomatedResearchLaunchInput, ResearchLauncher } from "./research-launcher";
 import type {
 	BackgroundJob,
@@ -41,6 +41,7 @@ import type {
 	ZoteroLibraryItem,
 	ZoteroStatus,
 } from "./types";
+import { useElementWidth } from "./use-element-width";
 import {
 	ALL_ZOTERO_ITEMS,
 	allZoteroItemKeys,
@@ -92,6 +93,45 @@ const metadataFieldLabels: Record<string, string> = {
 	provenance: "来源",
 	metadataConflicts: "冲突记录",
 };
+
+const LIBRARY_VIEW_KEY = "paper-agent:library-view";
+const SCREENING_FILTERS = new Set(["all", "unreviewed", "include", "maybe", "exclude"]);
+
+interface LibraryViewState {
+	namespace: string;
+	activeCollection: string;
+	query: string;
+	screeningFilter: string;
+	detailPaperId?: string;
+	listScrollTop: number;
+	detailScrollTop: number;
+	windowScrollTop: number;
+}
+
+function savedScrollTop(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function readLibraryViewState(): LibraryViewState | undefined {
+	try {
+		const saved = JSON.parse(
+			window.sessionStorage.getItem(LIBRARY_VIEW_KEY) ?? "null",
+		) as Partial<LibraryViewState> | null;
+		if (!saved || typeof saved.namespace !== "string" || typeof saved.activeCollection !== "string") return undefined;
+		return {
+			namespace: saved.namespace,
+			activeCollection: saved.activeCollection,
+			query: typeof saved.query === "string" ? saved.query : "",
+			screeningFilter: SCREENING_FILTERS.has(saved.screeningFilter ?? "") ? saved.screeningFilter! : "all",
+			detailPaperId: typeof saved.detailPaperId === "string" ? saved.detailPaperId : undefined,
+			listScrollTop: savedScrollTop(saved.listScrollTop),
+			detailScrollTop: savedScrollTop(saved.detailScrollTop),
+			windowScrollTop: savedScrollTop(saved.windowScrollTop),
+		};
+	} catch {
+		return undefined;
+	}
+}
 
 function metadataFieldsLabel(fields: string[]): string {
 	return fields.map((field) => metadataFieldLabels[field] ?? field).join("、");
@@ -157,10 +197,13 @@ export function LibraryPage({
 	) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
-	const [query, setQuery] = useState("");
+	const [restoredView] = useState(readLibraryViewState);
+	const [query, setQuery] = useState(restoredView?.query ?? "");
 	const [papers, setPapers] = useState<PaperRecord[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [details, setDetails] = useState<any>();
+	const [detailDraftDirty, setDetailDraftDirty] = useState(false);
+	const [detailDraftExit, setDetailDraftExit] = useState<{ kind: "close" } | { kind: "open"; paper: PaperRecord }>();
 	const [loading, setLoading] = useState(true);
 	const [pending, setPending] = useState<PreparedOperation>();
 	const [annotationPending, setAnnotationPending] = useState<PreparedOperation>();
@@ -181,22 +224,73 @@ export function LibraryPage({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
-	const [namespace, setNamespace] = useState("default");
+	const [namespace, setNamespace] = useState(restoredView?.namespace ?? "default");
+	const namespaceRef = useRef(namespace);
+	namespaceRef.current = namespace;
 	const [namespaces, setNamespaces] = useState<string[]>(["default"]);
 	const [collections, setCollections] = useState<PaperCollection[]>([]);
 	const [collectionMemberships, setCollectionMemberships] = useState<CollectionMembershipIndex>();
 	const [collectionMembershipsLoading, setCollectionMembershipsLoading] = useState(true);
-	const [activeCollection, setActiveCollection] = useState<string>("all");
+	const [activeCollection, setActiveCollection] = useState(restoredView?.activeCollection ?? "all");
 	const [annotationTags, setAnnotationTags] = useState("");
 	const [annotationNote, setAnnotationNote] = useState("");
 	const [screeningStatus, setScreeningStatus] = useState("unreviewed");
 	const [screeningReason, setScreeningReason] = useState("");
-	const [screeningFilter, setScreeningFilter] = useState("all");
+	const [screeningFilter, setScreeningFilter] = useState(restoredView?.screeningFilter ?? "all");
+	const paperPaneRef = useRef<HTMLDivElement>(null);
+	const detailPaneRef = useRef<HTMLElement>(null);
+	const scrollPositionRef = useRef({
+		listScrollTop: restoredView?.listScrollTop ?? 0,
+		detailScrollTop: restoredView?.detailScrollTop ?? 0,
+		windowScrollTop: restoredView?.windowScrollTop ?? 0,
+	});
+	const pendingViewRef = useRef(restoredView);
+	const restoringPositionRef = useRef(Boolean(restoredView));
+	const loadRequestRef = useRef(0);
+	const detailPaperId: string | undefined = details?.paper?.id;
+	const loadingRef = useRef(loading);
+	loadingRef.current = loading;
+	const persistView = useCallback(() => {
+		if (restoringPositionRef.current) return;
+		try {
+			window.sessionStorage.setItem(
+				LIBRARY_VIEW_KEY,
+				JSON.stringify({
+					namespace,
+					activeCollection,
+					query,
+					screeningFilter,
+					detailPaperId,
+					...scrollPositionRef.current,
+				} satisfies LibraryViewState),
+			);
+		} catch {
+			// The library remains usable if browser storage is unavailable.
+		}
+	}, [namespace, activeCollection, query, screeningFilter, detailPaperId]);
+	const openReaderFromLibrary = (state: ReaderState) => {
+		// Capture synchronously in case navigation precedes the latest scroll event.
+		if (paperPaneRef.current?.offsetHeight) scrollPositionRef.current.listScrollTop = paperPaneRef.current.scrollTop;
+		if (detailPaneRef.current) scrollPositionRef.current.detailScrollTop = detailPaneRef.current.scrollTop;
+		scrollPositionRef.current.windowScrollTop = window.scrollY;
+		persistView();
+		onOpenReader(state);
+	};
 	const [exportFormat, setExportFormat] = useState("markdown");
 	const [exportFilename, setExportFilename] = useState("");
 	const [activeLibraryTool, setActiveLibraryTool] = useState<"curation" | "export">();
 	const [localUploadingPaperId, setLocalUploadingPaperId] = useState<string>();
 	const [importMenuOpen, setImportMenuOpen] = useState(false);
+	const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+	const [collectionsOpen, setCollectionsOpen] = useState(false);
+	const { ref: libraryLayoutRef, width: libraryWidth } = useElementWidth<HTMLDivElement>();
+	const compactLibrary = libraryWidth < 1180;
+	const detailOnlyView = libraryWidth < 900;
+	const collectionTriggerRef = useRef<HTMLButtonElement>(null);
+	const collectionDialogRef = useRef<HTMLDivElement>(null);
+	const moreActionsRef = useRef<HTMLDivElement>(null);
+	const detailCloseRef = useRef<HTMLButtonElement>(null);
+	const detailTriggerRef = useRef<HTMLElement | null>(null);
 	const [localImportBatch, setLocalImportBatch] = useState<LocalPdfImportBatchView>();
 	const [localImportIssues, setLocalImportIssues] = useState<LocalPdfImportIssue[]>([]);
 	const [localImportProgress, setLocalImportProgress] = useState<{
@@ -322,34 +416,89 @@ export function LibraryPage({
 	useEffect(() => {
 		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
 			.then((value) => {
-				setNamespace(value.defaultNamespace);
 				setNamespaces(value.personal);
+				if (restoredView && value.personal.includes(restoredView.namespace)) return;
+				setNamespace(value.defaultNamespace);
+				setActiveCollection("all");
 			})
 			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-	}, []);
+	}, [restoredView]);
+	useEffect(() => {
+		if (loading) return;
+		persistView();
+	}, [loading, persistView]);
+	useEffect(() => {
+		const rememberWindowScroll = () => {
+			if (loadingRef.current || restoringPositionRef.current) return;
+			scrollPositionRef.current.windowScrollTop = window.scrollY;
+			persistView();
+		};
+		window.addEventListener("scroll", rememberWindowScroll, { passive: true });
+		return () => window.removeEventListener("scroll", rememberWindowScroll);
+	}, [persistView]);
 	const load = useCallback(async () => {
+		const requestId = ++loadRequestRef.current;
 		setLoading(true);
 		setError("");
 		try {
 			const params = new URLSearchParams({ q: query, namespace, limit: "300" });
 			if (screeningFilter !== "all") params.append("screeningStatus", screeningFilter);
 			if (activeCollection !== "all") params.append("collection", activeCollection);
-			setPapers(
-				(await api<{ hits: Array<{ record: PaperRecord }> }>(`/api/library?${params.toString()}`)).hits.map(
-					(hit) => hit.record,
-				),
-			);
+			const records = (
+				await api<{ hits: Array<{ record: PaperRecord }> }>(`/api/library?${params.toString()}`)
+			).hits.map((hit) => hit.record);
+			if (requestId !== loadRequestRef.current) return;
+			const saved = pendingViewRef.current;
+			if (saved?.detailPaperId && records.some((paper) => paper.id === saved.detailPaperId)) {
+				try {
+					const restoredDetail = await api(
+						`/api/papers/${encodeURIComponent(saved.detailPaperId)}?namespace=${encodeURIComponent(namespace)}`,
+					);
+					if (requestId !== loadRequestRef.current) return;
+					setDetails(restoredDetail);
+				} catch {
+					// A removed paper must not prevent restoring the remaining list.
+				}
+			}
+			setPapers(records);
 		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
+			if (requestId === loadRequestRef.current) setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
-			setLoading(false);
+			if (requestId === loadRequestRef.current) setLoading(false);
 		}
 	}, [namespace, query, screeningFilter, activeCollection]);
 	useEffect(() => {
+		const saved = pendingViewRef.current;
+		if (
+			!saved ||
+			saved.namespace !== namespace ||
+			saved.activeCollection !== activeCollection ||
+			saved.query !== query ||
+			saved.screeningFilter !== screeningFilter
+		) {
+			pendingViewRef.current = undefined;
+			restoringPositionRef.current = false;
+			scrollPositionRef.current = { listScrollTop: 0, detailScrollTop: 0, windowScrollTop: 0 };
+		}
 		setSelected(new Set());
 		setDetails(undefined);
 		void load();
-	}, [load]);
+		return () => {
+			++loadRequestRef.current;
+		};
+	}, [load, namespace, activeCollection, query, screeningFilter]);
+	useLayoutEffect(() => {
+		if (loading) return;
+		// Restore only after both the list and saved details establish their final column widths.
+		if ((!detailOnlyView || !detailPaperId) && paperPaneRef.current?.offsetHeight)
+			paperPaneRef.current.scrollTop = scrollPositionRef.current.listScrollTop;
+		if (detailPaperId && detailPaneRef.current)
+			detailPaneRef.current.scrollTop = scrollPositionRef.current.detailScrollTop;
+		if (restoringPositionRef.current)
+			window.scrollTo({ top: scrollPositionRef.current.windowScrollTop, behavior: "instant" });
+		pendingViewRef.current = undefined;
+		restoringPositionRef.current = false;
+	}, [loading, detailPaperId, detailOnlyView]);
 	useEffect(() => {
 		if (!selected.size) setActiveLibraryTool(undefined);
 	}, [selected.size]);
@@ -379,6 +528,7 @@ export function LibraryPage({
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [activeLibraryTool, annotationPending, exportPending]);
 	const loadCollectionData = useCallback(async () => {
+		const requestedNamespace = namespace;
 		setCollectionMemberships(undefined);
 		setCollectionMembershipsLoading(true);
 		const [collectionsResult, membershipsResult] = await Promise.allSettled([
@@ -387,8 +537,17 @@ export function LibraryPage({
 				`/api/library/collection-memberships?namespace=${encodeURIComponent(namespace)}`,
 			),
 		]);
-		if (collectionsResult.status === "fulfilled") setCollections(collectionsResult.value);
-		else
+		if (requestedNamespace !== namespaceRef.current) return;
+		if (collectionsResult.status === "fulfilled") {
+			setCollections(collectionsResult.value);
+			setActiveCollection((current) =>
+				current === "all" ||
+				current === "__uncategorized__" ||
+				collectionsResult.value.some((collection) => collection.id === current)
+					? current
+					: "all",
+			);
+		} else
 			setError(
 				collectionsResult.reason instanceof Error
 					? collectionsResult.reason.message
@@ -419,9 +578,10 @@ export function LibraryPage({
 			cancelled = true;
 		};
 	}, [namespace]);
-	const open = async (paper: PaperRecord) => {
+	const loadDetail = async (paper: PaperRecord) => {
 		setError("");
 		try {
+			if (details?.paper?.id !== paper.id) scrollPositionRef.current.detailScrollTop = 0;
 			setDetails(
 				await api(`/api/papers/${encodeURIComponent(paper.id)}?namespace=${encodeURIComponent(namespace)}`),
 			);
@@ -429,6 +589,33 @@ export function LibraryPage({
 			setError(reason instanceof Error ? reason.message : String(reason));
 		}
 	};
+	const open = async (paper: PaperRecord) => {
+		if (detailDraftDirty && details?.paper?.id !== paper.id) {
+			setDetailDraftExit({ kind: "open", paper });
+			return;
+		}
+		await loadDetail(paper);
+	};
+	const closeDetail = useCallback(() => {
+		if (detailDraftDirty) {
+			setDetailDraftExit({ kind: "close" });
+			return;
+		}
+		setDetailDraftDirty(false);
+		setDetails(undefined);
+		detailTriggerRef.current?.focus();
+	}, [detailDraftDirty]);
+	const discardDetailDraft = () => {
+		const action = detailDraftExit;
+		setDetailDraftExit(undefined);
+		setDetailDraftDirty(false);
+		if (action?.kind === "open") void loadDetail(action.paper);
+		else {
+			setDetails(undefined);
+			detailTriggerRef.current?.focus();
+		}
+	};
+	const updateDetailDirty = useCallback((dirty: boolean) => setDetailDraftDirty(dirty), []);
 	const openArtifactFolder = async () => {
 		if (!details?.paper?.id || artifactFolderOpening) return;
 		setArtifactFolderOpening(true);
@@ -1276,10 +1463,57 @@ export function LibraryPage({
 		}
 		if (localImportBatch) void cancelLocalImport(false);
 		setActiveCollection(collectionId);
+		setCollectionsOpen(false);
 	};
+	useEffect(() => {
+		if (!compactLibrary) {
+			setCollectionsOpen(false);
+			setMoreActionsOpen(false);
+		}
+	}, [compactLibrary]);
+	useEffect(() => {
+		if (!collectionsOpen && !moreActionsOpen) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setCollectionsOpen(false);
+			setMoreActionsOpen(false);
+			collectionTriggerRef.current?.focus();
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (moreActionsOpen && !moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
+		};
+		document.addEventListener("keydown", onKeyDown);
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => {
+			document.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener("pointerdown", onPointerDown);
+		};
+	}, [collectionsOpen, moreActionsOpen]);
+	useEffect(() => {
+		if (collectionsOpen)
+			collectionDialogRef.current
+				?.querySelector<HTMLButtonElement>(".library-collection-drawer-head button")
+				?.focus();
+	}, [collectionsOpen]);
+	useEffect(() => {
+		if (!details?.paper?.id || !detailOnlyView) return;
+		detailCloseRef.current?.focus({ preventScroll: true });
+	}, [details?.paper?.id, detailOnlyView]);
+	useEffect(() => {
+		if (!details) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (document.querySelector(".accessible-modal-overlay")) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				closeDetail();
+			}
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [details, closeDetail]);
 	const libraryToolbar = (
 		<div className="library-main-sticky-head">
-			<div className="library-action-toolbar">
+			<div className="library-action-toolbar" ref={moreActionsRef}>
 				<div className="library-import-menu-wrap" ref={importMenuRef}>
 					<button
 						ref={importButtonRef}
@@ -1324,60 +1558,105 @@ export function LibraryPage({
 				>
 					下载所选 PDF
 				</button>
-				<button
-					ref={curationButtonRef}
-					className={`button secondary library-tool-trigger${activeLibraryTool === "curation" ? " active" : ""}`}
-					type="button"
-					disabled={!selected.size || libraryActionLocked}
-					aria-expanded={activeLibraryTool === "curation"}
-					aria-controls="library-curation-tool"
-					onClick={() => setActiveLibraryTool((current) => (current === "curation" ? undefined : "curation"))}
+				{compactLibrary && (
+					<div className="library-more-actions">
+						<button
+							type="button"
+							className="button secondary"
+							aria-expanded={moreActionsOpen}
+							aria-controls="library-extra-actions"
+							onClick={() => setMoreActionsOpen((open) => !open)}
+						>
+							<MoreHorizontal size={16} /> 更多操作
+						</button>
+					</div>
+				)}
+				<div
+					id="library-extra-actions"
+					className={`library-extra-actions${compactLibrary ? " compact" : ""}${moreActionsOpen ? " open" : ""}`}
 				>
-					批量整理
-				</button>
-				<button
-					className="button secondary"
-					type="button"
-					disabled={busy || libraryActionLocked}
-					title="清洗已保存论文标题与摘要中的 HTML 标签、LaTeX 公式、出版商标记等杂质"
-					onClick={() => void prepareTitleRepair()}
-				>
-					清洗标题
-				</button>
-				<button
-					ref={exportButtonRef}
-					className={`button secondary library-tool-trigger${activeLibraryTool === "export" ? " active" : ""}`}
-					type="button"
-					disabled={!selected.size || libraryActionLocked}
-					aria-expanded={activeLibraryTool === "export"}
-					aria-controls="library-export-tool"
-					onClick={() => setActiveLibraryTool((current) => (current === "export" ? undefined : "export"))}
-				>
-					导出
-				</button>
-				{activeCollection !== "all" && activeCollection !== "__uncategorized__" && (
+					<button
+						ref={curationButtonRef}
+						className={`button secondary library-tool-trigger${activeLibraryTool === "curation" ? " active" : ""}`}
+						type="button"
+						disabled={!selected.size || libraryActionLocked}
+						aria-expanded={activeLibraryTool === "curation"}
+						aria-controls="library-curation-tool"
+						onClick={() => {
+							setMoreActionsOpen(false);
+							setActiveLibraryTool((current) => (current === "curation" ? undefined : "curation"));
+						}}
+					>
+						批量整理
+					</button>
 					<button
 						className="button secondary"
 						type="button"
-						disabled={!selected.size || libraryActionLocked}
-						onClick={() => void preparePaperRemoval([...selected], "remove-from-collection")}
+						disabled={busy || libraryActionLocked}
+						title="清洗已保存论文标题与摘要中的 HTML 标签、LaTeX 公式、出版商标记等杂质"
+						onClick={() => {
+							setMoreActionsOpen(false);
+							void prepareTitleRepair();
+						}}
 					>
-						移出当前分类
+						清洗标题
 					</button>
-				)}
-				<button
-					className="button danger"
-					type="button"
-					disabled={!selected.size || libraryActionLocked}
-					onClick={() => void preparePaperRemoval([...selected], "permanent-delete")}
-				>
-					永久删除
-				</button>
+					<button
+						ref={exportButtonRef}
+						className={`button secondary library-tool-trigger${activeLibraryTool === "export" ? " active" : ""}`}
+						type="button"
+						disabled={!selected.size || libraryActionLocked}
+						aria-expanded={activeLibraryTool === "export"}
+						aria-controls="library-export-tool"
+						onClick={() => {
+							setMoreActionsOpen(false);
+							setActiveLibraryTool((current) => (current === "export" ? undefined : "export"));
+						}}
+					>
+						导出
+					</button>
+					{activeCollection !== "all" && activeCollection !== "__uncategorized__" && (
+						<button
+							className="button secondary"
+							type="button"
+							disabled={!selected.size || libraryActionLocked}
+							onClick={() => {
+								setMoreActionsOpen(false);
+								void preparePaperRemoval([...selected], "remove-from-collection");
+							}}
+						>
+							移出当前分类
+						</button>
+					)}
+					<button
+						className="button danger"
+						type="button"
+						disabled={!selected.size || libraryActionLocked}
+						onClick={() => {
+							setMoreActionsOpen(false);
+							void preparePaperRemoval([...selected], "permanent-delete");
+						}}
+					>
+						永久删除
+					</button>
+				</div>
 			</div>
 		</div>
 	);
 	const librarySearch = (
 		<div className="library-toolbar library-local-search">
+			{compactLibrary && (
+				<button
+					ref={collectionTriggerRef}
+					className="button secondary library-collection-trigger"
+					type="button"
+					aria-expanded={collectionsOpen}
+					aria-controls="library-collection-drawer"
+					onClick={() => setCollectionsOpen(true)}
+				>
+					<FolderTree size={16} /> 分类
+				</button>
+			)}
 			<label className="library-search-control">
 				<Search size={16} className="library-search-icon" />
 				<input
@@ -1420,42 +1699,107 @@ export function LibraryPage({
 		</div>
 	);
 	return (
-		<div className="library-page-layout">
-			<CollectionSidebar
-				collections={collections}
-				activeCollection={activeCollection}
-				namespace={namespace}
-				membershipPaperIds={membershipPaperIds}
-				membershipLoading={collectionMembershipsLoading}
-				selectedPaperIds={selected}
-				onSelect={selectCollection}
-				onToggleSelection={toggleCollectionSelection}
-				onCreated={(collection) => {
-					setCollections((current) =>
-						current.some((item) => item.id === collection.id) ? current : [...current, collection],
-					);
-					setCollectionMemberships((current) =>
-						current
-							? {
-									...current,
-									collectionPaperIds: { ...current.collectionPaperIds, [collection.id]: [] },
-								}
-							: current,
-					);
-					setActiveCollection(collection.id);
+		<div className={`library-page-layout${compactLibrary ? " compact" : ""}`} ref={libraryLayoutRef}>
+			{detailDraftExit && (
+				<AccessibleModal title="研究字段尚未保存" onClose={() => setDetailDraftExit(undefined)} maxWidth={480}>
+					<p>保留当前编辑，或放弃草稿{detailDraftExit.kind === "open" ? "并切换论文" : "并关闭详情"}。</p>
+					<div className="paper-detail-draft-actions">
+						<button type="button" className="button secondary" onClick={() => setDetailDraftExit(undefined)}>
+							保留编辑
+						</button>
+						<button type="button" className="button danger" onClick={discardDetailDraft}>
+							放弃草稿
+						</button>
+					</div>
+				</AccessibleModal>
+			)}
+			<section
+				id="library-collection-drawer"
+				ref={collectionDialogRef}
+				className={`library-collection-drawer${compactLibrary ? " compact" : ""}${collectionsOpen ? " open" : ""}`}
+				aria-label="论文分类"
+				onKeyDown={(event) => {
+					if (event.key !== "Tab" || !collectionsOpen) return;
+					const buttons = [
+						...(collectionDialogRef.current?.querySelectorAll<HTMLElement>(
+							"button:not(:disabled):not([tabindex='-1']), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])",
+						) ?? []),
+					];
+					if (!buttons.length) return;
+					const first = buttons[0];
+					const last = buttons[buttons.length - 1];
+					if (event.shiftKey && document.activeElement === first) {
+						event.preventDefault();
+						last?.focus();
+					} else if (!event.shiftKey && document.activeElement === last) {
+						event.preventDefault();
+						first?.focus();
+					}
 				}}
-				onDeleted={(ids) => {
-					const deleted = new Set(ids);
-					setCollections((current) => current.filter((item) => !deleted.has(item.id)));
-					if (deleted.has(activeCollection)) setActiveCollection("all");
-					void Promise.all([load(), loadCollectionData()]);
-				}}
-				onUpdated={(collection) =>
-					setCollections((current) => current.map((item) => (item.id === collection.id ? collection : item)))
-				}
-				onAssignPapers={addPapersToCollection}
-				onError={setError}
-			/>
+			>
+				{compactLibrary && (
+					<>
+						<button
+							type="button"
+							className="library-collection-backdrop"
+							aria-label="关闭分类"
+							tabIndex={-1}
+							onClick={() => {
+								setCollectionsOpen(false);
+								collectionTriggerRef.current?.focus();
+							}}
+						/>
+						<div className="library-collection-drawer-head">
+							<strong>论文分类</strong>
+							<button
+								type="button"
+								aria-label="关闭分类"
+								onClick={() => {
+									setCollectionsOpen(false);
+									collectionTriggerRef.current?.focus();
+								}}
+							>
+								<X size={18} />
+							</button>
+						</div>
+					</>
+				)}
+				<CollectionSidebar
+					collections={collections}
+					activeCollection={activeCollection}
+					namespace={namespace}
+					membershipPaperIds={membershipPaperIds}
+					membershipLoading={collectionMembershipsLoading}
+					selectedPaperIds={selected}
+					onSelect={selectCollection}
+					onToggleSelection={toggleCollectionSelection}
+					onCreated={(collection) => {
+						setCollections((current) =>
+							current.some((item) => item.id === collection.id) ? current : [...current, collection],
+						);
+						setCollectionMemberships((current) =>
+							current
+								? {
+										...current,
+										collectionPaperIds: { ...current.collectionPaperIds, [collection.id]: [] },
+									}
+								: current,
+						);
+						setActiveCollection(collection.id);
+					}}
+					onDeleted={(ids) => {
+						const deleted = new Set(ids);
+						setCollections((current) => current.filter((item) => !deleted.has(item.id)));
+						if (deleted.has(activeCollection)) setActiveCollection("all");
+						void Promise.all([load(), loadCollectionData()]);
+					}}
+					onUpdated={(collection) =>
+						setCollections((current) => current.map((item) => (item.id === collection.id ? collection : item)))
+					}
+					onAssignPapers={addPapersToCollection}
+					onError={setError}
+				/>
+			</section>
 			<div className="library-page-main">
 				{toolbarTarget ? createPortal(libraryToolbar, toolbarTarget) : libraryToolbar}
 				{librarySearch}
@@ -1477,8 +1821,30 @@ export function LibraryPage({
 						if (file) void handleAddLocalPdf(file);
 					}}
 				/>
-				{error && <div className="error-banner">{error}</div>}
-				{message && <div className="success-banner">{message}</div>}
+				{(error || message) &&
+					createPortal(
+						<div className="library-notice-stack">
+							{error && (
+								<div className="library-notice is-error" role="alert" aria-atomic="true">
+									<AlertCircle size={20} aria-hidden="true" />
+									<span>{error}</span>
+									<button type="button" aria-label="关闭错误提示" onClick={() => setError("")}>
+										<X size={18} aria-hidden="true" />
+									</button>
+								</div>
+							)}
+							{message && (
+								<output className="library-notice is-success" aria-live="polite" aria-atomic="true">
+									<CheckCircle2 size={20} aria-hidden="true" />
+									<span>{message}</span>
+									<button type="button" aria-label="关闭操作提示" onClick={() => setMessage("")}>
+										<X size={18} aria-hidden="true" />
+									</button>
+								</output>
+							)}
+						</div>,
+						document.body,
+					)}
 				{localImportBatch && (
 					<section
 						className="panel library-inline-tool library-import-panel"
@@ -1979,6 +2345,9 @@ export function LibraryPage({
 								</label>
 							)}
 						</div>
+						{(exportFormat === "csv" || exportFormat === "markdown") && (
+							<p className="muted">包含信息卡片的固定研究字段；请先保存卡片修改。</p>
+						)}
 						{exportFormat === "zotero" && (
 							<div className="zotero-export-status">
 								<div>
@@ -2162,8 +2531,18 @@ export function LibraryPage({
 						/>
 					</AccessibleModal>
 				)}
-				<div className="library-layout">
-					<div className="library-paper-pane">
+				<div
+					className={`library-layout${details ? " has-detail" : ""}${detailOnlyView ? " detail-only-view" : ""}`}
+				>
+					<div
+						className="library-paper-pane"
+						ref={paperPaneRef}
+						onScroll={(event) => {
+							if (loading || restoringPositionRef.current || !event.currentTarget.offsetHeight) return;
+							scrollPositionRef.current.listScrollTop = event.currentTarget.scrollTop;
+							persistView();
+						}}
+					>
 						{loading ? (
 							<SkeletonList count={4} />
 						) : papers.length ? (
@@ -2181,7 +2560,10 @@ export function LibraryPage({
 													return next;
 												})
 											}
-											onOpen={() => void open(paper)}
+											onOpen={() => {
+												detailTriggerRef.current = document.activeElement as HTMLElement;
+												void open(paper);
+											}}
 											collections={collections}
 											onAddToCollection={(paperId, collectionId) =>
 												void addPaperToCollection(paperId, collectionId)
@@ -2232,45 +2614,89 @@ export function LibraryPage({
 							/>
 						)}
 					</div>
-					<aside className="detail-panel">
+					<aside
+						className={`detail-panel${details ? " has-details" : ""}`}
+						aria-label="论文详情"
+						ref={detailPaneRef}
+						onScroll={(event) => {
+							if (loading || restoringPositionRef.current) return;
+							scrollPositionRef.current.detailScrollTop = event.currentTarget.scrollTop;
+							persistView();
+						}}
+					>
 						{details ? (
 							<>
+								{
+									<button
+										ref={detailCloseRef}
+										className="library-detail-close"
+										type="button"
+										aria-label="关闭论文详情"
+										onClick={closeDetail}
+									>
+										<X size={18} />
+									</button>
+								}
 								<span className="eyebrow">PAPER DETAILS · 论文详情</span>
 								<h2>{details.paper.title}</h2>
 								<p>{details.paper.authors.join(", ")}</p>
-								<div className="detail-stats">
-									<div>
-										<span>PDF 版本</span>
-										<strong>{details.versions.length}</strong>
-									</div>
-									<div>
-										<span>派生记忆</span>
-										<strong>{details.derived.length}</strong>
-									</div>
-									<div title="该论文引用的参考文献数量">
-										<span>引用</span>
-										<strong>{details.paper.referencedWorks?.length ?? "—"}</strong>
-									</div>
-									<div title="其他论文引用该论文的次数">
-										<span>被引用</span>
-										<strong>{details.paper.citationCount ?? "—"}</strong>
-									</div>
-									{details.artifact?.available && (
-										<button
-											type="button"
-											title="在文件管理器中打开 Artifact 文件夹"
-											disabled={artifactFolderOpening}
-											onClick={() => void openArtifactFolder()}
-										>
-											<span>Artifact</span>
-											<strong>{details.artifact.count}</strong>
-											<small>{artifactFolderOpening ? "正在打开" : "打开文件夹"}</small>
-										</button>
-									)}
-									<MineruControl
-										source={details.versions.length ? { paperId: details.paper.id, namespace } : undefined}
-										compact
-									/>
+								<div className="paper-detail-overview">
+									<section className="paper-detail-metadata" aria-label="论文元数据">
+										<div>
+											<span>年份</span>
+											<strong>{details.paper.year ?? "—"}</strong>
+										</div>
+										<div>
+											<span>Venue</span>
+											<strong>{details.paper.venue || "—"}</strong>
+										</div>
+										<div>
+											<span>DOI</span>
+											<strong>{details.paper.identifiers?.doi || "—"}</strong>
+										</div>
+										<div>
+											<span>arXiv</span>
+											<strong>{details.paper.identifiers?.arxivId || "—"}</strong>
+										</div>
+										<div>
+											<span>CCF</span>
+											<strong>{details.paper.venueRank || "—"}</strong>
+										</div>
+										<div>
+											<span>类型</span>
+											<strong>{details.paper.publicationType || "—"}</strong>
+										</div>
+									</section>
+									<section className="detail-stats" aria-label="论文资源与引用统计">
+										<div>
+											<span>PDF 版本</span>
+											<strong>{details.versions.length}</strong>
+										</div>
+										<div>
+											<span>派生记忆</span>
+											<strong>{details.derived.length}</strong>
+										</div>
+										<div title="该论文引用的参考文献数量">
+											<span>引用</span>
+											<strong>{details.paper.referencedWorks?.length ?? "—"}</strong>
+										</div>
+										<div title="其他论文引用该论文的次数">
+											<span>被引用</span>
+											<strong>{details.paper.citationCount ?? "—"}</strong>
+										</div>
+										{details.artifact?.available && (
+											<button
+												type="button"
+												title="在文件管理器中打开 Artifact 文件夹"
+												disabled={artifactFolderOpening}
+												onClick={() => void openArtifactFolder()}
+											>
+												<span>Artifact</span>
+												<strong>{details.artifact.count}</strong>
+												<small>{artifactFolderOpening ? "正在打开" : "打开文件夹"}</small>
+											</button>
+										)}
+									</section>
 								</div>
 								<ResearchLauncher
 									paperId={details.paper.id}
@@ -2289,7 +2715,7 @@ export function LibraryPage({
 												className="version-row"
 												type="button"
 												onClick={() =>
-													onOpenReader({
+													openReaderFromLibrary({
 														title: details.paper.title,
 														url: `/api/papers/${encodeURIComponent(details.paper.id)}/pdf/${version.sha256}?namespace=${encodeURIComponent(namespace)}`,
 														pdfPath: version.blobPath,
@@ -2346,6 +2772,18 @@ export function LibraryPage({
 											: ""}
 									</p>
 								)}
+								<PaperDetailFieldsCard
+									key={`${namespace}:${details.paper.id}`}
+									paper={details.paper}
+									namespace={namespace}
+									onDirtyChange={updateDetailDirty}
+									onSaved={(paper) => {
+										setDetails((current: any) =>
+											current?.paper?.id === paper.id ? { ...current, paper } : current,
+										);
+										setPapers((current) => current.map((item) => (item.id === paper.id ? paper : item)));
+									}}
+								/>
 								{details.paper.curation?.userNotes?.length ? (
 									<div>
 										<h3>个人笔记</h3>

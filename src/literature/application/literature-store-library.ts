@@ -3,6 +3,7 @@ import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { collectionDescendantIds, validateCollectionParent } from "../domain/collection-hierarchy.ts";
 import type { DerivedRecord, PaperCollection, PaperRecord } from "../domain/literature-types.ts";
+import { type PaperDetailFieldInput, updatePaperDetailFields } from "../domain/paper-detail-fields.ts";
 import { withCleanMetadata } from "../domain/paper-title.ts";
 
 import { pathExists, readJson, writeJsonAtomic } from "./literature-store-support.ts";
@@ -10,6 +11,29 @@ import { LiteratureStoreWrite } from "./literature-store-write.ts";
 
 export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 	abstract listDerived(options?: { paperId?: string; operation?: string }): Promise<DerivedRecord[]>;
+
+	async savePaperDetailFields(
+		id: string,
+		expectedRevision: number,
+		fields: PaperDetailFieldInput[],
+	): Promise<PaperRecord> {
+		await this.initialize();
+		if (this.personalDatabase) return this.personalDatabase.savePaperDetailFields(id, expectedRevision, fields);
+		return this.withWriteLock(async () => {
+			const record = await this.getPaper(id);
+			if (!record) throw new Error(`Paper not found in corpus: ${id}`);
+			const previous = record.curation?.detailFields;
+			if ((previous?.revision ?? 0) !== expectedRevision)
+				throw new Error("Research fields changed; reload the paper before saving");
+			const detailFields = updatePaperDetailFields(previous, fields, new Date().toISOString());
+			const updated = { ...record, curation: { ...(record.curation ?? { tags: [], userNotes: [] }), detailFields } };
+			await writeJsonAtomic(this.recordPath(id), updated);
+			await this.searchIndex.upsert(updated);
+			await this.refreshManifestUnlocked();
+			await this.markSearchIndexCurrent();
+			return updated;
+		});
+	}
 
 	async paperDeletionImpact(ids: string[]): Promise<{
 		pdfVersionCount: number;

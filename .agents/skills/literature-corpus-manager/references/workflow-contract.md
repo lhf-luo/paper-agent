@@ -29,6 +29,7 @@
 - Update a topic corpus: search existing records first; persistent identical runs avoid repeated API work.
 - Reuse an analysis: compute the task key from immutable material hashes plus operation, pipeline, model/prompt, and config; look it up before generation.
 - Snowball citations: relevant seeds, direction stated, depth at most two unless a human expands scope; filter the staged citation Search Run before creating its field-driven sidebar.
+- Follow one author: use `search_literature_corpus` for already saved papers; for external works, call `find_author_papers` with a personal seed Paper ID and one of its authors. Report per-source identity resolution, failures, and truncation; then review duplicates and filter the staged Search Run before presenting a topic list or saving a selection.
 - Save selected results: durable `search_run_id`, selected `paper_ids`, confirmation fingerprint, and write outcome counts.
 - Edit a sidebar list: existing result URL, expected revision, structured operations, exact persisted source handles, and the new revision.
 - Acquire materials: bounded downloads and an artifact manifest with hashes, commits, license hints, and failures.

@@ -102,6 +102,41 @@ export function MozillaPdfReader({
 						return;
 					}
 					const cleanups: Array<() => void> = [];
+					const viewerWindow = frame.contentWindow;
+					const resizeViewer = () => {
+						if (!viewerWindow || !frame.clientWidth) return;
+						viewerWindow.dispatchEvent(new Event("resize"));
+					};
+					const container = frame.parentElement;
+					if (container) {
+						const viewsToggle = frame.contentDocument.getElementById("viewsManagerToggleButton");
+						let wasNarrow = false;
+						let narrowHandled = false;
+						const collapseOutline = () => {
+							if (
+								container.clientWidth >= 700 ||
+								narrowHandled ||
+								viewsToggle?.getAttribute("aria-expanded") !== "true"
+							)
+								return;
+							viewsToggle.click();
+							narrowHandled = true;
+						};
+						const observer = new ResizeObserver(() => {
+							resizeViewer();
+							const isNarrow = container.clientWidth < 700;
+							if (isNarrow && !wasNarrow) narrowHandled = false;
+							wasNarrow = isNarrow;
+							collapseOutline();
+						});
+						observer.observe(container);
+						cleanups.push(() => observer.disconnect());
+						if (viewsToggle) {
+							const menuObserver = new MutationObserver(collapseOutline);
+							menuObserver.observe(viewsToggle, { attributes: true, attributeFilter: ["aria-expanded"] });
+							cleanups.push(() => menuObserver.disconnect());
+						}
+					}
 					try {
 						cleanups.push(
 							connectPdfJsReaderSelection(

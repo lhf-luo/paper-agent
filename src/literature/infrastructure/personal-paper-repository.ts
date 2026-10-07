@@ -8,6 +8,7 @@ import {
 	withCanonicalPaperLinks,
 } from "../domain/literature-identifiers.ts";
 import type { PaperPublicationVersion, PaperRecord } from "../domain/literature-types.ts";
+import { type PaperDetailFieldInput, updatePaperDetailFields } from "../domain/paper-detail-fields.ts";
 
 import { json, normalizeAuthor, parseJson, pathExists } from "./personal-database-support.ts";
 import { PersonalPaperHydrationRepository } from "./personal-paper-hydration-repository.ts";
@@ -367,5 +368,25 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 			if (warnings.length)
 				throw new Error(`Paper metadata was saved, but PDF rename failed: ${warnings.join("; ")}`);
 		}
+	}
+
+	async savePaperDetailFields(
+		id: string,
+		expectedRevision: number,
+		fields: PaperDetailFieldInput[],
+	): Promise<PaperRecord> {
+		await this.initialize();
+		return this.write((database) => {
+			const row = this.paperRow(database, id);
+			if (!row) throw new Error(`Paper not found in corpus: ${id}`);
+			const record = parseJson<PaperRecord>(row.record_json);
+			const current = record.curation?.detailFields;
+			if ((current?.revision ?? 0) !== expectedRevision)
+				throw new Error("Research fields changed; reload the paper before saving");
+			const detailFields = updatePaperDetailFields(current, fields, new Date().toISOString());
+			const updated = { ...record, curation: { ...(record.curation ?? { tags: [], userNotes: [] }), detailFields } };
+			this.syncPaper(database, updated);
+			return updated;
+		});
 	}
 }

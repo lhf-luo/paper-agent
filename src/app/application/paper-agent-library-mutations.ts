@@ -13,6 +13,7 @@ import {
 import { runAuthorizedMutation } from "../../literature/application/literature-write.ts";
 import { normalizeArxivId, normalizeDoi, sha256Text } from "../../literature/domain/literature-identifiers.ts";
 import type { PaperCollection, PaperRecord } from "../../literature/domain/literature-types.ts";
+import { type PaperDetailFieldInput, validatePaperDetailFields } from "../../literature/domain/paper-detail-fields.ts";
 import type {
 	ConfirmationGrant,
 	OperationPlan,
@@ -23,6 +24,7 @@ import type {
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
 	PersonalMetadataEnrichmentInput,
+	PersonalPaperDetailFieldsInput,
 	PersonalPaperRemovalInput,
 	PersonalPdfVersionRemovalInput,
 	PersonalTitleRepairInput,
@@ -77,6 +79,84 @@ function sameStringSet(left: string[], right: string[]): boolean {
 }
 
 export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
+	private readonly preparedPaperDetailFields = new Map<
+		string,
+		{
+			namespace: string;
+			paperId: string;
+			expectedRevision: number;
+			fields: PaperDetailFieldInput[];
+			plan: OperationPlan;
+			expiresAt: string;
+		}
+	>();
+
+	async preparePersonalPaperDetailFields(input: PersonalPaperDetailFieldsInput) {
+		const paperId = input.paperId?.trim();
+		if (!paperId || paperId.length > 500) throw new Error("Personal paper id is invalid");
+		if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
+			throw new Error("Research field revision is invalid");
+		const fields = validatePaperDetailFields(input.fields);
+		const namespace = input.namespace ?? this.defaultNamespace;
+		const paper = await this.personalStore(namespace).getPaper(paperId);
+		if (!paper) throw new Error(`Personal corpus does not contain: ${paperId}`);
+		if ((paper.curation?.detailFields?.revision ?? 0) !== input.expectedRevision)
+			throw new Error("Research fields changed; reload the paper before saving");
+		const oldFields = paper.curation?.detailFields?.entries.filter((field) => !field.deletedAt) ?? [];
+		const changedCount =
+			fields.filter((field) => {
+				const old = oldFields.find((item) => item.id === field.id);
+				return !old || old.label !== field.label || old.type !== field.type || old.value !== field.value;
+			}).length + oldFields.filter((field) => !fields.some((item) => item.id === field.id)).length;
+		if (!changedCount) return { status: "unchanged" as const, prepared: null };
+		const plan: OperationPlan = {
+			kind: "personal-corpus-write",
+			summary: `保存“${paper.title}”的 ${changedCount} 项研究字段修改`,
+			actor: "local-user",
+			targets: [{ label: "个人库论文研究字段", value: `${namespace}/${paperId}`, risk: "low" }],
+			details: {
+				namespace,
+				paperId,
+				expectedRevision: input.expectedRevision,
+				fieldCount: fields.length,
+				fieldsFingerprint: sha256Text(JSON.stringify(fields)),
+			},
+		};
+		const prepared = await this.consent.prepare(plan);
+		this.preparedPaperDetailFields.set(prepared.operationId, {
+			namespace,
+			paperId,
+			expectedRevision: input.expectedRevision,
+			fields,
+			plan,
+			expiresAt: prepared.expiresAt,
+		});
+		return { status: "ready" as const, prepared };
+	}
+
+	async savePersonalPaperDetailFields(
+		input: Pick<PersonalPaperDetailFieldsInput, "paperId" | "namespace">,
+		grant: ConfirmationGrant,
+	) {
+		const prepared = this.preparedPaperDetailFields.get(grant.operationId);
+		if (!prepared || Date.parse(prepared.expiresAt) <= Date.now())
+			throw new Error("Prepared research fields expired; save again");
+		const namespace = input.namespace ?? this.defaultNamespace;
+		if (namespace !== prepared.namespace || input.paperId.trim() !== prepared.paperId)
+			throw new Error("Prepared research fields do not match this paper");
+		try {
+			const paper = await runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, () =>
+				this.personalStore(namespace).savePaperDetailFields(
+					prepared.paperId,
+					prepared.expectedRevision,
+					prepared.fields,
+				),
+			);
+			return { paper, revision: paper.curation?.detailFields?.revision ?? 0 };
+		} finally {
+			this.preparedPaperDetailFields.delete(grant.operationId);
+		}
+	}
 	private readonly preparedPaperRemovals = new Map<string, PreparedPaperRemovalSnapshot>();
 	private readonly preparedMetadataEnrichments = new Map<
 		string,

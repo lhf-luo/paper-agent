@@ -374,26 +374,31 @@ export function PaperCard({
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [menuMode, setMenuMode] = useState<"add" | "move" | "notes" | null>(null);
-	const menuCloseTimerRef = useRef<number | undefined>(undefined);
-	useEffect(
-		() => () => {
-			if (menuCloseTimerRef.current) window.clearTimeout(menuCloseTimerRef.current);
-		},
-		[],
-	);
-	const cancelMenuClose = () => {
-		if (!menuCloseTimerRef.current) return;
-		window.clearTimeout(menuCloseTimerRef.current);
-		menuCloseTimerRef.current = undefined;
-	};
-	const scheduleMenuClose = () => {
-		cancelMenuClose();
-		menuCloseTimerRef.current = window.setTimeout(() => {
+	const menuWrapRef = useRef<HTMLDivElement>(null);
+	const menuButtonRef = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		if (!menuOpen) return;
+		const close = () => {
 			setMenuOpen(false);
 			setMenuMode(null);
-			menuCloseTimerRef.current = undefined;
-		}, 160);
-	};
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (!menuWrapRef.current?.contains(event.target as Node)) close();
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			close();
+			menuButtonRef.current?.focus({ preventScroll: true });
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown, true);
+			document.removeEventListener("keydown", onKeyDown, true);
+		};
+	}, [menuOpen]);
 	return (
 		<article
 			className={`paper-card${dragPaperIds?.length ? " paper-card-draggable" : ""}`}
@@ -471,14 +476,15 @@ export function PaperCard({
 					onRemoveFromCollection ||
 					onDelete ||
 					onCreateResearchNote) && (
-					<div className="paper-card-menu-wrap">
+					<div className="paper-card-menu-wrap" ref={menuWrapRef}>
 						<button
+							ref={menuButtonRef}
 							className="paper-card-menu-btn"
 							type="button"
 							title="更多操作"
 							aria-label="更多操作"
-							onMouseEnter={cancelMenuClose}
-							onMouseLeave={scheduleMenuClose}
+							aria-haspopup="menu"
+							aria-expanded={menuOpen}
 							onClick={() => {
 								setMenuOpen((current) => !current);
 								setMenuMode(null);
@@ -490,8 +496,6 @@ export function PaperCard({
 							<div
 								className={`paper-card-menu${menuMode === "add" || menuMode === "move" ? " collection-picker" : ""}`}
 								role="menu"
-								onMouseEnter={cancelMenuClose}
-								onMouseLeave={scheduleMenuClose}
 							>
 								{menuMode === null ? (
 									<>

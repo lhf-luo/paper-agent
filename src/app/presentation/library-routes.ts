@@ -5,11 +5,13 @@ import {
 	LocalPdfImportError,
 } from "../../literature/application/local-pdf-import-batches.ts";
 import type { ScreeningStatus } from "../../literature/domain/literature-types.ts";
+import { validatePaperDetailFields } from "../../literature/domain/paper-detail-fields.ts";
 import type {
 	PaperAgentApplication,
 	PersonalCorpusAnnotationInput,
 	PersonalCorpusExportInput,
 	PersonalMetadataEnrichmentInput,
+	PersonalPaperDetailFieldsInput,
 	PersonalPaperRemovalInput,
 	PersonalPdfVersionRemovalInput,
 	PersonalTitleRepairInput,
@@ -34,6 +36,53 @@ export async function handleLibraryRoutes(
 	response: ServerResponse,
 	url: URL,
 ): Promise<void> {
+	if (
+		request.method === "POST" &&
+		(url.pathname === "/api/library/detail-fields/prepare" || url.pathname === "/api/library/detail-fields/execute")
+	) {
+		const body = await readJson(request);
+		if (typeof body.paperId !== "string" || !body.paperId.trim()) throw new ApiError(400, "paperId is required");
+		const namespace = namespaceValue(body.namespace);
+		if (url.pathname.endsWith("/prepare")) {
+			if (!Number.isSafeInteger(body.expectedRevision) || (body.expectedRevision as number) < 0)
+				throw new ApiError(400, "expectedRevision must be a non-negative integer");
+			let fields: PersonalPaperDetailFieldsInput["fields"];
+			try {
+				fields = validatePaperDetailFields(body.fields);
+			} catch (error) {
+				throw new ApiError(400, error instanceof Error ? error.message : String(error));
+			}
+			const input: PersonalPaperDetailFieldsInput = {
+				paperId: body.paperId,
+				namespace,
+				expectedRevision: body.expectedRevision as number,
+				fields,
+			};
+			try {
+				json(response, 200, await application.preparePersonalPaperDetailFields(input));
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("Research fields changed"))
+					throw new ApiError(409, error.message);
+				throw error;
+			}
+		} else {
+			try {
+				json(
+					response,
+					200,
+					await application.savePersonalPaperDetailFields(
+						{ paperId: body.paperId, namespace },
+						grantFromBody(body),
+					),
+				);
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("Research fields changed"))
+					throw new ApiError(409, error.message);
+				throw error;
+			}
+		}
+		return;
+	}
 	const localImportRoute = /^\/api\/library\/local-imports(?:\/([^/]+)(?:\/(files|prepare|execute))?)?$/.exec(
 		url.pathname,
 	);

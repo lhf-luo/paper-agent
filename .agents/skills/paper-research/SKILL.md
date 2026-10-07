@@ -107,6 +107,10 @@ description: "Read, investigate, and compare research papers with Paper Agent th
 
 跨论文比较输出：比较问题与范围、逐篇证据边界、逐篇证据卡、统一矩阵、可比性审计、跨论文综合、证据缺口与后续验证。不同数据、预算或指标的数字不得直接排名。
 
+## 编辑个人库研究字段卡片
+
+个人库论文详情中的“阅读与研究记录”是另一种简短研究字段卡片，和 Markdown 研究笔记分开保存。用户明确要求填写或更新卡片时，先用 `get_personal_library_paper` 的 `fields: ["detail_fields"]` 读取现有字段及 `revision`，再用 `edit_personal_paper_detail_fields` 按 Paper ID、namespace、`expected_revision` 和字段 ID 局部填写。只写已有证据支持的内容；不要根据标题或模型记忆补全，也不要覆盖用户已写字段。需要新列时才传 `new_fields`。需要查看卡片上的 PDF、派生记忆、引用和被引数量时，可加读只读的 `card_stats`；这些统计和论文元数据不能通过编辑工具修改。修订冲突时重新读取并核对，不能盲目重试。
+
 ## 创建研究笔记
 
 1. 用 `inspect_agent_tools` 确认 `search_research_notes` 和 `manage_research_note`，并确定 namespace。

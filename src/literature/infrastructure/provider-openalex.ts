@@ -65,7 +65,7 @@ function openAlexLinks(work: Record<string, unknown>): PaperLink[] {
 	return links;
 }
 
-function openAlexRecord(
+export function openAlexRecord(
 	value: unknown,
 	query: string,
 	requestUrl: string,

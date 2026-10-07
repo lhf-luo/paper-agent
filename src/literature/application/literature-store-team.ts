@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, rename, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { paperPrimaryUrl } from "../domain/literature-identifiers.ts";
 import type { CorpusManifest, PaperRecord } from "../domain/literature-types.ts";
+import { activePaperDetailFields, DEFAULT_PAPER_DETAIL_FIELDS } from "../domain/paper-detail-fields.ts";
 import { LiteratureStoreMaterials } from "./literature-store-materials.ts";
 import { bibKey, csvField, safeSegment, writeJsonAtomic } from "./literature-store-support.ts";
 
@@ -104,7 +105,21 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 		} else if (format === "csv") {
 			extension = "csv";
 			content = [
-				["id", "title", "authors", "year", "venue", "doi", "arxiv_id", "url", "sources"].join(","),
+				[
+					"id",
+					"title",
+					"authors",
+					"year",
+					"venue",
+					"doi",
+					"arxiv_id",
+					"url",
+					"sources",
+					...DEFAULT_PAPER_DETAIL_FIELDS.map((field) => field.label),
+					"最后一次修改时间",
+				]
+					.map(csvField)
+					.join(","),
 				...records.map((record) =>
 					[
 						record.id,
@@ -116,11 +131,16 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 						record.identifiers.arxivId,
 						paperPrimaryUrl(record),
 						record.provenance.map((item) => item.provider).join("; "),
+						...activePaperDetailFields(record.curation?.detailFields)
+							.slice(0, DEFAULT_PAPER_DETAIL_FIELDS.length)
+							.map((field) => field.value),
+						record.curation?.detailFields?.updatedAt,
 					]
 						.map(csvField)
 						.join(","),
 				),
 			].join("\n");
+			content = `\uFEFF${content}`;
 		} else if (format === "bibtex") {
 			extension = "bib";
 			content = records
@@ -153,6 +173,13 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 					`- DOI: ${record.identifiers.doi ?? "none"}`,
 					`- URL: ${paperPrimaryUrl(record) ?? "none"}`,
 					`- Sources: ${record.provenance.map((item) => item.provider).join(", ")}`,
+					"",
+					"### 阅读与研究记录",
+					"",
+					...activePaperDetailFields(record.curation?.detailFields)
+						.slice(0, DEFAULT_PAPER_DETAIL_FIELDS.length)
+						.flatMap((field) => [`#### ${field.label}`, "", field.value || "未填写", ""]),
+					`最后一次修改时间：${record.curation?.detailFields?.updatedAt ?? "尚未保存"}`,
 					"",
 				]),
 			].join("\n");

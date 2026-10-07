@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import type { PersonalPaperDetails } from "../application/personal-paper-query.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
+import { activePaperDetailFields } from "../domain/paper-detail-fields.ts";
 
 export const paperProjectionFieldSchema = Type.Union([
 	Type.Literal("title"),
@@ -29,6 +30,8 @@ export const paperProjectionFieldSchema = Type.Union([
 
 export const personalPaperProjectionFieldSchema = Type.Union([
 	paperProjectionFieldSchema,
+	Type.Literal("detail_fields"),
+	Type.Literal("card_stats"),
 	Type.Literal("collections"),
 	Type.Literal("remote_pdf_links"),
 	Type.Literal("publication_versions"),
@@ -63,6 +66,8 @@ export type PaperProjectionField =
 
 export type PersonalPaperProjectionField =
 	| PaperProjectionField
+	| "detail_fields"
+	| "card_stats"
 	| "collections"
 	| "remote_pdf_links"
 	| "publication_versions"
@@ -147,6 +152,8 @@ export function projectPersonalPaperDetails(
 	const recordFields = fields.filter(
 		(field): field is PaperProjectionField =>
 			![
+				"detail_fields",
+				"card_stats",
 				"collections",
 				"remote_pdf_links",
 				"publication_versions",
@@ -158,6 +165,21 @@ export function projectPersonalPaperDetails(
 	const selected = projectPaperRecord(details.record, recordFields);
 	for (const field of new Set(fields)) {
 		switch (field) {
+			case "card_stats":
+				selected.cardStats = {
+					pdfVersionCount: details.localPdfVersions.length,
+					derivedRecordCount: details.derivedRecords.length,
+					referenceCount: details.record.referencedWorks?.length ?? null,
+					citationCount: details.record.citationCount ?? null,
+				};
+				break;
+			case "detail_fields":
+				selected.detailFields = {
+					revision: details.record.curation?.detailFields?.revision ?? 0,
+					updatedAt: details.record.curation?.detailFields?.updatedAt,
+					entries: activePaperDetailFields(details.record.curation?.detailFields),
+				};
+				break;
 			case "collections":
 				selected.collections = details.collections;
 				break;

@@ -45,6 +45,18 @@ export interface PaperRecord {
 	curation?: {
 		tags: string[];
 		userNotes: Array<{ id: string; text: string; author: string; createdAt: string }>;
+		detailFields?: {
+			revision: number;
+			updatedAt: string;
+			entries: Array<{
+				id: string;
+				label: string;
+				type: "text" | "multiline" | "date";
+				value: string;
+				updatedAt: string;
+				deletedAt?: string;
+			}>;
+		};
 		screening?: { status: string; reason?: string };
 		teamReview?: {
 			status: string;

@@ -16,6 +16,7 @@ describe("agent tool catalog", () => {
 				"read_pdf",
 				"ingest_research_wiki",
 				"delete_research_wiki_source_pages",
+				"find_author_papers",
 			]),
 		);
 		expect(new Set(names).size).toBe(names.length);

@@ -1,6 +1,6 @@
 ---
 name: literature-corpus-manager
-description: Build, update, audit, and share evidence-traceable literature corpora with paper-agent. Use for systematic or exploratory literature collection, query expansion, multi-source search, deduplication, PDF and artifact acquisition, personal/team library separation, once/persistent workflows, citation expansion, exports, and derived-analysis reuse. Paper reading and research-note authoring belong to the paper-research skill.
+description: Build, update, audit, and share evidence-traceable literature corpora with paper-agent. Use for systematic or exploratory literature collection, query expansion, multi-source search, deduplication, PDF and artifact acquisition, personal/team library separation, once/persistent workflows, citation and author expansion, exports, and derived-analysis reuse. Paper reading and research-note authoring belong to the paper-research skill.
 ---
 
 # Literature corpus manager
@@ -82,6 +82,13 @@ Use this when the user asks for a literature review, related work, reading list,
 3. Pass the seed search run as `source_search_run_id` when known. Preserve the citation expansion table, including seed id, relationship, depth, actual source provider, and discovery path.
 4. `expand_citation_network` stages the neighbors in a temporary Search Run. Screen that run with `filter_search_run_results`, then pass its final `filter_result_id`, root `search_run_id`, `fields`, `annotation_fields`, and annotations to `update_literature_sidebar`. Do not construct Markdown manually. The sidebar is the only place the expansion list is shown; give a short chat summary instead (seed → neighbor counts, focus distribution, notable neighbors, next steps).
 
+### 2.1 Find other papers by one author
+
+- For papers already in the selected personal library, use `search_literature_corpus` with its `authors` filter and no query. This does not search external sources.
+- For external works, first identify the exact personal-library Paper ID and one author from `get_personal_library_paper`, then call `find_author_papers` with `paper_id`, `author_name`, and namespace. Do not substitute a keyword search plus author filter: it cannot enumerate an author's works.
+- The tool confirms that the selected author belongs to the seed work in each source. Report unresolved or failed sources and any result cap; do not describe a truncated Search Run as the author's complete bibliography.
+- Review possible duplicates before screening the returned Search Run. Use `filter_search_run_results` and the normal sidebar workflow when a topic-specific list is wanted; save selected candidates only on request. Discovery never adds them to the personal library automatically.
+
 ### 3. Save selected results
 
 Use this when the user chooses papers from a candidate table and wants them kept in the personal library.
@@ -156,7 +163,9 @@ Use this after selected papers have been saved and the user wants traceable mate
 | Screen and denoise results       | `filter_search_run_results`     | `src/literature/presentation/collection-query-tools.ts`                |
 | Search local corpus              | `search_literature_corpus`      | `src/literature/presentation/collection-query-tools.ts`                |
 | Inspect one personal paper       | `get_personal_library_paper`    | `src/literature/presentation/personal-library-query-tool.ts`           |
+| Edit saved paper research fields | `edit_personal_paper_detail_fields` | `src/literature/presentation/personal-paper-detail-fields-tool.ts` |
 | Expand seeds                     | `expand_citation_network`       | `src/literature/presentation/citation-expansion-tool.ts`               |
+| Find a seed author's other works  | `find_author_papers`            | `src/literature/presentation/author-papers-tool.ts`                     |
 | Edit an existing sidebar list    | `edit_literature_sidebar`       | `src/literature/presentation/collection-search-tools.ts`               |
 | Save selected results            | `save_literature_selection`     | `src/literature/presentation/collection-search-tools.ts`               |
 | Import local literature          | `import_literature_corpus`      | `src/literature/presentation/literature-import-tools.ts`               |

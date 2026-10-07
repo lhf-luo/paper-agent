@@ -12,7 +12,7 @@ import {
 	withId,
 } from "./provider-common.ts";
 
-function semanticScholarRecord(
+export function semanticScholarRecord(
 	value: unknown,
 	query: string,
 	requestUrl: string,

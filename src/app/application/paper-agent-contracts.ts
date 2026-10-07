@@ -13,6 +13,7 @@ import type {
 	ScreeningStatus,
 	SearchFilters,
 } from "../../literature/domain/literature-types.ts";
+import type { PaperDetailFieldInput } from "../../literature/domain/paper-detail-fields.ts";
 import type { PdfBox } from "../../pdf/domain/pdf-types.ts";
 import type { OperationExecutionPermit } from "../../shared/application/operation-consent.ts";
 import type { CommandExecutor } from "../../shared/infrastructure/command-executor.ts";
@@ -181,6 +182,13 @@ export interface PersonalMetadataEnrichmentInput {
 	paperId: string;
 	namespace?: string;
 	author?: string;
+}
+
+export interface PersonalPaperDetailFieldsInput {
+	paperId: string;
+	namespace?: string;
+	expectedRevision: number;
+	fields: PaperDetailFieldInput[];
 }
 
 export interface PersonalPaperRemovalInput {

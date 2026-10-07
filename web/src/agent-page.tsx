@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResultOutput } from "./agent-results";
 import { isAgentTranscriptNearBottom } from "./agent-scroll";
+import { isNewerAgentSessionState } from "./agent-session-state";
 import { api, apiEventStream, apiText, friendlyNetworkError, jsonBody } from "./api";
 import { buildCollectionTree, flattenCollectionTree } from "./collection-tree";
 import type { ParsedCell, ParsedLiteratureTable } from "./literature-markdown";
@@ -1317,8 +1318,15 @@ export function AgentPage({
 				return;
 			}
 			if (event.type === "session") {
-				setSessions((current) => upsert(current, event.session));
-				setActive((current) => (current?.id === event.sessionId ? { ...current, ...event.session } : current));
+				setSessions((current) => {
+					const previous = current.find((entry) => entry.id === event.sessionId);
+					return isNewerAgentSessionState(previous, event.session) ? upsert(current, event.session) : current;
+				});
+				setActive((current) =>
+					current?.id === event.sessionId && isNewerAgentSessionState(current, event.session)
+						? { ...current, ...event.session }
+						: current,
+				);
 				return;
 			}
 			if (event.type === "message") {
@@ -1400,8 +1408,15 @@ export function AgentPage({
 								const snapshot = data as AgentSessionSnapshot;
 								// 防御旧会话连接残留的 snapshot 覆盖当前会话
 								if (snapshot.id && snapshot.id !== activeId) return;
-								setActive(snapshot);
-								setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
+								setActive((current) =>
+									current?.id === activeId && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
+								);
+								setSessions((current) => {
+									const previous = current.find((entry) => entry.id === snapshot.id);
+									return isNewerAgentSessionState(previous, snapshot)
+										? upsert(current, summaryFromSnapshot(snapshot))
+										: current;
+								});
 								setError("");
 								setStreamState("connected");
 								return;
@@ -1550,8 +1565,15 @@ export function AgentPage({
 			);
 			setPrompt("");
 			setAttachments([]);
-			setActive(snapshot);
-			setSessions((current) => upsert(current, summaryFromSnapshot(snapshot)));
+			setActive((current) =>
+				current?.id === targetSession.id && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
+			);
+			setSessions((current) => {
+				const previous = current.find((entry) => entry.id === snapshot.id);
+				return isNewerAgentSessionState(previous, snapshot)
+					? upsert(current, summaryFromSnapshot(snapshot))
+					: current;
+			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -1594,6 +1616,39 @@ export function AgentPage({
 	};
 
 	const running = active?.status === "running" || active?.status === "stopping";
+	// SSE can remain open after a browser/network interruption without delivering the final event.
+	// Reconcile only active runs; a completed snapshot also restores any missed message/tool events.
+	useEffect(() => {
+		if (!activeId || !running) return;
+		let disposed = false;
+		let pending = false;
+		const reconcile = async () => {
+			if (pending) return;
+			pending = true;
+			try {
+				const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(activeId)}`);
+				if (disposed) return;
+				setActive((current) =>
+					current?.id === activeId && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
+				);
+				setSessions((current) => {
+					const previous = current.find((entry) => entry.id === activeId);
+					return isNewerAgentSessionState(previous, snapshot)
+						? upsert(current, summaryFromSnapshot(snapshot))
+						: current;
+				});
+			} catch {
+				// The live event stream keeps reconnecting; retry the status check next interval.
+			} finally {
+				pending = false;
+			}
+		};
+		const timer = window.setInterval(() => void reconcile(), 5_000);
+		return () => {
+			disposed = true;
+			window.clearInterval(timer);
+		};
+	}, [activeId, running]);
 	const configurationReady = Boolean(config?.configured && config.credentialsAvailable);
 	const orderedSessions = useMemo(
 		() => [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),

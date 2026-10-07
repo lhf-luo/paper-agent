@@ -4,6 +4,7 @@ import { LiteratureStore, resolveCorpusRoot } from "../application/literature-st
 import { type PersonalPaperDetails, queryPersonalLibraryPaper } from "../application/personal-paper-query.ts";
 import { paperPrimaryUrl } from "../domain/literature-identifiers.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
+import { activePaperDetailFields } from "../domain/paper-detail-fields.ts";
 import {
 	type PersonalPaperProjectionField,
 	personalPaperProjectionFieldSchema,
@@ -52,6 +53,8 @@ function formatPaperDetails(details: PersonalPaperDetails): string {
 				`  ${index + 1}. ${version.kind}; publication_version_id=${version.id}; preferred=${version.isPreferred}`,
 		),
 		`Local PDF versions: ${details.localPdfVersions.length}`,
+		`References: ${record.referencedWorks?.length ?? "unknown"}`,
+		`Cited by: ${record.citationCount ?? "unknown"}`,
 		...details.localPdfVersions.map(
 			(version, index) =>
 				`  ${index + 1}. ${version.versionKind ?? "unknown"}; ${version.blobPath}; source=${version.sourceUrl}; sha256=${version.sha256}`,
@@ -65,6 +68,10 @@ function formatPaperDetails(details: PersonalPaperDetails): string {
 		),
 		`Notes: ${record.curation?.userNotes.length ?? 0}`,
 		...(record.curation?.userNotes ?? []).map((note, index) => `  ${index + 1}. ${note.text}`),
+		`Research fields: revision=${record.curation?.detailFields?.revision ?? 0}`,
+		...activePaperDetailFields(record.curation?.detailFields).map(
+			(field) => `  ${field.label} (${field.id}): ${field.value || "empty"}`,
+		),
 		`Derived records: ${details.derivedRecords.length}`,
 		"Abstract:",
 		record.abstract ?? "unavailable",
@@ -85,13 +92,14 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 		name: "get_personal_library_paper",
 		label: "Get personal library paper",
 		description:
-			"Read one stored personal-library paper by exact title, Paper ID, DOI, or arXiv ID. Omit fields for the complete existing response, or select only the metadata and materials needed. Makes no external requests and performs no writes.",
+			'Read one stored personal-library paper by exact title, Paper ID, DOI, or arXiv ID. Omit fields for the complete response. Use fields: ["detail_fields", "card_stats"] to read the editable research-card fields, revision, and four read-only resource/citation counts without full paper materials. Makes no external requests and performs no writes.',
 		promptSnippet: "Inspect one complete personal-library paper record and its saved materials",
 		promptGuidelines: [
 			"Use this instead of a new provider search when the user asks about a paper already saved in the personal library.",
 			"Pass the exact title when paper_id is unknown. If multiple or only approximate candidates are returned, ask the user or retry with the candidate paper_id; never guess.",
 			"Distinguish remote PDF download links from localPdfVersions. A remote link is not proof that a PDF has already been saved.",
 			"Pass fields to reduce context when the complete paper record and all saved materials are unnecessary; Paper ID is always returned.",
+			"Read detail_fields and its revision before editing the card; bibliographic metadata and resource counts are read-only in that editor.",
 		],
 		parameters: Type.Object({
 			query: Type.String({

@@ -77,9 +77,25 @@ export interface PaperUserNote {
 	createdAt: string;
 }
 
+export interface PaperDetailField {
+	id: string;
+	label: string;
+	type: "text" | "multiline" | "date";
+	value: string;
+	updatedAt: string;
+	deletedAt?: string;
+}
+
+export interface PaperDetailFields {
+	revision: number;
+	updatedAt: string;
+	entries: PaperDetailField[];
+}
+
 export interface PaperCuration {
 	tags: string[];
 	userNotes: PaperUserNote[];
+	detailFields?: PaperDetailFields;
 	screening?: {
 		status: ScreeningStatus;
 		reason?: string;
@@ -390,7 +406,20 @@ export interface SearchRun {
 	abstractEnrichment?: AbstractEnrichmentSummary;
 	resumedFromCheckpoint?: boolean;
 	searchPlan?: LiteratureSearchPlan;
-	runKind?: "keyword" | "citation-expansion";
+	runKind?: "keyword" | "citation-expansion" | "author-expansion";
+	authorExpansion?: {
+		seedPaperId: string;
+		authorName: string;
+		sources: Partial<Record<"openalex" | "semanticscholar" | "dblp", {
+			status: "succeeded" | "partial" | "unresolved" | "failed";
+			authorId?: string;
+			profileUrl?: string;
+			fetchedCount: number;
+			total?: number;
+			truncated: boolean;
+			message?: string;
+		}>>;
+	};
 	parentSearchRunId?: string;
 	seedPaperIds?: string[];
 	candidateTable?: CandidatePaperTableRow[];

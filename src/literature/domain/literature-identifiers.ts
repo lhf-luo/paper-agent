@@ -7,6 +7,7 @@ import type {
 	PaperRecord,
 	PossibleDuplicate,
 } from "./literature-types.ts";
+import { mergePaperDetailFields } from "./paper-detail-fields.ts";
 import { cleanPaperText, cleanPaperTitle } from "./paper-title.ts";
 
 const linkKindPriority: Record<PaperLink["kind"], number> = {
@@ -308,6 +309,7 @@ function mergeCuration(left: PaperCuration | undefined, right: PaperCuration | u
 	for (const note of right.userNotes) if (!notes.has(note.id)) notes.set(note.id, note);
 	const screening =
 		(left.screening?.updatedAt ?? "") >= (right.screening?.updatedAt ?? "") ? left.screening : right.screening;
+	const reading = (left.reading?.updatedAt ?? "") >= (right.reading?.updatedAt ?? "") ? left.reading : right.reading;
 	const reviewTimestamp = (review: PaperCuration["teamReview"]): string =>
 		review?.reviewedAt ?? review?.proposedAt ?? "";
 	const reviewed = [left.teamReview, right.teamReview].filter(
@@ -321,7 +323,9 @@ function mergeCuration(left: PaperCuration | undefined, right: PaperCuration | u
 	return {
 		tags: uniqueStrings([...left.tags, ...right.tags]),
 		userNotes: [...notes.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+		detailFields: mergePaperDetailFields(left.detailFields, right.detailFields),
 		screening,
+		reading,
 		teamReview,
 	};
 }

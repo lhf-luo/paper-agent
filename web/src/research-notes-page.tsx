@@ -27,6 +27,7 @@ import type {
 	ResearchNoteSummary,
 	ResearchNoteTemplate,
 } from "./types";
+import { useElementWidth } from "./use-element-width";
 
 type PendingAction =
 	| { kind: "create-note"; operation: PreparedOperation; payload: Record<string, unknown> }
@@ -103,6 +104,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	const refreshBusy = useRef(false);
 	const targetHandled = useRef<string | undefined>(undefined);
 	const { updateParams } = useRouterContext();
+	const { ref: notebookLayoutRef, width: notebookWidth } = useElementWidth<HTMLDivElement>();
 
 	const loadIndex = useCallback(async () => {
 		const [noteResult, folderResult] = await Promise.all([
@@ -767,7 +769,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 					/>
 				</AccessibleModal>
 			)}
-			<div className="research-notebook-layout">
+			<div className={`research-notebook-layout${notebookWidth < 800 ? " compact" : ""}`} ref={notebookLayoutRef}>
 				<aside className={`research-note-sidebar${active || createOpen ? " has-active-note" : ""}`}>
 					<header className="research-note-sidebar-header">
 						<div>

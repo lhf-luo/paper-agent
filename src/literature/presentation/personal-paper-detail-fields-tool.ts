@@ -1,0 +1,176 @@
+import { randomUUID } from "node:crypto";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { requestInteractiveOperationAuthorization } from "../../app/presentation/interactive-operation-consent.ts";
+import type { OperationPlan } from "../../shared/application/operation-consent.ts";
+import { LiteratureStore, resolveCorpusRoot } from "../application/literature-store.ts";
+import { runAuthorizedMutation } from "../application/literature-write.ts";
+import { sha256Text } from "../domain/literature-identifiers.ts";
+import {
+	activePaperDetailFields,
+	type PaperDetailFieldInput,
+	validatePaperDetailFields,
+} from "../domain/paper-detail-fields.ts";
+
+interface FieldUpdate {
+	id: string;
+	value: string;
+}
+
+interface NewField {
+	label: string;
+	type: PaperDetailFieldInput["type"];
+	value: string;
+}
+
+export function applyPaperDetailFieldEdits(
+	current: PaperDetailFieldInput[],
+	updates: FieldUpdate[],
+	newFields: NewField[],
+): PaperDetailFieldInput[] {
+	if (!updates.length && !newFields.length) throw new Error("fields or new_fields is required");
+	const byId = new Map(current.map((field) => [field.id, field]));
+	const seen = new Set<string>();
+	for (const update of updates) {
+		if (seen.has(update.id)) throw new Error(`Research field repeated: ${update.id}`);
+		seen.add(update.id);
+		const existing = byId.get(update.id);
+		if (!existing) throw new Error(`Research field not found: ${update.id}`);
+		byId.set(update.id, { ...existing, value: update.value });
+	}
+	const next = current.map((field) => byId.get(field.id) ?? field);
+	for (const field of newFields) {
+		next.push({ id: `custom-${randomUUID()}`, label: field.label, type: field.type, value: field.value });
+	}
+	return validatePaperDetailFields(next);
+}
+
+function researchFieldEditPlan(input: {
+	namespace: string;
+	paperId: string;
+	revision: number;
+	title: string;
+	fields: PaperDetailFieldInput[];
+	changes: PaperDetailFieldInput[];
+}): OperationPlan {
+	return {
+		kind: "personal-corpus-write",
+		summary: `Update ${input.changes.length} research field(s) for “${input.title}”`,
+		actor: "agent",
+		targets: [{ label: "personal-paper-research-fields", value: `${input.namespace}/${input.paperId}`, risk: "low" }],
+		details: {
+			namespace: input.namespace,
+			paperId: input.paperId,
+			expectedRevision: input.revision,
+			fieldsFingerprint: sha256Text(JSON.stringify(input.fields)),
+		},
+	};
+}
+
+function savedEditResult(input: {
+	paperId: string;
+	namespace: string;
+	revision: number;
+	changes: PaperDetailFieldInput[];
+	corpusPath: string;
+}) {
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: `Updated ${input.changes.length} research field(s): paper_id=${input.paperId}; revision=${input.revision}; fields=${input.changes.map((field) => field.label).join(", ")}`,
+			},
+		],
+		details: {
+			status: "updated",
+			paperId: input.paperId,
+			namespace: input.namespace,
+			revision: input.revision,
+			updatedFieldIds: input.changes.map((field) => field.id),
+			corpusPath: input.corpusPath,
+		},
+	};
+}
+
+export function registerPersonalPaperDetailFieldsTool(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "edit_personal_paper_detail_fields",
+		label: "Edit personal paper research fields",
+		description:
+			'Fill or update the editable research fields shown on one personal-library paper card. Read get_personal_library_paper with fields: ["detail_fields"] first, then pass its exact Paper ID and revision. Existing fields are patched by ID; optional custom fields can be added. Paper metadata and statistics cannot be edited here.',
+		promptSnippet: "Fill evidence-based research fields on a saved personal paper card",
+		promptGuidelines: [
+			"Use only for a paper already saved in the personal library. Read detail_fields and expected_revision before writing; stale revisions are rejected.",
+			"Change only the named fields. Preserve other values, especially user-written content. Never fill an unknown claim from the title or model memory; read paper material first.",
+			"The operation follows the personal-corpus-write confirmation policy and returns only a change summary.",
+		],
+		parameters: Type.Object({
+			paper_id: Type.String({ minLength: 1, description: "Exact personal-library Paper ID" }),
+			expected_revision: Type.Integer({ minimum: 0, description: "detailFields.revision from the read tool" }),
+			fields: Type.Optional(
+				Type.Array(Type.Object({ id: Type.String({ minLength: 1 }), value: Type.String() }), {
+					maxItems: 40,
+					description: "Existing editable field IDs and replacement values; omitted fields stay unchanged",
+				}),
+			),
+			new_fields: Type.Optional(
+				Type.Array(
+					Type.Object({
+						label: Type.String({ minLength: 1 }),
+						type: Type.Union([Type.Literal("text"), Type.Literal("multiline"), Type.Literal("date")]),
+						value: Type.String(),
+					}),
+					{ maxItems: 30, description: "New custom research fields; IDs are generated by the tool" },
+				),
+			),
+			namespace: Type.Optional(Type.String({ description: "Personal-library namespace; default: default" })),
+			corpus_root: Type.Optional(Type.String()),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const paperId = params.paper_id.trim();
+			const namespace = params.namespace ?? "default";
+			const store = new LiteratureStore(
+				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
+				"personal",
+				namespace,
+			);
+			const paper = await store.getPaper(paperId);
+			if (!paper) throw new Error(`Personal corpus does not contain: ${paperId}`);
+			const revision = paper.curation?.detailFields?.revision ?? 0;
+			if (revision !== params.expected_revision)
+				throw new Error("Research fields changed; reread detail_fields before editing");
+			const current = activePaperDetailFields(paper.curation?.detailFields);
+			const next = applyPaperDetailFieldEdits(current, params.fields ?? [], params.new_fields ?? []);
+			const changes = next.filter((field) => {
+				const previous = current.find((item) => item.id === field.id);
+				return !previous || previous.value !== field.value;
+			});
+			if (!changes.length) {
+				return {
+					content: [
+						{ type: "text", text: `Research fields unchanged: paper_id=${paperId}; revision=${revision}` },
+					],
+					details: { status: "unchanged", paperId, namespace, revision },
+				};
+			}
+			const plan = researchFieldEditPlan({
+				namespace,
+				paperId,
+				revision,
+				title: paper.title,
+				fields: next,
+				changes,
+			});
+			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
+				title: "Update this paper's research fields?",
+				unavailableMessage: "Editing paper research fields requires interactive confirmation.",
+				details: () => changes.map((field) => `- ${field.label}: ${field.value.slice(0, 160)}`),
+			});
+			const saved = await runAuthorizedMutation(authorization, plan, () =>
+				store.savePaperDetailFields(paperId, revision, next),
+			);
+			const savedRevision = saved.curation?.detailFields?.revision ?? revision;
+			return savedEditResult({ paperId, namespace, revision: savedRevision, changes, corpusPath: store.root });
+		},
+	});
+}

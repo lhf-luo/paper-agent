@@ -30,6 +30,7 @@ import type {
 	ResearchNote,
 	ResearchNoteSummary,
 } from "./types";
+import { useElementWidth } from "./use-element-width";
 
 export { readerVersionName, readerVersionState };
 
@@ -57,6 +58,7 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 	const [railMenu, setRailMenu] = useState<"agent" | "notes" | "versions">();
 	const [agentMenuContainer, setAgentMenuContainer] = useState<HTMLDivElement | null>(null);
 	const [mobilePane, setMobilePane] = useState<"pdf" | "workspace" | "translation">(focusAgent ? "workspace" : "pdf");
+	const [sidePane, setSidePane] = useState<"workspace" | "translation">("workspace");
 	const [translationOpen, setTranslationOpen] = useState(false);
 	const [translationActivation, setTranslationActivation] = useState(0);
 	const [selection, setSelection] = useState<ReaderTextSelection>();
@@ -69,12 +71,40 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
 	const readerLayoutRef = useRef<HTMLDivElement>(null);
+	const { ref: workspaceRef, width: workspaceWidth } = useElementWidth<HTMLElement>();
 	const railRef = useRef<HTMLElement>(null);
 	const workspaceOpen = tabs.length > 0;
+	const layoutMode = workspaceWidth <= 780 ? "compact" : workspaceWidth <= 1180 ? "medium" : "wide";
+	const visibleSide =
+		sidePane === "translation" && translationOpen
+			? "translation"
+			: workspaceOpen
+				? "workspace"
+				: translationOpen
+					? "translation"
+					: "none";
+	const translationActive = translationOpen && (layoutMode !== "medium" || visibleSide === "translation");
+	const paneMaxWidth = Math.max(
+		320,
+		Math.min(
+			720,
+			workspaceWidth - (translationOpen && layoutMode === "wide" ? 792 : 468),
+			layoutMode === "medium" ? workspaceWidth * 0.42 : 720,
+		),
+	);
+	const visiblePaneWidth = Math.min(readerWorkspaceWidth, paneMaxWidth);
+	useEffect(() => {
+		if (!translationActive) setSelection(undefined);
+	}, [translationActive]);
 	const toggleTranslation = () => {
 		setSelection(undefined);
 		setMobilePane("pdf");
-		if (!translationOpen) setTranslationActivation((current) => current + 1);
+		if (!translationOpen) {
+			setTranslationActivation((current) => current + 1);
+			setSidePane("translation");
+		} else {
+			setSidePane("workspace");
+		}
 		setTranslationOpen(!translationOpen);
 	};
 
@@ -82,12 +112,20 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 		(clientX: number) => {
 			const bounds = readerLayoutRef.current?.getBoundingClientRect();
 			if (!bounds) return;
-			const maximum = Math.max(320, Math.min(720, bounds.width - (translationOpen ? 792 : 468)));
+			const hasTranslationColumn = translationOpen && layoutMode === "wide";
+			const maximum = Math.max(
+				320,
+				Math.min(
+					720,
+					bounds.width - (hasTranslationColumn ? 792 : 468),
+					layoutMode === "medium" ? bounds.width * 0.42 : 720,
+				),
+			);
 			setReaderWorkspaceWidth(
-				Math.max(320, Math.min(maximum, bounds.right - (translationOpen ? 366 : 46) - clientX)),
+				Math.max(320, Math.min(maximum, bounds.right - (hasTranslationColumn ? 366 : 46) - clientX)),
 			);
 		},
-		[translationOpen],
+		[layoutMode, translationOpen],
 	);
 
 	const startReaderResize = useCallback(
@@ -102,15 +140,26 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				window.removeEventListener("pointerup", onUp);
 				const bounds = readerLayoutRef.current?.getBoundingClientRect();
 				if (bounds) {
-					const maximum = Math.max(320, Math.min(720, bounds.width - (translationOpen ? 792 : 468)));
-					const width = Math.max(320, Math.min(maximum, bounds.right - (translationOpen ? 366 : 46) - up.clientX));
+					const hasTranslationColumn = translationOpen && layoutMode === "wide";
+					const maximum = Math.max(
+						320,
+						Math.min(
+							720,
+							bounds.width - (hasTranslationColumn ? 792 : 468),
+							layoutMode === "medium" ? bounds.width * 0.42 : 720,
+						),
+					);
+					const width = Math.max(
+						320,
+						Math.min(maximum, bounds.right - (hasTranslationColumn ? 366 : 46) - up.clientX),
+					);
 					window.localStorage.setItem("paper-agent-reader-pane-width", String(Math.round(width)));
 				}
 			};
 			window.addEventListener("pointermove", onMove);
 			window.addEventListener("pointerup", onUp, { once: true });
 		},
-		[resizeReaderPane, translationOpen],
+		[layoutMode, resizeReaderPane, translationOpen],
 	);
 
 	useEffect(() => () => document.body.classList.remove("paper-reader-resizing"), []);
@@ -192,6 +241,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 
 	const activateTab = (id: string) => {
 		setActiveTabId(id);
+		setSidePane("workspace");
+		setSelection(undefined);
 		setMobilePane("workspace");
 		setRailMenu(undefined);
 	};
@@ -210,6 +261,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				: [{ id: "agent", kind: "agent", title: "新会话" }, ...current],
 		);
 		setActiveTabId("agent");
+		setSidePane("workspace");
+		setSelection(undefined);
 		setMobilePane("workspace");
 		setRailMenu((current) => (current === "agent" ? undefined : "agent"));
 	};
@@ -305,7 +358,7 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 		.join(" · ");
 
 	return (
-		<section className="paper-reader-workspace">
+		<section className="paper-reader-workspace" ref={workspaceRef}>
 			<header className="paper-reader-toolbar">
 				<button
 					className="paper-reader-back"
@@ -320,82 +373,98 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 					<strong>{activeReader.title}</strong>
 					{readerVersionSummary && <span>{readerVersionSummary}</span>}
 				</div>
-				<div className="paper-reader-mobile-tabs" role="tablist" aria-label="阅读视图">
-					<button
-						type="button"
-						role="tab"
-						aria-selected={mobilePane === "pdf"}
-						onClick={() => setMobilePane("pdf")}
-					>
-						PDF
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={mobilePane === "workspace"}
-						disabled={!workspaceOpen}
-						onClick={() => setMobilePane("workspace")}
-					>
-						工作区
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={mobilePane === "translation"}
-						disabled={!translationOpen}
-						onClick={() => setMobilePane("translation")}
-					>
-						翻译
-					</button>
+				<div className="paper-reader-toolbar-lower">
+					<div className="paper-reader-mobile-tabs" role="tablist" aria-label="阅读视图">
+						{layoutMode === "compact" && (
+							<button
+								type="button"
+								role="tab"
+								aria-selected={mobilePane === "pdf"}
+								onClick={() => setMobilePane("pdf")}
+							>
+								PDF
+							</button>
+						)}
+						<button
+							type="button"
+							role="tab"
+							aria-selected={layoutMode === "compact" ? mobilePane === "workspace" : visibleSide === "workspace"}
+							disabled={!workspaceOpen}
+							onClick={() => {
+								setSidePane("workspace");
+								setSelection(undefined);
+								setMobilePane("workspace");
+							}}
+						>
+							工作区
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={
+								layoutMode === "compact" ? mobilePane === "translation" : visibleSide === "translation"
+							}
+							disabled={!translationOpen}
+							onClick={() => {
+								setSidePane("translation");
+								if (visibleSide !== "translation") setTranslationActivation((current) => current + 1);
+								setMobilePane("translation");
+							}}
+						>
+							翻译
+						</button>
+					</div>
+					<div className="paper-reader-toolbar-actions">
+						<PdfTranslationControl
+							key={`${activeReader.namespace ?? ""}:${activeReader.paperId ?? ""}:${activeReader.sha256 ?? ""}`}
+							source={
+								activeReader.paperId &&
+								activeReader.namespace &&
+								activeReader.sha256 &&
+								activeReader.versionKind !== "translation"
+									? {
+											title: activeReader.title,
+											paperId: activeReader.paperId,
+											namespace: activeReader.namespace,
+											sha256: activeReader.sha256,
+										}
+									: undefined
+							}
+							onOpenResult={(result) => {
+								setActiveReader({
+									...activeReader,
+									url: `/api/papers/${encodeURIComponent(result.paperId)}/pdf/${result.version.sha256}?namespace=${encodeURIComponent(result.namespace)}`,
+									pdfPath: result.version.blobPath,
+									sha256: result.version.sha256,
+									bytes: result.version.bytes,
+									retrievedAt: result.version.retrievedAt,
+									versionKind: result.version.versionKind,
+									versionLabel: result.version.versionLabel,
+									translationOutputMode: result.outputMode,
+								});
+								setSelection(undefined);
+								void loadReaderData();
+							}}
+						/>
+						<MineruControl
+							source={
+								activeReader.paperId && activeReader.namespace
+									? { paperId: activeReader.paperId, namespace: activeReader.namespace }
+									: undefined
+							}
+						/>
+						<a
+							className="paper-reader-open"
+							href={activeReader.url}
+							target="_blank"
+							rel="noreferrer"
+							aria-label="在新标签页打开"
+							title="在新标签页打开"
+						>
+							在新标签页打开 <ExternalLink size={13} style={{ display: "inline", verticalAlign: "middle" }} />
+						</a>
+					</div>
 				</div>
-				<PdfTranslationControl
-					key={`${activeReader.namespace ?? ""}:${activeReader.paperId ?? ""}:${activeReader.sha256 ?? ""}`}
-					source={
-						activeReader.paperId &&
-						activeReader.namespace &&
-						activeReader.sha256 &&
-						activeReader.versionKind !== "translation"
-							? {
-									title: activeReader.title,
-									paperId: activeReader.paperId,
-									namespace: activeReader.namespace,
-									sha256: activeReader.sha256,
-								}
-							: undefined
-					}
-					onOpenResult={(result) => {
-						setActiveReader({
-							...activeReader,
-							url: `/api/papers/${encodeURIComponent(result.paperId)}/pdf/${result.version.sha256}?namespace=${encodeURIComponent(result.namespace)}`,
-							pdfPath: result.version.blobPath,
-							sha256: result.version.sha256,
-							bytes: result.version.bytes,
-							retrievedAt: result.version.retrievedAt,
-							versionKind: result.version.versionKind,
-							versionLabel: result.version.versionLabel,
-							translationOutputMode: result.outputMode,
-						});
-						setSelection(undefined);
-						void loadReaderData();
-					}}
-				/>
-				<MineruControl
-					source={
-						activeReader.paperId && activeReader.namespace
-							? { paperId: activeReader.paperId, namespace: activeReader.namespace }
-							: undefined
-					}
-				/>
-				<a
-					className="paper-reader-open"
-					href={activeReader.url}
-					target="_blank"
-					rel="noreferrer"
-					aria-label="在新标签页打开"
-					title="在新标签页打开"
-				>
-					在新标签页打开 <ExternalLink size={13} style={{ display: "inline", verticalAlign: "middle" }} />
-				</a>
 			</header>
 			{error && (
 				<div className="paper-reader-notice error" role="alert">
@@ -414,16 +483,16 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				</div>
 			)}
 			<div
-				className={`paper-reader-layout ${workspaceOpen ? "has-workspace" : "workspace-collapsed"} ${translationOpen ? "has-translation" : ""} show-${mobilePane}`}
+				className={`paper-reader-layout ${workspaceOpen ? "has-workspace" : "workspace-collapsed"} ${translationOpen ? "has-translation" : ""} show-${mobilePane} side-${visibleSide}`}
 				ref={readerLayoutRef}
-				style={{ "--paper-agent-pane-width": `${readerWorkspaceWidth}px` } as React.CSSProperties}
+				style={{ "--paper-agent-pane-width": `${visiblePaneWidth}px` } as React.CSSProperties}
 			>
 				<div className="browser-pdf-shell">
 					<MozillaPdfReader
 						url={activeReader.url}
 						title={activeReader.title}
 						enableBilingualSelection={activeReader.translationOutputMode === "dual"}
-						translationEnabled={translationOpen}
+						translationEnabled={translationActive}
 						translationActivation={translationActivation}
 						onSelection={setSelection}
 						onExplain={(value) => {
@@ -434,6 +503,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 									: [{ id: "agent", kind: "agent", title: "新会话" }, ...current],
 							);
 							setActiveTabId("agent");
+							setSidePane("workspace");
+							setSelection(undefined);
 							setMobilePane("workspace");
 						}}
 					/>
@@ -445,8 +516,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 							aria-label="调整 PDF 与工作区域宽度"
 							aria-orientation="vertical"
 							aria-valuemin={320}
-							aria-valuemax={720}
-							aria-valuenow={Math.round(readerWorkspaceWidth)}
+							aria-valuemax={Math.round(paneMaxWidth)}
+							aria-valuenow={Math.round(visiblePaneWidth)}
 							tabIndex={0}
 							onPointerDown={startReaderResize}
 							onKeyDown={(event) => {
@@ -454,7 +525,7 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 								event.preventDefault();
 								const delta = event.key === "ArrowLeft" ? 24 : -24;
 								setReaderWorkspaceWidth((width) => {
-									const next = Math.max(320, Math.min(720, width + delta));
+									const next = Math.max(320, Math.min(paneMaxWidth, Math.min(width, paneMaxWidth) + delta));
 									window.localStorage.setItem("paper-agent-reader-pane-width", String(next));
 									return next;
 								});
@@ -529,9 +600,10 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 				)}
 				<ReaderTranslationPanel
 					selection={selection}
-					open={translationOpen}
+					open={translationActive}
 					onClose={() => {
 						setTranslationOpen(false);
+						setSidePane("workspace");
 						setSelection(undefined);
 						setMobilePane("pdf");
 					}}
