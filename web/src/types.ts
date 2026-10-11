@@ -40,12 +40,14 @@ export interface PaperRecord {
 	};
 	links: Array<{ url: string; kind: string; openAccess?: boolean }>;
 	citationCount?: number;
+	referencedWorks?: string[];
 	provenance: Array<{ provider: string; query: string; retrievedAt: string }>;
 	collectionIds?: string[];
 	curation?: {
 		tags: string[];
 		userNotes: Array<{ id: string; text: string; author: string; createdAt: string }>;
 		detailFields?: {
+			schemaVersion?: number;
 			revision: number;
 			updatedAt: string;
 			entries: Array<{
@@ -666,11 +668,9 @@ export interface AgentUIRequestView {
 	expiresAt: string;
 }
 
-export interface AgentSessionContext {
-	kind: "paper";
-	namespace: string;
-	paperId: string;
-}
+export type AgentSessionContext =
+	| { kind: "paper"; namespace: string; paperId: string }
+	| { kind: "canvas"; namespace: string; canvasId: string };
 
 export interface AgentSessionSummary {
 	id: string;
@@ -718,6 +718,7 @@ export type Page =
 	| "pdf"
 	| "team"
 	| "research"
+	| "canvas"
 	| "wiki"
 	| "settings"
 	| "reader";

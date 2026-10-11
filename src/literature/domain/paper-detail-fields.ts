@@ -1,17 +1,53 @@
-import type { PaperDetailField, PaperDetailFields } from "./literature-types.ts";
+import type { PaperDetailField, PaperDetailFields, PaperRecord } from "./literature-types.ts";
 
 export const DEFAULT_PAPER_DETAIL_FIELDS = [
 	{ id: "research-question", label: "研究问题" },
 	{ id: "research-gap", label: "研究缺口" },
-	{ id: "core-innovation", label: "核心创新点" },
-	{ id: "core-design", label: "核心设计" },
-	{ id: "method-design", label: "方法设计" },
-	{ id: "author-limitations", label: "作者提及的不足" },
-	{ id: "reproduction-progress", label: "实验复现进度" },
-	{ id: "reading-questions", label: "阅读或实验疑惑" },
-	{ id: "next-reading-task", label: "下次阅读任务" },
-	{ id: "personal-remarks", label: "人工备注" },
+	{ id: "core-innovation", label: "核心贡献" },
+	{ id: "method-design", label: "方法与系统设计" },
+	{ id: "experiment-setup", label: "实验设置" },
+	{ id: "key-results", label: "关键结果与证据" },
+	{ id: "author-limitations", label: "局限与适用条件" },
+	{ id: "reproduction-resources", label: "复现资源与条件" },
 ] as const;
+
+export const PAPER_DETAIL_FIELDS_SCHEMA_VERSION = 2;
+
+export function isCurrentPaperDetailFields(fields: PaperDetailFields | undefined): boolean {
+	if (!fields || fields.schemaVersion !== PAPER_DETAIL_FIELDS_SCHEMA_VERSION) return false;
+	if (!Number.isSafeInteger(fields.revision) || fields.revision < 0 || !Array.isArray(fields.entries)) return false;
+	return fields.entries.every((entry) => {
+		const defaultLabel = defaults.get(entry.id);
+		return defaultLabel === undefined || (entry.label === defaultLabel && entry.type === "multiline");
+	});
+}
+
+// Keep legacy card contents out of every full paper response while a database repair is pending.
+export function paperWithCurrentDetailFields(record: PaperRecord): PaperRecord {
+	const fields = record.curation?.detailFields;
+	if (!fields || isCurrentPaperDetailFields(fields)) return record;
+	return {
+		...record,
+		curation: {
+			...record.curation!,
+			detailFields: {
+				schemaVersion: PAPER_DETAIL_FIELDS_SCHEMA_VERSION,
+				revision: fields.revision,
+				updatedAt: fields.updatedAt,
+				entries: [],
+			},
+		},
+	};
+}
+
+export function resetPaperDetailFields(previous: PaperDetailFields | undefined, now: string): PaperDetailFields {
+	return {
+		schemaVersion: PAPER_DETAIL_FIELDS_SCHEMA_VERSION,
+		revision: (previous?.revision ?? 0) + 1,
+		updatedAt: now,
+		entries: [],
+	};
+}
 
 export interface PaperDetailFieldInput {
 	id: string;
@@ -24,7 +60,9 @@ const defaults = new Map<string, string>(DEFAULT_PAPER_DETAIL_FIELDS.map((field)
 
 export function activePaperDetailFields(previous: PaperDetailFields | undefined): PaperDetailFieldInput[] {
 	const existing = new Map(
-		(previous?.entries ?? []).filter((field) => !field.deletedAt).map((field) => [field.id, field]),
+		(previous?.schemaVersion === PAPER_DETAIL_FIELDS_SCHEMA_VERSION ? previous.entries : [])
+			.filter((field) => !field.deletedAt)
+			.map((field) => [field.id, field]),
 	);
 	return [
 		...DEFAULT_PAPER_DETAIL_FIELDS.map((field) => ({
@@ -33,7 +71,7 @@ export function activePaperDetailFields(previous: PaperDetailFields | undefined)
 			type: "multiline" as const,
 			value: existing.get(field.id)?.value ?? "",
 		})),
-		...(previous?.entries ?? [])
+		...(previous?.schemaVersion === PAPER_DETAIL_FIELDS_SCHEMA_VERSION ? previous.entries : [])
 			.filter((field) => !field.deletedAt && !defaults.has(field.id))
 			.map(({ id, label, type, value }) => ({ id, label, type, value })),
 	];
@@ -88,7 +126,8 @@ export function updatePaperDetailFields(
 	input: PaperDetailFieldInput[],
 	now: string,
 ): PaperDetailFields {
-	const oldById = new Map((previous?.entries ?? []).map((field) => [field.id, field]));
+	const priorEntries = previous?.schemaVersion === PAPER_DETAIL_FIELDS_SCHEMA_VERSION ? previous.entries : [];
+	const oldById = new Map(priorEntries.map((field) => [field.id, field]));
 	const active = new Set(input.map((field) => field.id));
 	const entries: PaperDetailField[] = input.map((field) => {
 		const old = oldById.get(field.id);
@@ -96,17 +135,24 @@ export function updatePaperDetailFields(
 			? old
 			: { ...field, updatedAt: now };
 	});
-	for (const old of previous?.entries ?? []) {
+	for (const old of priorEntries) {
 		if (!defaults.has(old.id) && !active.has(old.id))
 			entries.push({ ...old, deletedAt: old.deletedAt ?? now, updatedAt: old.deletedAt ? old.updatedAt : now });
 	}
-	return { revision: (previous?.revision ?? 0) + 1, updatedAt: now, entries };
+	return {
+		schemaVersion: PAPER_DETAIL_FIELDS_SCHEMA_VERSION,
+		revision: (previous?.revision ?? 0) + 1,
+		updatedAt: now,
+		entries,
+	};
 }
 
 export function mergePaperDetailFields(
 	left: PaperDetailFields | undefined,
 	right: PaperDetailFields | undefined,
 ): PaperDetailFields | undefined {
+	if (left?.schemaVersion !== PAPER_DETAIL_FIELDS_SCHEMA_VERSION) left = undefined;
+	if (right?.schemaVersion !== PAPER_DETAIL_FIELDS_SCHEMA_VERSION) right = undefined;
 	if (!left) return right;
 	if (!right) return left;
 	if (JSON.stringify(left) === JSON.stringify(right)) return left;
@@ -124,6 +170,7 @@ export function mergePaperDetailFields(
 	if (JSON.stringify(mergedEntries) === JSON.stringify(left.entries) && left.revision >= right.revision) return left;
 	if (JSON.stringify(mergedEntries) === JSON.stringify(right.entries) && right.revision >= left.revision) return right;
 	return {
+		schemaVersion: PAPER_DETAIL_FIELDS_SCHEMA_VERSION,
 		revision:
 			Math.max(left.revision, right.revision) +
 			(JSON.stringify(mergedEntries) !== JSON.stringify(left.entries) &&

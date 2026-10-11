@@ -14,11 +14,9 @@ export const WEB_AGENT_THINKING_LEVELS: readonly WebAgentThinkingLevel[] = [
 	"max",
 ];
 
-export interface WebAgentSessionContext {
-	kind: "paper";
-	namespace: string;
-	paperId: string;
-}
+export type WebAgentSessionContext =
+	| { kind: "paper"; namespace: string; paperId: string }
+	| { kind: "canvas"; namespace: string; canvasId: string };
 
 export interface WebAgentConfiguredModelView {
 	key: string;
@@ -80,10 +78,12 @@ export interface WebAgentSessionFilter {
 	 * `general` — sessions with no paper context.
 	 * `paper` — sessions bound to one paper (requires namespace and paperId).
 	 * `personal` — any session bound to a paper in the given personal namespace, across papers.
+	 * `canvas` — sessions belonging to one canvas (requires namespace and canvasId).
 	 */
-	scope?: "general" | "paper" | "personal";
+	scope?: "general" | "paper" | "personal" | "canvas";
 	namespace?: string;
 	paperId?: string;
+	canvasId?: string;
 }
 
 export interface WebAgentUIRequestView {
@@ -188,6 +188,7 @@ export interface WebAgentServiceApi {
 	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	getSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	deleteSession(id: string): void | Promise<void>;
+	deleteCanvasSessions(namespace: string, canvasId: string): void | Promise<void>;
 	dismissError?(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	sendMessage(
 		id: string,

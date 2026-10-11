@@ -1,15 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
-import type {
-	WebAgentMessageView,
-	WebAgentSessionContext,
-	WebAgentToolView,
-} from "../domain/web-agent-contracts.ts";
+import type { WebAgentMessageView, WebAgentSessionContext, WebAgentToolView } from "../domain/web-agent-contracts.ts";
 
 export interface PaperAgentSessionRecord {
 	id: string;
 	title: string;
 	mode: "once" | "persistent";
-	context: WebAgentSessionContext;
+	context: Extract<WebAgentSessionContext, { kind: "paper" }>;
 	createdAt: string;
 	updatedAt: string;
 	messages: WebAgentMessageView[];
@@ -32,7 +28,7 @@ export class PaperAgentSessionRepository {
 		if (!row) throw new Error("Personal SQLite schema is not initialized for paper Agent sessions");
 	}
 
-	hasPaper(context: WebAgentSessionContext): boolean {
+	hasPaper(context: Extract<WebAgentSessionContext, { kind: "paper" }>): boolean {
 		return Boolean(
 			this.database
 				.prepare("SELECT 1 FROM papers WHERE namespace_id = ? AND paper_id = ?")

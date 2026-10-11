@@ -33,7 +33,7 @@ export class WebAgentService extends WebAgentActions implements WebAgentServiceA
 			configuredModels,
 		);
 		await service.restoreSessions();
-		service.startPaperSessionCleanup();
+		await service.startPaperSessionCleanup();
 		return service;
 	}
 }

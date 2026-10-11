@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import type { Page } from "./types";
 
 export interface RouteState {
@@ -15,6 +15,11 @@ export interface RouterContextValue {
 
 const RouterContext = createContext<RouterContextValue | null>(null);
 
+function requestRouteChange(proceed: () => void): void {
+	const event = new CustomEvent("paper-agent:before-route", { cancelable: true, detail: { proceed } });
+	if (window.dispatchEvent(event)) proceed();
+}
+
 function parseUrl(): RouteState {
 	if (typeof window === "undefined") {
 		return { page: "dashboard", params: {} };
@@ -30,6 +35,7 @@ function parseUrl(): RouteState {
 		"pdf",
 		"team",
 		"research",
+		"canvas",
 		"wiki",
 		"settings",
 		"reader",
@@ -56,11 +62,32 @@ export function useRouter(initialDefaultPage: Page = "dashboard"): RouterContext
 
 	useEffect(() => {
 		const handlePopState = () => {
-			setRoute(parseUrl());
+			const target = parseUrl();
+			const targetUrl = window.location.href;
+			const event = new CustomEvent("paper-agent:before-route", {
+				cancelable: true,
+				detail: {
+					proceed: () => {
+						window.history.replaceState(target, "", targetUrl);
+						setRoute(target);
+					},
+				},
+			});
+			if (!window.dispatchEvent(event)) {
+				const search = new URLSearchParams({ page: route.page });
+				for (const [key, value] of Object.entries(route.params)) if (value) search.set(key, value);
+				window.history.pushState(
+					route,
+					"",
+					`${window.location.pathname}?${search.toString()}${window.location.hash}`,
+				);
+				return;
+			}
+			setRoute(target);
 		};
 		window.addEventListener("popstate", handlePopState);
 		return () => window.removeEventListener("popstate", handlePopState);
-	}, []);
+	}, [route]);
 
 	const navigate = useCallback((nextPage: Page, nextParams: Record<string, string> = {}, replace = false) => {
 		const search = new URLSearchParams();
@@ -71,33 +98,37 @@ export function useRouter(initialDefaultPage: Page = "dashboard"): RouterContext
 		const newSearch = search.toString();
 		const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`;
 
-		if (replace) {
-			window.history.replaceState({ page: nextPage, params: nextParams }, "", newUrl);
-		} else {
-			window.history.pushState({ page: nextPage, params: nextParams }, "", newUrl);
-		}
-		setRoute({ page: nextPage, params: nextParams });
+		requestRouteChange(() => {
+			if (replace) {
+				window.history.replaceState({ page: nextPage, params: nextParams }, "", newUrl);
+			} else {
+				window.history.pushState({ page: nextPage, params: nextParams }, "", newUrl);
+			}
+			setRoute({ page: nextPage, params: nextParams });
+		});
 	}, []);
 
 	const updateParams = useCallback((paramsToUpdate: Record<string, string | null | undefined>) => {
-		setRoute((current) => {
-			const updated = { ...current.params };
-			for (const [k, v] of Object.entries(paramsToUpdate)) {
-				if (v === null || v === undefined || v === "") {
-					delete updated[k];
-				} else {
-					updated[k] = v;
+		requestRouteChange(() =>
+			setRoute((current) => {
+				const updated = { ...current.params };
+				for (const [k, v] of Object.entries(paramsToUpdate)) {
+					if (v === null || v === undefined || v === "") {
+						delete updated[k];
+					} else {
+						updated[k] = v;
+					}
 				}
-			}
-			const search = new URLSearchParams();
-			search.set("page", current.page);
-			for (const [k, v] of Object.entries(updated)) {
-				if (v) search.set(k, v);
-			}
-			const newUrl = `${window.location.pathname}?${search.toString()}${window.location.hash}`;
-			window.history.replaceState({ page: current.page, params: updated }, "", newUrl);
-			return { page: current.page, params: updated };
-		});
+				const search = new URLSearchParams();
+				search.set("page", current.page);
+				for (const [k, v] of Object.entries(updated)) {
+					if (v) search.set(k, v);
+				}
+				const newUrl = `${window.location.pathname}?${search.toString()}${window.location.hash}`;
+				window.history.replaceState({ page: current.page, params: updated }, "", newUrl);
+				return { page: current.page, params: updated };
+			}),
+		);
 	}, []);
 
 	return {

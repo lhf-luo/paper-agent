@@ -83,7 +83,8 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	const [draftMarkdown, setDraftMarkdown] = useState("");
 	const [noteQuery, setNoteQuery] = useState("");
 	const [paperQuery, setPaperQuery] = useState("");
-	const [mode, setMode] = useState<"edit" | "preview">("edit");
+	const [mode, setMode] = useState<"edit" | "preview">("preview");
+	const newlyCreatedNoteId = useRef<string | undefined>(undefined);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [loading, setLoading] = useState(true);
 	const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "conflict">("idle");
@@ -208,6 +209,8 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				if (cancelled) return;
 				setActive(note);
 				setDraftMarkdown(note.markdown);
+				setMode(note.id === newlyCreatedNoteId.current ? "edit" : "preview");
+				newlyCreatedNoteId.current = undefined;
 				setSaveState("idle");
 			})
 			.catch((reason) => !cancelled && setError(reason instanceof Error ? reason.message : String(reason)));
@@ -393,6 +396,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				setNewTitle("");
 				setNewPaperIds(new Set());
 				setOpenNoteIds((ids) => [...ids.filter((id) => id !== result.note.id), result.note.id]);
+				newlyCreatedNoteId.current = result.note.id;
 				setActiveId(result.note.id);
 				await loadIndex();
 				setMessage("笔记已创建");

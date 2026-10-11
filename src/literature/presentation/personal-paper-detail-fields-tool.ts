@@ -8,6 +8,7 @@ import { runAuthorizedMutation } from "../application/literature-write.ts";
 import { sha256Text } from "../domain/literature-identifiers.ts";
 import {
 	activePaperDetailFields,
+	DEFAULT_PAPER_DETAIL_FIELDS,
 	type PaperDetailFieldInput,
 	validatePaperDetailFields,
 } from "../domain/paper-detail-fields.ts";
@@ -109,7 +110,7 @@ export function registerPersonalPaperDetailFieldsTool(pi: ExtensionAPI): void {
 			expected_revision: Type.Integer({ minimum: 0, description: "detailFields.revision from the read tool" }),
 			fields: Type.Optional(
 				Type.Array(Type.Object({ id: Type.String({ minLength: 1 }), value: Type.String() }), {
-					maxItems: 40,
+					maxItems: DEFAULT_PAPER_DETAIL_FIELDS.length + 30,
 					description: "Existing editable field IDs and replacement values; omitted fields stay unchanged",
 				}),
 			),

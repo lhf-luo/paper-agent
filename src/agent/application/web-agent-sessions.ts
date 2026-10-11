@@ -90,6 +90,13 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 						(!filter.namespace || session.context.namespace === filter.namespace)
 					);
 				}
+				if (filter.scope === "canvas") {
+					return (
+						session.context?.kind === "canvas" &&
+						session.context.namespace === filter.namespace &&
+						session.context.canvasId === filter.canvasId
+					);
+				}
 				return !session.context;
 			})
 			.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -111,19 +118,22 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 		const title = input.title?.trim();
 		if (title && title.length > 120) throw new WebAgentServiceError(400, "会话标题不能超过 120 个字符");
 		let context: WebAgentSessionContext | undefined;
-		if (input.context) {
-			if (input.context.kind !== "paper") throw new WebAgentServiceError(400, "不支持的会话上下文");
-			if (!input.context.namespace.trim() || !input.context.paperId.trim()) {
-				throw new WebAgentServiceError(400, "论文会话上下文缺少 namespace 或 paperId");
-			}
-			context = {
-				kind: "paper",
-				namespace: input.context.namespace.trim(),
-				paperId: input.context.paperId.trim(),
-			};
-			if (!this.sessionStore.hasPaper(context)) {
+		if (input.context?.kind === "paper") {
+			const namespace = input.context.namespace.trim();
+			const paperId = input.context.paperId.trim();
+			if (!namespace || !paperId) throw new WebAgentServiceError(400, "论文会话上下文缺少 namespace 或 paperId");
+			context = { kind: "paper", namespace, paperId };
+			if (!this.sessionStore.hasPaper(context))
 				throw new WebAgentServiceError(404, "个人库中不存在这篇论文，无法创建论文会话");
-			}
+		} else if (input.context?.kind === "canvas") {
+			if (input.mode !== "persistent") throw new WebAgentServiceError(400, "画布 Agent 对话必须是持续会话");
+			const namespace = input.context.namespace.trim();
+			const canvasId = input.context.canvasId.trim();
+			if (!namespace || !canvasId) throw new WebAgentServiceError(400, "画布会话上下文缺少 namespace 或 canvasId");
+			context = { kind: "canvas", namespace, canvasId };
+			if (!this.sessionStore.hasCanvas(context)) throw new WebAgentServiceError(404, "画布不存在，无法创建会话");
+		} else if (input.context) {
+			throw new WebAgentServiceError(400, "不支持的会话上下文");
 		}
 		const session: ManagedWebAgentSession = {
 			id: randomUUID(),

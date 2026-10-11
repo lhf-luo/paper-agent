@@ -1,6 +1,7 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ResearchCanvasStore } from "../../canvas/infrastructure/research-canvas-store.ts";
 import type {
 	WebAgentMessageView,
 	WebAgentMode,
@@ -35,9 +36,17 @@ export class WebAgentSessionStore {
 	private readonly resultsDir: string;
 	private readonly uploadsDir: string;
 	private readonly paperSessions?: PaperAgentSessionRepository;
+	private readonly personalDatabasePath?: string;
+	private readonly canvasDatabasePath?: (namespace: string) => string;
 	private readonly writes = new Map<string, PersistedViewWriteState>();
 
-	constructor(projectRoot: string, paperSessionDatabasePath?: string) {
+	constructor(
+		projectRoot: string,
+		paperSessionDatabasePath?: string,
+		canvasDatabasePath?: (namespace: string) => string,
+	) {
+		this.personalDatabasePath = paperSessionDatabasePath;
+		this.canvasDatabasePath = canvasDatabasePath;
 		this.piSessionDir = join(projectRoot, ".paper-agent", "web-agent-memory", "pi-sessions");
 		this.sessionViewDir = join(projectRoot, ".paper-agent", "web-agent-memory", "session-views");
 		this.resultsDir = join(projectRoot, ".paper-agent", "web-agent-memory", "results");
@@ -149,7 +158,14 @@ export class WebAgentSessionStore {
 	}
 
 	hasPaper(context: WebAgentSessionContext): boolean {
-		return this.paperSessions?.hasPaper(context) ?? true;
+		return context.kind === "paper" ? (this.paperSessions?.hasPaper(context) ?? true) : false;
+	}
+
+	hasCanvas(context: Extract<WebAgentSessionContext, { kind: "canvas" }>): boolean {
+		const databasePath = this.canvasDatabasePath?.(context.namespace) ?? this.personalDatabasePath;
+		if (!databasePath) return false;
+		if (!existsSync(databasePath)) return false;
+		return Boolean(new ResearchCanvasStore(databasePath, context.namespace).get(context.canvasId));
 	}
 
 	pendingPaperCleanupIds(): string[] {

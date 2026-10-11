@@ -9,6 +9,7 @@ import {
 	FlaskConical,
 	LayoutDashboard,
 	Moon,
+	Network,
 	Search,
 	Settings,
 	Sun,
@@ -35,6 +36,7 @@ const TeamPage = lazy(() => import("./team-page").then((m) => ({ default: m.Team
 const ResearchNotesPage = lazy(() => import("./research-notes-page").then((m) => ({ default: m.ResearchNotesPage })));
 const WikiPage = lazy(() => import("./wiki-page").then((m) => ({ default: m.WikiPage })));
 const SettingsPage = lazy(() => import("./settings-page"));
+const CanvasPage = lazy(() => import("./canvas-page"));
 
 interface NavigationSection {
 	title: string;
@@ -59,6 +61,7 @@ const NAVIGATION_SECTIONS: NavigationSection[] = [
 		title: "研究与证据",
 		items: [
 			{ id: "research", label: "个人笔记", icon: FlaskConical },
+			{ id: "canvas", label: "关系画布", icon: Network },
 			{ id: "wiki", label: "研究 Wiki", icon: BookOpen },
 			{ id: "pdf", label: "PDF 与 Artifact", icon: FileStack },
 			{ id: "tasks", label: "任务调度中心", icon: Clock },
@@ -79,6 +82,7 @@ const PAGE_TITLES: Record<Page, string> = {
 	search: "检索与收集",
 	agent: "Agent 对话",
 	research: "个人笔记",
+	canvas: "关系画布",
 	wiki: "研究 Wiki",
 	pdf: "PDF 与 Artifact",
 	tasks: "任务调度中心",
@@ -257,7 +261,7 @@ function AppShell() {
 						</aside>
 					)}
 					<main
-						className={`main-area${page === "library" ? " main-area-library" : ""}${page === "reader" ? " main-area-reader" : ""}${page === "research" ? " main-area-research" : ""}${page === "wiki" ? " main-area-wiki" : ""}`}
+						className={`main-area${page === "library" ? " main-area-library" : ""}${page === "reader" ? " main-area-reader" : ""}${page === "research" ? " main-area-research" : ""}${page === "wiki" ? " main-area-wiki" : ""}${page === "canvas" ? " main-area-canvas" : ""}`}
 					>
 						{page !== "agent" && page !== "reader" && (
 							<div className={`topbar${page === "library" ? " topbar-library" : ""}`}>
@@ -286,7 +290,7 @@ function AppShell() {
 						)}
 						<div
 							key={page}
-							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : page === "settings" ? " page-content-settings" : ""}`}
+							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : page === "canvas" ? " page-content-canvas" : page === "settings" ? " page-content-settings" : ""}`}
 						>
 							{error && <div className="error-banner">{error}</div>}
 							<Suspense fallback={<LoadingBlock text="正在加载工作区…" />}>
@@ -333,6 +337,12 @@ function AppShell() {
 								)}
 								{page === "team" && <TeamPage />}
 								{page === "research" && <ResearchNotesPage target={researchTarget} />}
+								{page === "canvas" && (
+									<CanvasPage
+										defaultNamespace={status?.defaultNamespace ?? "default"}
+										onOpenReader={openReader}
+									/>
+								)}
 								{page === "wiki" && <WikiPage defaultNamespace={status?.defaultNamespace ?? "default"} />}
 								{page === "settings" && <SettingsPage onConfigurationSaved={refreshStatus} />}
 							</Suspense>

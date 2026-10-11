@@ -156,7 +156,7 @@ export async function handleAgentRoutes(context: AgentRouteContext): Promise<voi
 	if (await handleResultDocument(request, response, url, agentService)) return;
 	if (request.method === "POST" && url.pathname === "/api/agent/sessions") {
 		const body = await readJson(request);
-		const context = paperSessionContext(body.context);
+		const context = sessionContext(body.context);
 		json(
 			response,
 			201,
@@ -177,10 +177,15 @@ export async function handleAgentRoutes(context: AgentRouteContext): Promise<voi
 function sessionFilter(url: URL): WebAgentSessionFilter {
 	const scope = url.searchParams.get("scope");
 	if (!scope || scope === "general") return { scope: "general" };
-	if (scope !== "paper" && scope !== "personal") {
-		throw new ApiError(400, "scope must be general, paper, or personal");
+	if (scope !== "paper" && scope !== "personal" && scope !== "canvas") {
+		throw new ApiError(400, "scope must be general, paper, personal, or canvas");
 	}
 	const namespace = url.searchParams.get("namespace")?.trim();
+	if (scope === "canvas") {
+		const canvasId = url.searchParams.get("canvasId")?.trim();
+		if (!namespace || !canvasId) throw new ApiError(400, "canvas scope requires namespace and canvasId");
+		return { scope: "canvas", namespace, canvasId };
+	}
 	if (scope === "personal") {
 		if (!namespace) throw new ApiError(400, "personal scope requires namespace");
 		return { scope: "personal", namespace };
@@ -190,14 +195,17 @@ function sessionFilter(url: URL): WebAgentSessionFilter {
 	return { scope: "paper", namespace, paperId };
 }
 
-function paperSessionContext(value: unknown): WebAgentSessionContext | undefined {
+function sessionContext(value: unknown): WebAgentSessionContext | undefined {
 	if (value === undefined) return undefined;
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw new ApiError(400, "context must be an object");
 	}
 	const context = value as Record<string, unknown>;
+	if (context.kind === "canvas" && typeof context.namespace === "string" && typeof context.canvasId === "string") {
+		return { kind: "canvas", namespace: context.namespace, canvasId: context.canvasId };
+	}
 	if (context.kind !== "paper" || typeof context.namespace !== "string" || typeof context.paperId !== "string") {
-		throw new ApiError(400, "paper context requires kind, namespace, and paperId");
+		throw new ApiError(400, "session context requires a valid kind, namespace, and entity ID");
 	}
 	return { kind: "paper", namespace: context.namespace, paperId: context.paperId };
 }

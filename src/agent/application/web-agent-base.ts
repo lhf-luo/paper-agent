@@ -85,7 +85,11 @@ export abstract class WebAgentServiceBase {
 	) {
 		this.projectRoot = options.projectRoot;
 		this.configuredModels = configuredModels;
-		this.sessionStore = new WebAgentSessionStore(options.projectRoot, options.paperSessionDatabasePath);
+		this.sessionStore = new WebAgentSessionStore(
+			options.projectRoot,
+			options.paperSessionDatabasePath,
+			options.canvasDatabasePath,
+		);
 		this.uiRequestTimeoutMs = Math.max(100, options.uiRequestTimeoutMs ?? DEFAULT_UI_TIMEOUT_MS);
 		this.extensionFactory = options.extensionFactory ?? (() => undefined);
 		this.systemPrompt = options.systemPrompt ?? "You are Paper Agent.";
@@ -118,12 +122,12 @@ export abstract class WebAgentServiceBase {
 				pendingUI: new Map(),
 				listeners: new Set(),
 				eventId: 0,
-					toolMessageAnchors: new Map(
-						view.tools.flatMap((tool) => (tool.assistantMessageId ? [[tool.id, tool.assistantMessageId]] : [])),
-					),
-					abortRequested: false,
-					thinkingLevel: view.thinkingLevel,
-					permissionMode: view.permissionMode ?? "ask",
+				toolMessageAnchors: new Map(
+					view.tools.flatMap((tool) => (tool.assistantMessageId ? [[tool.id, tool.assistantMessageId]] : [])),
+				),
+				abortRequested: false,
+				thinkingLevel: view.thinkingLevel,
+				permissionMode: view.permissionMode ?? "ask",
 			});
 		}
 	}
@@ -170,9 +174,7 @@ export abstract class WebAgentServiceBase {
 		// active 模型，没有 active 就回到"未选择"。
 		const current = this.endpoint;
 		const findCurrent = (model: PaperAgentModelConfig): boolean =>
-			model.providerId === current.providerId &&
-			model.modelId === current.modelId &&
-			model.api === current.api;
+			model.providerId === current.providerId && model.modelId === current.modelId && model.api === current.api;
 		const target = models.find(findCurrent) ?? active;
 		const next = target ? endpointFromConfiguredModel(target) : emptyEndpointConfig();
 		if (this.endpointIdentity(next) === this.endpointIdentity(current)) return;

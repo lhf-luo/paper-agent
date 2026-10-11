@@ -8,6 +8,7 @@ import {
 	ChevronRight,
 	Edit3,
 	ExternalLink,
+	ListTree,
 	Loader2,
 	MessageSquare,
 	Paperclip,
@@ -26,6 +27,14 @@ import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResult
 import { isAgentTranscriptNearBottom } from "./agent-scroll";
 import { isNewerAgentSessionState } from "./agent-session-state";
 import { api, apiEventStream, apiText, friendlyNetworkError, jsonBody } from "./api";
+import {
+	type CanvasAgentNodeCandidate,
+	canvasAgentKindLabels,
+	canvasNodeAttachmentName,
+	canvasTextMarkdown,
+	composeCanvasNodeMessage,
+	resolveCanvasAgentSelection,
+} from "./canvas-agent-nodes";
 import { buildCollectionTree, flattenCollectionTree } from "./collection-tree";
 import type { ParsedCell, ParsedLiteratureTable } from "./literature-markdown";
 import { parseLiteratureTables } from "./literature-markdown";
@@ -813,6 +822,35 @@ export interface PaperAgentContext {
 	pdfSha256?: string;
 }
 
+type AgentUpload = { path: string; name: string; size: number };
+
+async function uploadAgentAttachment(sessionId: string, file: File): Promise<AgentUpload> {
+	let response: Response;
+	try {
+		response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/octet-stream",
+				"x-filename": encodeURIComponent(file.name),
+			},
+			body: await file.arrayBuffer(),
+		});
+	} catch (reason) {
+		throw friendlyNetworkError(reason);
+	}
+	if (!response.ok) {
+		let message = `${response.status} ${response.statusText}`;
+		try {
+			const body = (await response.json()) as { error?: string };
+			if (body.error) message = body.error;
+		} catch {
+			// The status remains useful when the server did not return JSON.
+		}
+		throw new Error(message);
+	}
+	return (await response.json()) as AgentUpload;
+}
+
 export function AgentPage({
 	initialPrompt = "",
 	selectionDraft,
@@ -820,10 +858,14 @@ export function AgentPage({
 	onPromptConsumed,
 	embedded = false,
 	paperContext,
+	canvasContext,
+	canvasNodes,
 	focusSessionId,
 	onPaperSessionTitleChange,
 	paperSessionMenuContainer,
 	onPaperSessionMenuClose,
+	confirmAction,
+	promptAction,
 }: {
 	initialPrompt?: string;
 	selectionDraft?: { text: string; pages: number[] };
@@ -831,16 +873,24 @@ export function AgentPage({
 	onPromptConsumed?: () => void;
 	embedded?: boolean;
 	paperContext?: PaperAgentContext;
+	canvasContext?: { namespace: string; canvasId: string };
+	canvasNodes?: CanvasAgentNodeCandidate[];
 	focusSessionId?: string;
 	onPaperSessionTitleChange?: (title: string) => void;
 	paperSessionMenuContainer?: HTMLElement | null;
 	onPaperSessionMenuClose?: () => void;
+	confirmAction?: (message: string) => Promise<boolean>;
+	promptAction?: (title: string, value: string) => Promise<string | null>;
 }) {
 	const paperContextNamespace = paperContext?.namespace;
 	const paperContextPaperId = paperContext?.paperId;
-	const sessionListUrl = paperContext
-		? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
-		: "/api/agent/sessions";
+	const canvasContextNamespace = canvasContext?.namespace;
+	const canvasContextCanvasId = canvasContext?.canvasId;
+	const sessionListUrl = canvasContext
+		? `/api/agent/sessions?scope=canvas&namespace=${encodeURIComponent(canvasContext.namespace)}&canvasId=${encodeURIComponent(canvasContext.canvasId)}`
+		: paperContext
+			? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
+			: "/api/agent/sessions";
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [configuredKey, setConfiguredKey] = useState("");
 	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
@@ -869,6 +919,37 @@ export function AgentPage({
 		Array<{ name: string; description: string; disableModelInvocation: boolean }>
 	>([]);
 	const [attachments, setAttachments] = useState<Array<{ path: string; name: string; size: number }>>([]);
+	const [canvasNodePickerOpen, setCanvasNodePickerOpen] = useState(false);
+	const [canvasNodeKind, setCanvasNodeKind] = useState<CanvasAgentNodeCandidate["kind"] | "all">("all");
+	const [canvasNodeQuery, setCanvasNodeQuery] = useState("");
+	const [selectedCanvasNodes, setSelectedCanvasNodes] = useState<Array<{ id: string; title: string }>>([]);
+	const uploadedCanvasTextRef = useRef(new Map<string, { markdown: string; attachment: AgentUpload }>());
+	const canvasNodePickerRef = useRef<HTMLDivElement>(null);
+	const canvasNodeSearchRef = useRef<HTMLInputElement>(null);
+	const visibleCanvasNodes = (canvasNodes ?? []).filter(
+		(candidate) =>
+			(canvasNodeKind === "all" || candidate.kind === canvasNodeKind) &&
+			`${candidate.title} ${candidate.caption} ${canvasAgentKindLabels[candidate.kind]}`
+				.toLocaleLowerCase()
+				.includes(canvasNodeQuery.trim().toLocaleLowerCase()),
+	);
+	useEffect(() => {
+		if (!canvasNodePickerOpen) return;
+		canvasNodeSearchRef.current?.focus();
+		const close = (event: PointerEvent) => {
+			if (event.target instanceof Node && !canvasNodePickerRef.current?.contains(event.target))
+				setCanvasNodePickerOpen(false);
+		};
+		const onEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setCanvasNodePickerOpen(false);
+		};
+		document.addEventListener("pointerdown", close);
+		document.addEventListener("keydown", onEscape);
+		return () => {
+			document.removeEventListener("pointerdown", close);
+			document.removeEventListener("keydown", onEscape);
+		};
+	}, [canvasNodePickerOpen]);
 	// Mirrors the CSS shell breakpoints so layout decisions do not fight the stylesheet.
 	const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1920 : window.innerWidth));
 	const [activeResultUrl, setActiveResultUrl] = useState<string>();
@@ -954,31 +1035,7 @@ export function AgentPage({
 		setError("");
 		try {
 			for (const file of Array.from(files)) {
-				const data = await file.arrayBuffer();
-				let response: Response;
-				try {
-					response = await fetch(`/api/agent/sessions/${encodeURIComponent(active.id)}/attachments`, {
-						method: "POST",
-						headers: {
-							"content-type": "application/octet-stream",
-							"x-filename": encodeURIComponent(file.name),
-						},
-						body: data,
-					});
-				} catch (reason) {
-					throw friendlyNetworkError(reason);
-				}
-				if (!response.ok) {
-					let message = `${response.status} ${response.statusText}`;
-					try {
-						const body = (await response.json()) as { error?: string };
-						if (body.error) message = body.error;
-					} catch {
-						// ignore
-					}
-					throw new Error(message);
-				}
-				const attachment = (await response.json()) as { path: string; name: string; size: number };
+				const attachment = await uploadAgentAttachment(active.id, file);
 				setAttachments((current) => [...current, attachment]);
 			}
 		} catch (reason) {
@@ -1188,6 +1245,7 @@ export function AgentPage({
 			try {
 				// 论文作用域的会话（如一键研究）不在 general 会话列表里，按 ID 直接拉取并合并进侧栏。
 				const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
+				if (!paperContextNamespace && !canvasContextCanvasId && snapshot.context?.kind === "canvas") return false;
 				if (
 					paperContextNamespace &&
 					paperContextPaperId &&
@@ -1197,6 +1255,14 @@ export function AgentPage({
 				) {
 					return false;
 				}
+				if (
+					canvasContextNamespace &&
+					canvasContextCanvasId &&
+					(snapshot.context?.kind !== "canvas" ||
+						snapshot.context.namespace !== canvasContextNamespace ||
+						snapshot.context.canvasId !== canvasContextCanvasId)
+				)
+					return false;
 				setActive(snapshot);
 				setSessions((current) =>
 					current.some((session) => session.id === snapshot.id)
@@ -1209,7 +1275,13 @@ export function AgentPage({
 				return false;
 			}
 		},
-		[paperContextNamespace, paperContextPaperId, restoreSidebarFromSession],
+		[
+			paperContextNamespace,
+			paperContextPaperId,
+			canvasContextNamespace,
+			canvasContextCanvasId,
+			restoreSidebarFromSession,
+		],
 	);
 
 	const refreshSessions = useCallback(
@@ -1238,9 +1310,15 @@ export function AgentPage({
 	useEffect(() => {
 		void (async () => {
 			try {
-				if (focusSessionId && (await focusSessionById(focusSessionId))) {
-					applyConfig(await api<AgentConfigView>("/api/agent/config"));
-					return;
+				if (focusSessionId) {
+					if (await focusSessionById(focusSessionId)) {
+						applyConfig(await api<AgentConfigView>("/api/agent/config"));
+						return;
+					}
+					if (canvasContextCanvasId) {
+						setError("这段画布会话已不存在，请从本画布的会话列表重新选择。");
+						return;
+					}
 				}
 				const [nextConfig, sessionResult] = await Promise.all([
 					api<AgentConfigView>("/api/agent/config"),
@@ -1262,7 +1340,14 @@ export function AgentPage({
 				setLoading(false);
 			}
 		})();
-	}, [applyConfig, restoreSidebarFromSession, sessionListUrl, focusSessionId, focusSessionById]);
+	}, [
+		applyConfig,
+		restoreSidebarFromSession,
+		sessionListUrl,
+		focusSessionId,
+		focusSessionById,
+		canvasContextCanvasId,
+	]);
 
 	const activeId = active?.id;
 	const dismissSessionError = useCallback(async (sessionId: string) => {
@@ -1461,19 +1546,32 @@ export function AgentPage({
 		autoFollowTranscript.current = true;
 		setShowLatestButton(false);
 		try {
-			const title = paperContext
-				? `${`阅读：${paperContext.title}`}${sessions.length ? ` · 对话 ${sessions.length + 1}` : ""}`.slice(0, 120)
-				: newTitle.trim();
+			const title = canvasContext
+				? "Agent 对话"
+				: paperContext
+					? `${`阅读：${paperContext.title}`}${sessions.length ? ` · 对话 ${sessions.length + 1}` : ""}`.slice(
+							0,
+							120,
+						)
+					: newTitle.trim();
 			const snapshot = await api<AgentSessionSnapshot>("/api/agent/sessions", {
 				method: "POST",
 				body: JSON.stringify({
-					mode: paperContext ? "persistent" : newMode,
+					mode: paperContext || canvasContext ? "persistent" : newMode,
 					...(title ? { title } : {}),
 					thinkingLevel,
 					permissionMode,
 					...(paperContext
 						? { context: { kind: "paper", namespace: paperContext.namespace, paperId: paperContext.paperId } }
-						: {}),
+						: canvasContext
+							? {
+									context: {
+										kind: "canvas",
+										namespace: canvasContext.namespace,
+										canvasId: canvasContext.canvasId,
+									},
+								}
+							: {}),
 				}),
 			});
 			setNewTitle("");
@@ -1503,7 +1601,10 @@ export function AgentPage({
 	};
 
 	const deleteSession = async (id: string) => {
-		if (!window.confirm("删除这个论文会话？对话内容将无法恢复。")) return;
+		const message = canvasContext
+			? "删除这个画布会话？对话内容将无法恢复。"
+			: "删除这个论文会话？对话内容将无法恢复。";
+		if (!(await (confirmAction ? confirmAction(message) : Promise.resolve(window.confirm(message))))) return;
 		setBusy(true);
 		try {
 			await api<{ ok: true }>(`/api/agent/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -1517,7 +1618,9 @@ export function AgentPage({
 
 	const renameSession = async (id: string) => {
 		const current = orderedSessions.find((session) => session.id === id)?.title ?? "";
-		const next = window.prompt("输入新的会话名称", current);
+		const next = await (promptAction
+			? promptAction("输入新的会话名称", current)
+			: Promise.resolve(window.prompt("输入新的会话名称", current)));
 		if (next === null) return;
 		const trimmed = next.trim();
 		if (!trimmed || trimmed.length > 120) {
@@ -1547,17 +1650,39 @@ export function AgentPage({
 		autoFollowTranscript.current = true;
 		setShowLatestButton(false);
 		try {
+			const selectedCandidates = resolveCanvasAgentSelection(selectedCanvasNodes, canvasNodes ?? []);
+			const textCandidates = selectedCandidates.filter((candidate) => candidate.kind === "text");
+			if (attachments.length + textCandidates.length > 10)
+				throw new Error("单条消息最多发送 10 个附件，请减少普通文件或文本节点。");
 			const targetSession = active ?? (await createSession(false));
 			if (!targetSession) return;
+			const textAttachmentNames = new Map<string, string>();
+			const canvasTextAttachments: AgentUpload[] = [];
+			for (const candidate of textCandidates) {
+				const markdown = canvasTextMarkdown(candidate.node);
+				const cacheKey = `${targetSession.id}:${candidate.id}`;
+				const cached = uploadedCanvasTextRef.current.get(cacheKey);
+				const attachment =
+					cached?.markdown === markdown
+						? cached.attachment
+						: await uploadAgentAttachment(
+								targetSession.id,
+								new File([markdown], canvasNodeAttachmentName(candidate.id), { type: "text/markdown" }),
+							);
+				uploadedCanvasTextRef.current.set(cacheKey, { markdown, attachment });
+				textAttachmentNames.set(candidate.id, attachment.name);
+				canvasTextAttachments.push(attachment);
+			}
 			const messageAttachments = [
 				...attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
+				...canvasTextAttachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
 			].filter((attachment, index, all) => all.findIndex((entry) => entry.path === attachment.path) === index);
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(targetSession.id)}/messages`,
 				{
 					method: "POST",
 					body: JSON.stringify({
-						message: prompt,
+						message: composeCanvasNodeMessage(prompt, selectedCandidates, textAttachmentNames),
 						attachments: messageAttachments,
 						...(paperContext ? { paperContext } : {}),
 					}),
@@ -1565,6 +1690,8 @@ export function AgentPage({
 			);
 			setPrompt("");
 			setAttachments([]);
+			setSelectedCanvasNodes([]);
+			uploadedCanvasTextRef.current.clear();
 			setActive((current) =>
 				current?.id === targetSession.id && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
 			);
@@ -2032,11 +2159,19 @@ export function AgentPage({
 								{!active && (
 									<div className="agent-chat-empty">
 										<Sparkles size={28} />
-										<h3>{embedded ? "和 Paper Agent 一起阅读" : "在网页中使用完整的 Paper Agent 工具"}</h3>
+										<h3>
+											{canvasContext
+												? "从这张画布开始对话"
+												: embedded
+													? "和 Paper Agent 一起阅读"
+													: "在网页中使用完整的 Paper Agent 工具"}
+										</h3>
 										<p>
-											{embedded
-												? "第一次提问时会创建这篇论文的持续会话，之后打开仍可继续讨论。"
-												: "新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。"}
+											{canvasContext
+												? "这段对话属于当前画布。画布内容不会自动加入对话上下文。"
+												: embedded
+													? "第一次提问时会创建这篇论文的持续会话，之后打开仍可继续讨论。"
+													: "新建一个会话，然后从下面选一个任务开始，或直接描述你的论文调研目标。"}
 										</p>
 										{!embedded && (
 											<div className="agent-suggestion-grid">
@@ -2110,6 +2245,43 @@ export function AgentPage({
 										))}
 									</div>
 								)}
+								{canvasContext && selectedCanvasNodes.length > 0 && (
+									<div className="agent-attachment-chips">
+										{selectedCanvasNodes.map((selection) => {
+											const candidate = canvasNodes?.find((node) => node.id === selection.id);
+											const mode =
+												candidate?.kind === "text"
+													? "文本附件"
+													: candidate?.kind === "paper" || candidate?.kind === "note"
+														? "引用"
+														: "卡片内容";
+											return (
+												<span
+													className={`agent-attachment-chip agent-canvas-node-chip${!candidate?.available ? " invalid" : ""}`}
+													key={selection.id}
+													title={candidate?.unavailableReason ?? selection.title}
+												>
+													<ListTree size={12} />
+													<span className="agent-attachment-chip-name">
+														{candidate?.title ?? selection.title}
+													</span>
+													<small>{candidate ? mode : "已断开"}</small>
+													<button
+														type="button"
+														aria-label={`移除节点 ${selection.title}`}
+														onClick={() =>
+															setSelectedCanvasNodes((current) =>
+																current.filter((entry) => entry.id !== selection.id),
+															)
+														}
+													>
+														<X size={12} aria-hidden="true" />
+													</button>
+												</span>
+											);
+										})}
+									</div>
+								)}
 								<textarea
 									className="agent-composer-textarea"
 									value={prompt}
@@ -2157,6 +2329,114 @@ export function AgentPage({
 											style={{ display: "none" }}
 											onChange={(event) => void handleFiles(event.target.files)}
 										/>
+										{canvasContext && (
+											<div className="agent-canvas-node-picker-anchor" ref={canvasNodePickerRef}>
+												<button
+													className="agent-attach-btn"
+													type="button"
+													title="上传节点：选择与当前 Agent 相连的节点"
+													aria-label="上传节点"
+													aria-expanded={canvasNodePickerOpen}
+													disabled={!active || running || busy}
+													onClick={() => setCanvasNodePickerOpen((current) => !current)}
+												>
+													<ListTree size={16} />
+												</button>
+												{canvasNodePickerOpen && (
+													<section className="agent-canvas-node-picker" aria-label="选择画布节点">
+														<div className="agent-canvas-node-picker-heading">
+															<strong>上传节点</strong>
+															<button
+																type="button"
+																aria-label="关闭节点选择"
+																onClick={() => setCanvasNodePickerOpen(false)}
+															>
+																<X size={16} />
+															</button>
+														</div>
+														<p>仅显示与当前 Agent 直接连线的节点，可多选。</p>
+														<input
+															ref={canvasNodeSearchRef}
+															type="search"
+															aria-label="搜索相连节点"
+															placeholder="搜索节点名称…"
+															value={canvasNodeQuery}
+															onChange={(event) => setCanvasNodeQuery(event.target.value)}
+														/>
+														<div
+															className="agent-canvas-node-filters"
+															role="toolbar"
+															aria-label="节点分类"
+														>
+															{(["all", "paper", "note", "text", "author", "team"] as const).map(
+																(kind) => (
+																	<button
+																		key={kind}
+																		type="button"
+																		className={canvasNodeKind === kind ? "active" : ""}
+																		aria-pressed={canvasNodeKind === kind}
+																		onClick={() => setCanvasNodeKind(kind)}
+																	>
+																		{kind === "all" ? "全部" : canvasAgentKindLabels[kind]}
+																	</button>
+																),
+															)}
+														</div>
+														<div className="agent-canvas-node-list">
+															{visibleCanvasNodes.map((candidate) => {
+																const checked = selectedCanvasNodes.some(
+																	(node) => node.id === candidate.id,
+																);
+																return (
+																	<label
+																		key={candidate.id}
+																		className={!candidate.available ? "unavailable" : ""}
+																		title={candidate.unavailableReason}
+																	>
+																		<input
+																			type="checkbox"
+																			checked={checked}
+																			disabled={!candidate.available}
+																			onChange={() =>
+																				setSelectedCanvasNodes((current) =>
+																					checked
+																						? current.filter((entry) => entry.id !== candidate.id)
+																						: [
+																								...current,
+																								{ id: candidate.id, title: candidate.title },
+																							],
+																				)
+																			}
+																		/>
+																		<span>
+																			<strong>{candidate.title}</strong>
+																			<small>
+																				{canvasAgentKindLabels[candidate.kind]} ·{" "}
+																				{candidate.kind === "text"
+																					? "Markdown 附件"
+																					: candidate.kind === "paper" || candidate.kind === "note"
+																						? "个人库引用"
+																						: "卡片内容"}
+																				{candidate.unavailableReason
+																					? ` · ${candidate.unavailableReason}`
+																					: ""}
+																			</small>
+																		</span>
+																	</label>
+																);
+															})}
+															{visibleCanvasNodes.length === 0 && (
+																<p>
+																	{canvasNodes?.length
+																		? "没有匹配的节点。"
+																		: "请先将论文、笔记、文本、作者或团队节点连接到当前 Agent。"}
+																</p>
+															)}
+														</div>
+													</section>
+												)}
+											</div>
+										)}
 										<label className="agent-composer-pill" title="思考强度：控制模型推理深度">
 											<Brain size={13} />
 											<select

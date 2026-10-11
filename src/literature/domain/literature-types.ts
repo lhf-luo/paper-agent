@@ -87,6 +87,7 @@ export interface PaperDetailField {
 }
 
 export interface PaperDetailFields {
+	schemaVersion?: number;
 	revision: number;
 	updatedAt: string;
 	entries: PaperDetailField[];

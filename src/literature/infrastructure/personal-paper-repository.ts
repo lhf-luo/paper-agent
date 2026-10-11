@@ -8,7 +8,14 @@ import {
 	withCanonicalPaperLinks,
 } from "../domain/literature-identifiers.ts";
 import type { PaperPublicationVersion, PaperRecord } from "../domain/literature-types.ts";
-import { type PaperDetailFieldInput, updatePaperDetailFields } from "../domain/paper-detail-fields.ts";
+import {
+	isCurrentPaperDetailFields,
+	type PaperDetailFieldInput,
+	paperWithCurrentDetailFields,
+	resetPaperDetailFields,
+	updatePaperDetailFields,
+	validatePaperDetailFields,
+} from "../domain/paper-detail-fields.ts";
 
 import { json, normalizeAuthor, parseJson, pathExists } from "./personal-database-support.ts";
 import { PersonalPaperHydrationRepository } from "./personal-paper-hydration-repository.ts";
@@ -117,6 +124,24 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 	protected syncPaper(database: DatabaseSync, record: PaperRecord, previousId?: string): number {
 		record = withCanonicalPaperLinks(record);
 		const now = new Date().toISOString();
+		const existing = this.paperRow(database, previousId ?? record.id);
+		const savedFields = existing ? parseJson<PaperRecord>(existing.record_json).curation?.detailFields : undefined;
+		const incomingFields = record.curation?.detailFields;
+		if (
+			(incomingFields && !isCurrentPaperDetailFields(incomingFields)) ||
+			(isCurrentPaperDetailFields(savedFields) &&
+				(!incomingFields || incomingFields.revision <= (savedFields?.revision ?? -1)))
+		) {
+			record = {
+				...record,
+				curation: {
+					...(record.curation ?? { tags: [], userNotes: [] }),
+					detailFields: isCurrentPaperDetailFields(savedFields)
+						? savedFields
+						: resetPaperDetailFields(incomingFields, now),
+				},
+			};
+		}
 		const previous = previousId ? this.paperRow(database, previousId) : undefined;
 		if (previous && previous.paper_id !== record.id) {
 			record = {
@@ -318,7 +343,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 				database
 					.prepare("SELECT record_json FROM papers WHERE namespace_id = ? ORDER BY paper_id")
 					.all(this.namespace) as unknown as Array<{ record_json: string }>
-			).map((row) => parseJson<PaperRecord>(row.record_json)),
+			).map((row) => paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json))),
 		);
 	}
 
@@ -342,7 +367,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		await this.initialize();
 		return this.read((database) => {
 			const row = this.paperRow(database, id);
-			return row ? parseJson<PaperRecord>(row.record_json) : undefined;
+			return row ? paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json)) : undefined;
 		});
 	}
 
@@ -355,7 +380,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 			return uniqueIds
 				.map((id) => select.get(this.namespace, id) as { record_json: string } | undefined)
 				.filter((row): row is { record_json: string } => Boolean(row))
-				.map((row) => parseJson<PaperRecord>(row.record_json));
+				.map((row) => paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json)));
 		});
 	}
 
@@ -375,6 +400,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		expectedRevision: number,
 		fields: PaperDetailFieldInput[],
 	): Promise<PaperRecord> {
+		validatePaperDetailFields(fields);
 		await this.initialize();
 		return this.write((database) => {
 			const row = this.paperRow(database, id);

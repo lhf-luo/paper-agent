@@ -37,10 +37,25 @@ export class WebAgentActions extends WebAgentRuntime {
 	private paperCleanupTimer?: ReturnType<typeof setInterval>;
 	private paperCleanupRunning?: Promise<void>;
 
-	startPaperSessionCleanup(): void {
+	async startPaperSessionCleanup(): Promise<void> {
 		void this.cleanupDeletedPaperSessions();
+		await this.cleanupOrphanCanvasSessions();
 		this.paperCleanupTimer = setInterval(() => void this.cleanupDeletedPaperSessions(), 1_000);
 		this.paperCleanupTimer.unref?.();
+	}
+
+	private async cleanupOrphanCanvasSessions(): Promise<void> {
+		for (const session of [...this.sessions.values()]) {
+			if (session.context?.kind === "canvas" && !this.sessionStore.hasCanvas(session.context)) {
+				await this.deleteSession(session.id);
+			}
+		}
+	}
+
+	async deleteCanvasSessions(namespace: string, canvasId: string): Promise<void> {
+		for (const session of this.listSessions({ scope: "canvas", namespace, canvasId })) {
+			await this.deleteSession(session.id);
+		}
 	}
 
 	private async cleanupDeletedPaperSessions(): Promise<void> {

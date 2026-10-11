@@ -162,6 +162,7 @@ export interface WebAgentServiceOptions {
 	builtinTools?: PiBuiltinToolName[];
 	shellPath?: string;
 	paperSessionDatabasePath?: string;
+	canvasDatabasePath?: (namespace: string) => string;
 }
 
 export function timestamp(): string {

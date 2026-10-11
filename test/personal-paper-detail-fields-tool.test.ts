@@ -1,10 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 import type { PaperRecord } from "../src/literature/domain/literature-types.ts";
+import { sqlitePathLayout } from "../src/literature/infrastructure/personal-database-support.ts";
 import { registerCollectionTools } from "../src/literature/presentation/collection-tools.ts";
 
 const roots: string[] = [];
@@ -33,6 +35,57 @@ const paper = (id: string): PaperRecord => ({
 });
 
 describe("Agent paper research field editing", () => {
+	it("hides a legacy card in both projected and complete tool results", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-detail-agent-legacy-read-"));
+		roots.push(root);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		await store.upsertPaper(paper("paper-legacy"));
+		const database = new DatabaseSync(sqlitePathLayout(store.root, "default").databasePath);
+		try {
+			database.exec(
+				"DROP TRIGGER papers_detail_fields_insert_guard; DROP TRIGGER papers_detail_fields_update_guard",
+			);
+			const row = database.prepare("SELECT record_json FROM papers WHERE paper_id = 'paper-legacy'").get() as {
+				record_json: string;
+			};
+			const old = JSON.parse(row.record_json) as PaperRecord;
+			old.curation = {
+				tags: [],
+				userNotes: [],
+				detailFields: {
+					revision: 3,
+					updatedAt: "2026-09-01T00:00:00.000Z",
+					entries: [
+						{
+							id: "core-innovation",
+							label: "核心创新点",
+							type: "multiline",
+							value: "Legacy card value",
+							updatedAt: "2026-09-01T00:00:00.000Z",
+						},
+					],
+				},
+			};
+			database.prepare("UPDATE papers SET record_json = ? WHERE paper_id = 'paper-legacy'").run(JSON.stringify(old));
+		} finally {
+			database.close();
+		}
+		const read = tools().get("get_personal_library_paper");
+		const context = { cwd: root, hasUI: false, ui: { confirm: vi.fn() } };
+		const projected = await read.execute(
+			"projected",
+			{ query: "paper-legacy", fields: ["detail_fields"] },
+			undefined,
+			undefined,
+			context,
+		);
+		expect(projected.details.paper.detailFields.entries).toHaveLength(8);
+		expect(JSON.stringify(projected)).not.toContain("Legacy card value");
+		const complete = await read.execute("complete", { query: "paper-legacy" }, undefined, undefined, context);
+		expect(complete.details.paper.record.curation.detailFields.entries).toEqual([]);
+		expect(JSON.stringify(complete)).not.toContain("Legacy card value");
+	});
+
 	it("reads card fields and writes only selected fields with the stored revision", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-detail-agent-"));
 		roots.push(root);
@@ -52,7 +105,7 @@ describe("Agent paper research field editing", () => {
 		expect(read.details.paper.detailFields).toMatchObject({
 			revision: 0,
 		});
-		expect(read.details.paper.detailFields.entries).toHaveLength(10);
+		expect(read.details.paper.detailFields.entries).toHaveLength(8);
 		expect(read.details.paper.detailFields.entries[0]).toMatchObject({ id: "research-question", value: "" });
 		expect(read.details.paper.detailFields.entries[1]).toMatchObject({ id: "research-gap", value: "" });
 		expect(read.details.paper.cardStats).toEqual({
@@ -90,7 +143,7 @@ describe("Agent paper research field editing", () => {
 		);
 		const second = await edit.execute(
 			"edit-again",
-			{ paper_id: "paper-one", expected_revision: 1, fields: [{ id: "core-design", value: "Patch and test." }] },
+			{ paper_id: "paper-one", expected_revision: 1, fields: [{ id: "method-design", value: "Patch and test." }] },
 			undefined,
 			undefined,
 			context,
@@ -99,7 +152,7 @@ describe("Agent paper research field editing", () => {
 		expect((await store.getPaper("paper-one"))?.curation?.detailFields?.entries).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ id: "research-question", value: "How are kernel patches evaluated?" }),
-				expect.objectContaining({ id: "core-design", value: "Patch and test." }),
+				expect.objectContaining({ id: "method-design", value: "Patch and test." }),
 			]),
 		);
 	});

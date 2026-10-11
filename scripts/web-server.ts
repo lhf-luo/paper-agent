@@ -81,6 +81,7 @@ const agentService = await createWebAgentService({
 	extensionFactory: paperAgentExtension,
 	systemPrompt: paperSystemPrompt,
 	paperSessionDatabasePath: personalStore.databasePath,
+	canvasDatabasePath: (namespace) => application.personalStore(namespace).databasePath,
 });
 const handle = await startLocalWebServer(application, {
 	host: "127.0.0.1",

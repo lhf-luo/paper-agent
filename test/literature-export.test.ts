@@ -78,10 +78,10 @@ describe("literature research field exports", () => {
 			"Researcher",
 			...Array<string>(6).fill(""),
 			'"中文, ""quoted""\r\n第二行\n第三行"',
-			...Array<string>(9).fill(""),
+			...Array<string>(7).fill(""),
 			savedAt,
 		].join(",");
-		const emptyRow = ["paper-legacy", "paper-legacy", "Researcher", ...Array<string>(17).fill("")].join(",");
+		const emptyRow = ["paper-legacy", "paper-legacy", "Researcher", ...Array<string>(15).fill("")].join(",");
 		expect(bytes.toString("utf8")).toBe(`\uFEFF${header}\n${filledRow}\n${emptyRow}\n`);
 		expect(bytes.toString("utf8")).not.toContain("private custom content");
 	});
