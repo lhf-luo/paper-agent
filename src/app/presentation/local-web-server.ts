@@ -19,6 +19,7 @@ import { handleAgentResearchLaunch, handleAgentRoutes } from "./agent-routes.ts"
 import { handleCanvasRoutes } from "./canvas-routes.ts";
 import { handleConnectorRoutes } from "./connector-routes.ts";
 import { handleJobRoutes } from "./job-routes.ts";
+import { handleArxivNewsRoutes } from "./arxiv-news-routes.ts";
 import { handleLibraryRoutes } from "./library-routes.ts";
 import { handleReaderTranslationRoutes } from "./reader-translation-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
@@ -180,6 +181,10 @@ export async function startLocalWebServer(
 			}
 			if (url.pathname.startsWith("/api/search")) {
 				await handleSearchRoutes(application, request, response, url);
+				return;
+			}
+			if (url.pathname.startsWith("/api/arxiv-news")) {
+				await handleArxivNewsRoutes(application, request, response, url);
 				return;
 			}
 			if (

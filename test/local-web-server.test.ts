@@ -210,6 +210,25 @@ describe("local Paper Agent web server", () => {
 			});
 			expect(malformedSearch.status).toBe(400);
 			expect(await malformedSearch.json()).toMatchObject({ error: expect.stringContaining("filters.authors") });
+			const invalidArxivDate = await authenticated("/api/search", {
+				method: "POST",
+				body: JSON.stringify({
+					query: "kernel bugs",
+					providers: ["arxiv"],
+					filters: { arxivSubmittedFrom: "2026-02-30", arxivSubmittedTo: "2026-03-01" },
+				}),
+			});
+			expect(invalidArxivDate.status).toBe(400);
+			const mixedArxivDate = await authenticated("/api/search", {
+				method: "POST",
+				body: JSON.stringify({
+					query: "kernel bugs",
+					providers: ["arxiv", "openalex"],
+					filters: { arxivSubmittedFrom: "2026-10-10", arxivSubmittedTo: "2026-10-12" },
+				}),
+			});
+			expect(mixedArxivDate.status).toBe(400);
+			expect(await mixedArxivDate.json()).toMatchObject({ error: expect.stringContaining("arXiv only") });
 			const unconstrainedAclSearch = await authenticated("/api/search", {
 				method: "POST",
 				body: JSON.stringify({ query: "language models", providers: ["acl_anthology"], filters: {} }),

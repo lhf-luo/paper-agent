@@ -95,6 +95,7 @@ export class PdfTranslationService {
 		model?: PaperAgentModelConfig;
 		modelKey: string;
 		command: string;
+		providerApiKey?: string;
 	}> {
 		const config = await loadPaperAgentConfig(this.projectRoot);
 		const engine = config.pdfTranslation.engine;
@@ -102,14 +103,25 @@ export class PdfTranslationService {
 		return {
 			engine,
 			model,
-			modelKey: engine === "siliconflowfree" ? "SiliconFlowFree" : model ? modelKey(model) : "active-model",
+			modelKey:
+				engine === "active-model"
+					? model
+						? modelKey(model)
+						: "active-model"
+					: { siliconflowfree: "SiliconFlowFree", google: "Google", bing: "Bing", deepl: "DeepL" }[engine],
 			command: resolvePdf2zhCommand(config.pdfTranslation.command),
+			providerApiKey: engine === "deepl" ? config.credentials?.deeplApiKey : undefined,
 		};
 	}
 
 	async status(): Promise<PdfTranslationEngineStatus> {
 		const configuration = await this.translationConfiguration();
-		return this.client.status(configuration.command, configuration.engine, configuration.model);
+		return this.client.status(
+			configuration.command,
+			configuration.engine,
+			configuration.model,
+			configuration.providerApiKey,
+		);
 	}
 
 	private async plan(
@@ -160,7 +172,12 @@ export class PdfTranslationService {
 	async prepare(input: Partial<PdfTranslationRequest>): Promise<PreparedOperation> {
 		const request = normalizedRequest(input, this.defaultNamespace);
 		const configuration = await this.translationConfiguration();
-		const status = await this.client.status(configuration.command, configuration.engine, configuration.model);
+		const status = await this.client.status(
+			configuration.command,
+			configuration.engine,
+			configuration.model,
+			configuration.providerApiKey,
+		);
 		if (!status.available) throw new Error(status.reason ?? "PDF2zh Next 不可用");
 		const plan = await this.plan(request, configuration.engine, configuration.modelKey, configuration.command);
 		const prepared = await this.consent.prepare(plan);
@@ -223,7 +240,9 @@ export class PdfTranslationService {
 			engine: configuration.engine,
 			command: configuration.command,
 			model: configuration.model,
+			providerApiKey: configuration.providerApiKey,
 			signal: context.signal,
+			onProgress: ({ progress, message }) => context.report(progress, message),
 		});
 		context.report(0.9, "正在保存翻译后的 PDF");
 		const sha256 = createHash("sha256").update(translated.body).digest("hex");

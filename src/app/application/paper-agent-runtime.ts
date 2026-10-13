@@ -5,6 +5,7 @@ import { loadPaperAgentConfig } from "../../config/application/config-service.ts
 import type { AuthorizedMineruJob } from "../../extensions/mineru/application/mineru-job.ts";
 import type { AuthorizedPdfTranslationJob } from "../../extensions/pdf-translation/application/pdf-translation-job.ts";
 import { collectLiterature } from "../../literature/application/literature-collection.ts";
+import { pullArxivNews, type ArxivNewsPullInput } from "../../literature/application/arxiv-news.ts";
 import { downloadLiteraturePdfs } from "../../literature/application/literature-download.ts";
 import { expandLiteratureQueries } from "../../literature/application/literature-query-planning.ts";
 import { persistPaperRecords } from "../../literature/application/literature-write.ts";
@@ -22,10 +23,15 @@ import { PaperAgentJobs } from "./paper-agent-jobs.ts";
 
 export class PaperAgentRuntime extends PaperAgentJobs {
 	protected registerJobHandlers(): void {
+		this.jobs.register<ArxivNewsPullInput, unknown>("arxiv-news-pull", async (input, context) =>
+			pullArxivNews(this.arxivNewsStore(), input, context),
+		);
 		this.jobs.register<LiteratureSearchJobInput, unknown>("literature-search", async (input, context) => {
 			const config = await loadPaperAgentConfig(this.projectRoot);
 			context.report(0.05, "preparing queries");
-			const queries = expandLiteratureQueries(input.query, input.queryExpansions ?? config.search.queryExpansions);
+			const queries = input.filters?.arxivSubmittedFrom
+				? [input.query.trim()]
+				: expandLiteratureQueries(input.query, input.queryExpansions ?? config.search.queryExpansions);
 			context.report(0.1, "searching providers and existing corpus");
 			const result = await collectLiterature({
 				queries,

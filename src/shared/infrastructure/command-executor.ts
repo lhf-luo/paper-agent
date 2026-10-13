@@ -6,6 +6,9 @@ export interface CommandExecOptions {
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
 	detached?: boolean;
+	onStdout?: (chunk: string) => void;
+	onStderr?: (chunk: string) => void;
+	maxOutputBytes?: number;
 }
 
 export interface CommandExecResult {
@@ -38,8 +41,20 @@ export class NodeCommandExecutor implements CommandExecutor {
 						shell: false,
 						stdio: ["ignore", "pipe", "pipe"],
 					});
-			const stdout: Buffer[] = [];
-			const stderr: Buffer[] = [];
+			const maxOutputBytes = options.maxOutputBytes ?? Number.POSITIVE_INFINITY;
+			let stdout: Buffer[] = [];
+			let stderr: Buffer[] = [];
+			let stdoutBytes = 0;
+			let stderrBytes = 0;
+			const append = (chunks: Buffer[], bytes: number, chunk: Buffer): [Buffer[], number] => {
+				if (!Number.isFinite(maxOutputBytes)) {
+					chunks.push(chunk);
+					return [chunks, bytes + chunk.length];
+				}
+				const combined = Buffer.concat([...chunks, chunk]);
+				const tail = combined.subarray(Math.max(0, combined.length - maxOutputBytes));
+				return [[tail], tail.length];
+			};
 			let killed = false;
 			let settled = false;
 			let timeout: NodeJS.Timeout | undefined;
@@ -50,6 +65,17 @@ export class NodeCommandExecutor implements CommandExecutor {
 			const abort = () => {
 				killed = true;
 				child.kill();
+			};
+			const observe = (callback: ((chunk: string) => void) | undefined, chunk: Buffer) => {
+				try {
+					callback?.(chunk.toString("utf8"));
+				} catch (error) {
+					if (settled) return;
+					settled = true;
+					cleanup();
+					child.kill();
+					reject(error);
+				}
 			};
 			child.once("error", (error) => {
 				if (settled) return;
@@ -75,15 +101,21 @@ export class NodeCommandExecutor implements CommandExecutor {
 					child.kill();
 				}, options.timeout);
 			}
-			child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
-			child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+			child.stdout?.on("data", (chunk: Buffer) => {
+				[stdout, stdoutBytes] = append(stdout, stdoutBytes, chunk);
+				observe(options.onStdout, chunk);
+			});
+			child.stderr?.on("data", (chunk: Buffer) => {
+				[stderr, stderrBytes] = append(stderr, stderrBytes, chunk);
+				observe(options.onStderr, chunk);
+			});
 			child.once("close", (code, signal) => {
 				if (settled) return;
 				settled = true;
 				cleanup();
 				resolve({
-					stdout: Buffer.concat(stdout).toString("utf8"),
-					stderr: Buffer.concat(stderr).toString("utf8"),
+					stdout: Buffer.concat(stdout, stdoutBytes).toString("utf8"),
+					stderr: Buffer.concat(stderr, stderrBytes).toString("utf8"),
 					code: code ?? (signal ? 1 : 0),
 					killed,
 				});

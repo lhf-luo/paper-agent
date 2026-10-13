@@ -96,6 +96,7 @@ export interface AuthorizedArtifactJob {
 export interface CorpusImportInput {
 	searchJobId?: string;
 	searchRunId?: string;
+	newsBatchId?: string;
 	sidebarResultUrl?: string;
 	paperIds?: string[];
 	namespace?: string;

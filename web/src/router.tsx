@@ -29,6 +29,7 @@ function parseUrl(): RouteState {
 	const validPages: Page[] = [
 		"dashboard",
 		"search",
+		"news",
 		"agent",
 		"library",
 		"tasks",

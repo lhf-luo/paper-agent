@@ -76,8 +76,8 @@ export async function handleSearchRoutes(
 	}
 	if (request.method === "POST" && url.pathname === "/api/search") {
 		const body = await readJson(request);
-		if (typeof body.query !== "string" || !body.query.trim() || body.query.trim().length > 2_000)
-			throw new ApiError(400, "query must contain 1-2000 characters");
+		if (typeof body.query !== "string" || body.query.trim().length > 2_000)
+			throw new ApiError(400, "query must contain at most 2000 characters");
 		const providers = boundedStringArray(body.providers, "providers", 20, 64);
 		if (providers?.length === 0) throw new ApiError(400, "Select at least one literature provider");
 		const catalog = application.providerCatalog();
@@ -92,6 +92,12 @@ export async function handleSearchRoutes(
 			throw new ApiError(400, "reuseCorpus must be a boolean");
 		}
 		const filters = searchFilters(body.filters);
+		if (!body.query.trim() && !filters.arxivSubmittedFrom) {
+			throw new ApiError(400, "query is required unless an arXiv submission date range is selected");
+		}
+		if (filters.arxivSubmittedFrom && (providers?.length !== 1 || providers[0] !== "arxiv")) {
+			throw new ApiError(400, "arXiv submission dates require selecting arXiv only");
+		}
 		for (const providerId of providers ?? []) {
 			const constraints = catalog.find((provider) => provider.id === providerId)?.searchConstraints;
 			if (constraints?.exactYear && (filters.yearFrom === undefined || filters.yearFrom !== filters.yearTo)) {
@@ -109,7 +115,7 @@ export async function handleSearchRoutes(
 			}
 		}
 		const input: LiteratureSearchJobInput = {
-			query: body.query.trim(),
+			query: body.query.trim() || "*",
 			queryExpansions: boundedStringArray(body.queryExpansions, "queryExpansions", 20, 500),
 			providers: providers as LiteratureSearchJobInput["providers"],
 			filters,

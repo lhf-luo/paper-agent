@@ -1,11 +1,18 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { artifactAcquisitionPlan, assertArtifactSelection } from "../../artifacts/application/artifact-acquisition.ts";
 import { artifactByteLimit } from "../../artifacts/application/artifact-limits.ts";
 import { discoverPaperArtifacts } from "../../artifacts/application/paper-artifact-discovery.ts";
 import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
 import type { MineruGenerationRequest } from "../../extensions/mineru/domain/mineru-types.ts";
 import type { PdfTranslationRequest } from "../../extensions/pdf-translation/domain/pdf-translation-types.ts";
+import {
+	type ArxivNewsPullInput,
+	validateArxivNewsCategories,
+	validateArxivNewsDate,
+	validateArxivNewsPull,
+} from "../../literature/application/arxiv-news.ts";
+import { type NewsFilterGroup, screenNewsPapers } from "../../literature/application/arxiv-news-screening.ts";
 import {
 	type DoiEnrichmentResult,
 	enrichRecordsByDoi,
@@ -18,6 +25,11 @@ import {
 import { assignCollection, prepareSidebarSelection } from "../../literature/application/literature-sidebar-save.ts";
 import { corpusUpsertPlan } from "../../literature/application/literature-write.ts";
 import type { ArtifactManifest, PaperRecord, PaperVersion } from "../../literature/domain/literature-types.ts";
+import {
+	ARXIV_NEWS_NAMESPACE,
+	ArxivNewsStore,
+	arxivNewsScopeKey,
+} from "../../literature/infrastructure/arxiv-news-store.ts";
 import { assertKeywordSearchProviders } from "../../literature/infrastructure/literature-providers.ts";
 import { validatePdfPath } from "../../pdf/application/pdf-document.ts";
 import {
@@ -47,8 +59,64 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 	>();
 	private readonly preparedCorpusImports = new Map<
 		string,
-		{ records: PaperRecord[]; enrichment: Omit<DoiEnrichmentResult, "records">; expiresAt: string }
+		{
+			records: PaperRecord[];
+			enrichment: Omit<DoiEnrichmentResult, "records">;
+			expiresAt: string;
+			newsBatchId?: string;
+		}
 	>();
+
+	protected arxivNewsStore(): ArxivNewsStore {
+		return new ArxivNewsStore(join(this.dataRoot, "runtime", "arxiv-news.sqlite"));
+	}
+
+	async arxivNewsState(namespace = ARXIV_NEWS_NAMESPACE) {
+		return this.arxivNewsStore().state(namespace);
+	}
+
+	async saveArxivNewsSettings(
+		namespace: string,
+		categories: string[],
+		nextStartDate?: string,
+		filterGroups?: NewsFilterGroup[],
+	) {
+		const normalized = categories.length ? validateArxivNewsCategories(categories) : [];
+		if (nextStartDate !== undefined) validateArxivNewsDate(nextStartDate);
+		return this.arxivNewsStore().saveSettings(namespace, normalized, nextStartDate, filterGroups);
+	}
+
+	async arxivNewsBatch(namespace: string, id: string) {
+		const found = await this.arxivNewsStore().batch(namespace, id);
+		if (!found) return undefined;
+		const settings = await this.arxivNewsState(namespace);
+		return { ...found, screening: screenNewsPapers(found.papers, settings.filterGroups) };
+	}
+
+	async deleteArxivNewsBatch(namespace: string, id: string) {
+		return this.arxivNewsStore().deleteBatch(namespace, id);
+	}
+
+	async enqueueArxivNewsPull(input: ArxivNewsPullInput): Promise<BackgroundJob> {
+		await this.initialize();
+		const request = validateArxivNewsPull(input);
+		const state = await this.arxivNewsState(request.namespace);
+		if (arxivNewsScopeKey(state.categories) !== arxivNewsScopeKey(request.categories)) {
+			throw new Error("Save the selected arXiv subjects before pulling news");
+		}
+		const active = this.jobs
+			.list({ limit: 300 })
+			.some(
+				(job) =>
+					job.type === "arxiv-news-pull" &&
+					["queued", "running", "paused"].includes(job.status) &&
+					(job.input as ArxivNewsPullInput).namespace === request.namespace &&
+					arxivNewsScopeKey((job.input as ArxivNewsPullInput).categories) ===
+						arxivNewsScopeKey(request.categories),
+			);
+		if (active) throw new Error("An arXiv news pull is already running for these subjects");
+		return this.jobs.enqueue("arxiv-news-pull", request, { maxAttempts: 1 });
+	}
 
 	async enqueueLiteratureSearch(input: LiteratureSearchJobInput): Promise<BackgroundJob> {
 		await this.initialize();
@@ -237,7 +305,18 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 	/** 读取待导入记录, 若指定分类则统一应用 collectionId, 保证 prepare/permit/写入三处 fingerprint 一致。 */
 	protected async readImportRecords(input: CorpusImportInput): Promise<PaperRecord[]> {
 		let records: PaperRecord[];
-		if (input.searchRunId) {
+		if (input.newsBatchId) {
+			const found = await this.arxivNewsBatch(ARXIV_NEWS_NAMESPACE, input.newsBatchId);
+			if (!found) throw new Error("News folder not found");
+			const selected = new Set(input.paperIds ?? []);
+			if (!selected.size) throw new Error("Select at least one paper from the news folder");
+			records = found.papers.filter((paper) => selected.has(paper.id));
+			if (records.length !== selected.size) throw new Error("One or more papers are no longer in this news folder");
+			const retained = new Set([...found.screening.matchedIds, ...found.screening.unresolvedIds]);
+			if (records.some((paper) => !retained.has(paper.id))) {
+				throw new Error("Only papers retained by the current news screening rules can be imported");
+			}
+		} else if (input.searchRunId) {
 			records = await this.recordsFromSearchRun(
 				input.searchRunId,
 				input.paperIds,
@@ -274,6 +353,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		const prepared = await this.consent.prepare(corpusUpsertPlan(this.personalStore(input.namespace), records));
 		this.preparedCorpusImports.set(prepared.operationId, {
 			records,
+			newsBatchId: input.newsBatchId,
 			enrichment: {
 				attempts: enrichment.attempts,
 				warnings: enrichment.warnings,
@@ -371,6 +451,16 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		}
 		const prepared = this.preparedCorpusImports.get(grant.operationId);
 		if (!prepared) throw new Error("Prepared corpus records were not found or have expired; prepare again");
+		if (prepared.newsBatchId) {
+			if (input.newsBatchId !== prepared.newsBatchId)
+				throw new Error("News folder changed after import preparation");
+			const current = await this.arxivNewsBatch(ARXIV_NEWS_NAMESPACE, prepared.newsBatchId);
+			if (!current) throw new Error("News folder was removed after import preparation");
+			const retained = new Set([...current.screening.matchedIds, ...current.screening.unresolvedIds]);
+			if (prepared.records.some((paper) => !retained.has(paper.id))) {
+				throw new Error("News screening changed after import preparation; prepare the import again");
+			}
+		}
 		const executionPermit = await authorizeOperationExecution(
 			{ manager: this.consent, grant },
 			corpusUpsertPlan(this.personalStore(input.namespace), prepared.records),

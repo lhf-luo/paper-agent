@@ -5,6 +5,7 @@ import type {
 	ModelApiKind,
 	PaperAgentConfig,
 	PaperAgentModelConfig,
+	PdfTranslationEngine,
 	PiBuiltinToolName,
 	RedactedPaperAgentConfig,
 	RedactedPaperAgentModelConfig,
@@ -179,8 +180,11 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 	}
 	const pdfTranslationSource = (source.pdfTranslation ?? {}) as Record<string, unknown>;
 	const pdfTranslationEngine = pdfTranslationSource.engine ?? "siliconflowfree";
-	if (pdfTranslationEngine !== "siliconflowfree" && pdfTranslationEngine !== "active-model") {
-		throw new Error("pdfTranslation.engine must be siliconflowfree or active-model");
+	if (
+		typeof pdfTranslationEngine !== "string" ||
+		!["siliconflowfree", "google", "bing", "deepl", "active-model"].includes(pdfTranslationEngine)
+	) {
+		throw new Error("pdfTranslation.engine must be siliconflowfree, google, bing, deepl, or active-model");
 	}
 	const pdfTranslationModelKey =
 		typeof pdfTranslationSource.modelKey === "string" && pdfTranslationSource.modelKey.trim()
@@ -295,7 +299,7 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 			requireWikiWriteConfirmation: confirmationValue("requireWikiWriteConfirmation"),
 		},
 		pdfTranslation: {
-			engine: pdfTranslationEngine,
+			engine: pdfTranslationEngine as PdfTranslationEngine,
 			...(pdfTranslationModelKey ? { modelKey: pdfTranslationModelKey } : {}),
 			...(pdfTranslationCommand ? { command: pdfTranslationCommand } : {}),
 		},

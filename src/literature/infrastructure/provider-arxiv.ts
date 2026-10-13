@@ -14,18 +14,55 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 	const start = Number.parseInt(options.cursor ?? "0", 10);
 	if (!Number.isInteger(start) || start < 0) throw new Error("Invalid arXiv cursor");
 	const url = new URL("https://export.arxiv.org/api/query");
-	url.searchParams.set("search_query", `all:${options.query}`);
+	const dateRange =
+		options.filters?.arxivSubmittedFrom && options.filters.arxivSubmittedTo
+			? `submittedDate:[${options.filters.arxivSubmittedFrom.replaceAll("-", "")}0000 TO ${options.filters.arxivSubmittedTo.replaceAll("-", "")}2359]`
+			: undefined;
+	const keywordQuery = options.query.trim() === "*" ? undefined : `all:${options.query}`;
+	const categoryQuery = options.arxivCategories?.length
+		? `(${options.arxivCategories.map((category) => `cat:${category}`).join(" OR ")})`
+		: undefined;
+	const terms = [
+		keywordQuery && (dateRange || categoryQuery) ? `(${keywordQuery})` : keywordQuery,
+		categoryQuery,
+		dateRange,
+	].filter(Boolean);
+	url.searchParams.set("search_query", terms.length ? terms.join(" AND ") : "all:*");
 	url.searchParams.set("start", String(start));
 	url.searchParams.set("max_results", String(options.limit));
-	url.searchParams.set("sortBy", "relevance");
-	const response = await fetchWithRetry(url, {
-		signal: options.signal,
-		timeoutMs: 10_000,
-		fetcher: options.fetcher,
-	});
-	if (!response.ok) throw new LiteratureProviderHttpError("arXiv", response);
-	const xml = await response.text();
+	url.searchParams.set("sortBy", dateRange ? "submittedDate" : "relevance");
+	if (dateRange) url.searchParams.set("sortOrder", "descending");
+	let xml: string;
+	try {
+		const response = await fetchWithRetry(url, {
+			signal: options.signal,
+			timeoutMs: 60_000,
+			fetcher: options.fetcher,
+			beforeAttempt: options.beforeAttempt,
+		});
+		if (!response.ok) throw new LiteratureProviderHttpError("arXiv", response);
+		xml = await response.text();
+	} catch (error) {
+		if (
+			!options.signal?.aborted &&
+			error instanceof Error &&
+			(error.name === "TimeoutError" || error.name === "AbortError")
+		) {
+			throw new Error(
+				`arXiv page at offset ${start} timed out after 60 seconds; check the network or proxy settings`,
+				{
+					cause: error,
+				},
+			);
+		}
+		throw error;
+	}
+	if (/<title>\s*Error\s*<\/title>/i.test(xml)) {
+		throw new Error(`arXiv API error: ${extractXmlTag(xml, "summary") || "invalid query or result range"}`);
+	}
 	const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)].map((match) => match[1]);
+	const totalResultsValue = Number.parseInt(extractXmlTag(xml, "opensearch:totalResults") ?? "", 10);
+	const totalResults = Number.isFinite(totalResultsValue) ? totalResultsValue : undefined;
 	const retrievedAt = new Date().toISOString();
 	const records = entries
 		.flatMap((entry): PaperRecord[] => {
@@ -33,6 +70,13 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 			const landing = extractXmlTag(entry, "id");
 			if (!title || !landing) return [];
 			const published = extractXmlTag(entry, "published");
+			if (
+				dateRange &&
+				(!published ||
+					published.slice(0, 10) < options.filters!.arxivSubmittedFrom! ||
+					published.slice(0, 10) > options.filters!.arxivSubmittedTo!)
+			)
+				return [];
 			const doi = normalizeDoi(extractXmlTag(entry, "arxiv:doi"));
 			const arxivId = normalizeArxivId(landing);
 			const links: PaperLink[] = [
@@ -43,6 +87,7 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 			return [
 				withId({
 					title,
+					firstSubmittedAt: published || undefined,
 					abstract: extractXmlTag(entry, "summary"),
 					authors: extractXmlTags(entry, "name"),
 					year: published ? Number.parseInt(published.slice(0, 4), 10) : undefined,
@@ -68,7 +113,10 @@ export async function searchArxivPage(options: ProviderSearchOptions): Promise<P
 		provider: "arxiv",
 		query: options.query,
 		records,
-		nextCursor: entries.length === options.limit ? String(start + options.limit) : undefined,
+		nextCursor:
+			entries.length === options.limit && (totalResults === undefined || start + entries.length < totalResults)
+				? String(start + options.limit)
+				: undefined,
 		requestUrl: url.href,
 	};
 }

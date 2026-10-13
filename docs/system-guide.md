@@ -62,6 +62,7 @@ paper-agent CLI
 
 - 先查已有个人库或团队库，再按需访问外部 Provider。
 - 支持检索规划、查询扩展、分页、过滤、去重和部分失败报告。
+- “检索与收集”可单独选择 arXiv，按首次提交日期（UTC）筛选并按提交时间倒序查看；快捷选项包括今日和近 7 天。这个日期不是 arXiv 每日公告批次，API 通常要等公告后才出现新论文。
 - 搜索结果默认是候选材料；只有显式保存后才进入个人库。
 - 个人记录进入团队库必须经过提案和审核，私人笔记不会自动共享。
 
@@ -91,7 +92,7 @@ D:\AI-Tools\pdf2zh-env\Scripts\python.exe -m pip install pdf2zh-next
 
 随后在设置页将“PDF2zh Next 命令”填写为 `D:\AI-Tools\pdf2zh-env\Scripts\pdf2zh_next.exe`。也可以使用 Conda、pipx 或系统 Python 安装，只要命令位于 `PATH`，设置项即可留空。
 
-PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Agent 的其他能力不受影响。PDF2zh Next 自行管理内部配置和缓存；Paper Agent 只为单次任务创建系统临时输出目录，并在成功、失败、取消或超时后清理。设置页可选择无需个人密钥的 `SiliconFlowFree`（默认），或单独指定一个 OpenAI Completions 兼容的 Paper Agent 模型。模型密钥只通过子进程环境变量传递，不写入任务参数、命令行或译文版本元数据；选择 `siliconflowfree` 时不读取 Paper Agent 模型密钥。译文作为 `translation` PDF 版本保存到原论文，不覆盖原文，也不会成为 Zotero 导出的首选 PDF。
+PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Agent 的其他能力不受影响。PDF2zh Next 自行管理内部配置和缓存；Paper Agent 只为单次任务创建系统临时输出目录，并在成功、失败、取消或超时后清理。设置页可选择无需个人密钥的 `SiliconFlowFree`（默认）、PDF2zh 内置的 Google/Bing、使用已保存 DeepL 密钥的 DeepL，或已配置的 OpenAI Completions 兼容模型。DeepSeek 官方接口使用 PDF2zh 专用参数，自定义模型接口使用兼容参数；密钥只通过子进程环境变量传递，不写入任务参数、命令行或译文版本元数据。百度翻译目前只用于 PDF 选区翻译，安装的 PDF2zh Next 没有百度提供商参数。译文作为 `translation` PDF 版本保存到原论文，不覆盖原文，也不会成为 Zotero 导出的首选 PDF。
 
 - 读取指定物理页并保留页码标记。
 - 渲染整页、检查文字块坐标、裁剪图表区域。

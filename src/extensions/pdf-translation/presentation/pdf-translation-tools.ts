@@ -39,7 +39,7 @@ export function registerPdfTranslationTool(pi: ExtensionAPI): void {
 		name: "translate_personal_pdf",
 		label: "Translate personal PDF",
 		description:
-			"Translate one saved personal-library PDF with the locally installed PDF2zh Next engine and the active Paper Agent model. The translated PDF is saved as a non-preferred version of the same paper; the source PDF is not changed.",
+			"Translate one saved personal-library PDF with the locally installed PDF2zh Next engine and the configured translation provider. The translated PDF is saved as a non-preferred version of the same paper; the source PDF is not changed.",
 		promptSnippet: "Create a translated PDF version for a saved personal-library paper",
 		promptGuidelines: [
 			"Use get_personal_library_paper first and pass an exact paper ID and registered source PDF SHA-256.",

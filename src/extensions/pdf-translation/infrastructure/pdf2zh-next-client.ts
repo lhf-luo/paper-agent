@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import type { PaperAgentModelConfig, PdfTranslationEngine } from "../../../config/domain/config-types.ts";
 import type { CommandExecutor } from "../../../shared/infrastructure/command-executor.ts";
 import type { PdfTranslationEngineStatus, PdfTranslationOutputMode } from "../domain/pdf-translation-types.ts";
+import { Pdf2zhProgressParser, type Pdf2zhProgress } from "./pdf2zh-progress.ts";
 
 interface Pdf2zhNextClientOptions {
 	executor: CommandExecutor;
@@ -26,7 +27,9 @@ interface Pdf2zhTranslationInput {
 	engine: PdfTranslationEngine;
 	command: string;
 	model?: PaperAgentModelConfig;
+	providerApiKey?: string;
 	signal?: AbortSignal;
+	onProgress?: (update: Pdf2zhProgress) => void;
 }
 
 export interface Pdf2zhTranslationOutput {
@@ -54,6 +57,26 @@ function parseVersion(text: string): string | undefined {
 	return /pdf2zh-next version:\s*([^\s]+)/i.exec(text)?.[1];
 }
 
+function isOfficialDeepseekModel(model?: PaperAgentModelConfig): boolean {
+	if (model?.providerId.toLowerCase() !== "deepseek") return false;
+	try {
+		const url = new URL(model.baseUrl);
+		return (
+			url.protocol === "https:" &&
+			url.hostname === "api.deepseek.com" &&
+			["/", "/v1", "/v1/"].includes(url.pathname) &&
+			!url.search
+		);
+	} catch {
+		return false;
+	}
+}
+
+function engineLabel(engine: PdfTranslationEngine, model?: PaperAgentModelConfig): string {
+	if (engine === "active-model") return `${model?.providerId}/${model?.modelId}`;
+	return { siliconflowfree: "SiliconFlowFree", google: "Google", bing: "Bing", deepl: "DeepL" }[engine];
+}
+
 function validatePdf(body: Buffer, filename: string): void {
 	if (body.length < 8 || body.subarray(0, 5).toString("latin1") !== "%PDF-") {
 		throw new Error(`PDF2zh produced an invalid PDF: ${filename}`);
@@ -76,9 +99,9 @@ export class Pdf2zhNextClient {
 		this.executor = options.executor;
 	}
 
-	private environment(apiKey?: string): NodeJS.ProcessEnv {
+	private environment(apiKey?: string, variableName = "PDF2ZH_OPENAI_COMPATIBLE_API_KEY"): NodeJS.ProcessEnv {
 		return {
-			...(apiKey ? { PDF2ZH_OPENAI_COMPATIBLE_API_KEY: apiKey } : {}),
+			...(apiKey ? { [variableName]: apiKey } : {}),
 		};
 	}
 
@@ -86,6 +109,7 @@ export class Pdf2zhNextClient {
 		command: string,
 		engine: PdfTranslationEngine,
 		model?: PaperAgentModelConfig,
+		providerApiKey?: string,
 	): Promise<PdfTranslationEngineStatus> {
 		if (engine === "active-model" && !model) {
 			return { available: false, engine: "pdf2zh-next", command, reason: "尚未配置可用于翻译的模型" };
@@ -112,6 +136,15 @@ export class Pdf2zhNextClient {
 				reason: "当前模型缺少 API 密钥",
 			};
 		}
+		if (engine === "deepl" && !providerApiKey) {
+			return {
+				available: false,
+				engine: "pdf2zh-next",
+				command,
+				activeModel: "DeepL",
+				reason: "DeepL 缺少 API Key，请先在「PDF 选区翻译」设置中填写",
+			};
+		}
 		try {
 			const result = await this.executor.exec(command, ["--version"], {
 				env: this.environment(),
@@ -126,14 +159,14 @@ export class Pdf2zhNextClient {
 				engine: "pdf2zh-next",
 				command,
 				version: this.version,
-				activeModel: engine === "siliconflowfree" ? "SiliconFlowFree" : `${model?.providerId}/${model?.modelId}`,
+				activeModel: engineLabel(engine, model),
 			};
 		} catch (error) {
 			return {
 				available: false,
 				engine: "pdf2zh-next",
 				command,
-				activeModel: engine === "siliconflowfree" ? "SiliconFlowFree" : `${model?.providerId}/${model?.modelId}`,
+				activeModel: engineLabel(engine, model),
 				reason: `PDF2zh Next 不可用：${error instanceof Error ? error.message : String(error)}`,
 			};
 		}
@@ -148,6 +181,8 @@ export class Pdf2zhNextClient {
 			throw new Error("当前翻译模型缺少 API 密钥");
 		}
 		const command = input.command;
+		const nativeDeepseek = input.engine === "active-model" && isOfficialDeepseekModel(input.model);
+		const progress = input.onProgress ? new Pdf2zhProgressParser(input.onProgress) : undefined;
 		const operationRoot = await mkdtemp(join(tmpdir(), `paper-agent-pdf2zh-${randomUUID()}-`));
 		try {
 			const args = [
@@ -165,6 +200,13 @@ export class Pdf2zhNextClient {
 			];
 			if (input.engine === "siliconflowfree") {
 				args.push("--siliconflowfree");
+			} else if (input.engine === "google" || input.engine === "bing") {
+				args.push(`--${input.engine}`);
+			} else if (input.engine === "deepl") {
+				if (!input.providerApiKey) throw new Error("DeepL 缺少 API Key，请先在「PDF 选区翻译」设置中填写");
+				args.push("--deepl");
+			} else if (nativeDeepseek) {
+				args.push("--deepseek", "--deepseek-model", input.model?.modelId ?? "");
 			} else {
 				args.push(
 					"--openaicompatible",
@@ -176,14 +218,26 @@ export class Pdf2zhNextClient {
 			}
 			const result = await this.executor.exec(command, args, {
 				cwd: operationRoot,
-				env: this.environment(apiKey),
+				env: this.environment(
+					input.engine === "deepl" ? input.providerApiKey : apiKey,
+					input.engine === "deepl"
+						? "PDF2ZH_DEEPL_AUTH_KEY"
+						: nativeDeepseek
+							? "PDF2ZH_DEEPSEEK_API_KEY"
+							: "PDF2ZH_OPENAI_COMPATIBLE_API_KEY",
+				),
 				signal: input.signal,
 				timeout: 3 * 60 * 60_000,
+				maxOutputBytes: 65_536,
+				onStdout: (chunk) => progress?.feed(chunk),
+				onStderr: (chunk) => progress?.feed(chunk),
 			});
 			if (result.killed) throw new Error(input.signal?.aborted ? "PDF 翻译已取消" : "PDF 翻译超时");
 			if (result.code !== 0) {
-				const message = result.stderr.trim() || result.stdout.trim() || `PDF2zh exited with code ${result.code}`;
-				throw new Error(message.slice(-4000));
+				const output = `${result.stderr}\n${result.stdout}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+				const errorLine = output.split(/[\r\n]+/).findLast((line) => /(?:Error|Exception):\s*\S/i.test(line));
+				const message = output.trim().slice(-4000) || `PDF2zh exited with code ${result.code}`;
+				throw new Error(errorLine && !message.includes(errorLine) ? `${errorLine.trim()}\n${message}` : message);
 			}
 			const outputs = await pdfFiles(operationRoot);
 			if (!outputs.length) throw new Error("PDF2zh 已完成，但没有生成 PDF 文件");

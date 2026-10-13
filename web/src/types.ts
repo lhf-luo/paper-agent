@@ -1,6 +1,7 @@
 export interface PaperRecord {
 	id: string;
 	title: string;
+	firstSubmittedAt?: string;
 	abstract?: string;
 	authors: string[];
 	year?: number;
@@ -563,7 +564,11 @@ export interface PaperAgentConfigView {
 	storage: { dataRoot?: string; corpusRoot?: string; defaultNamespace: string };
 	externalTools: { commandDirectories: string[] };
 	confirmations: OperationConfirmationSettingsView;
-	pdfTranslation: { engine: "siliconflowfree" | "active-model"; modelKey?: string; command?: string };
+	pdfTranslation: {
+		engine: "siliconflowfree" | "google" | "bing" | "deepl" | "active-model";
+		modelKey?: string;
+		command?: string;
+	};
 	mineru: { baseUrl: string; modelVersion: "pipeline" | "vlm"; language: string };
 	wiki: { obsidianPath?: string };
 	credentials?: Record<string, string | undefined>;
@@ -712,6 +717,7 @@ export type AgentEvent =
 export type Page =
 	| "dashboard"
 	| "search"
+	| "news"
 	| "agent"
 	| "library"
 	| "tasks"

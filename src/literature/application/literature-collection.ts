@@ -101,6 +101,16 @@ function hasClientSideFilters(provider: LiteratureProvider, filters: SearchFilte
 }
 
 export async function collectLiterature(options: CollectLiteratureOptions): Promise<CollectionResult> {
+	const datedArxivSearch = Boolean(options.filters.arxivSubmittedFrom || options.filters.arxivSubmittedTo);
+	if (
+		datedArxivSearch &&
+		(options.providers.length !== 1 ||
+			options.providers[0] !== "arxiv" ||
+			!options.filters.arxivSubmittedFrom ||
+			!options.filters.arxivSubmittedTo)
+	) {
+		throw new Error("arXiv submission dates require an arXiv-only search with a complete date range");
+	}
 	if (options.scope === "team" && options.mode === "persistent") {
 		throw new Error(
 			"Direct persistent writes to a team corpus are disabled; collect into personal scope, then promote",
@@ -144,7 +154,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		}
 	}
 	const corpusHits = new Map<string, PaperRecord>();
-	if (options.reuseCorpus !== false) {
+	if (options.reuseCorpus !== false && !datedArxivSearch) {
 		for (const query of queries) {
 			const discoveredAt = new Date().toISOString();
 			for (const hit of await corpusStore.searchPapers({
@@ -297,13 +307,17 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		failures.push(...outcome.failures);
 	}
 	// 多源结果原本按 provider 块状拼接, 这里按查询相关性统一重排, 精确标题命中排到最前。
-	const initiallyDeduplicated = rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
+	const initiallyDeduplicated = datedArxivSearch
+		? deduplicatePaperRecords(allRecords)
+		: rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
 	const abstractEnrichment = await enrichMissingAbstractsByDoi(initiallyDeduplicated, options.cwd, {
 		signal: options.signal,
 		concurrency: 3,
 		lookup: options.abstractDoiLookup,
 	});
-	const results = rerankByQueryRelevance(deduplicatePaperRecords(abstractEnrichment.records), queries);
+	const results = datedArxivSearch
+		? deduplicatePaperRecords(abstractEnrichment.records)
+		: rerankByQueryRelevance(deduplicatePaperRecords(abstractEnrichment.records), queries);
 	for (const record of results) {
 		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
 	}

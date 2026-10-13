@@ -225,7 +225,14 @@ describe("Paper Agent local configuration", () => {
 				...defaultPaperAgentConfig(),
 				pdfTranslation: { engine: "unknown" },
 			}),
-		).rejects.toThrow("pdfTranslation.engine must be siliconflowfree or active-model");
+		).rejects.toThrow("pdfTranslation.engine must be siliconflowfree, google, bing, deepl, or active-model");
+		for (const engine of ["google", "bing", "deepl"] as const) {
+			await savePaperAgentConfig(root, {
+				...defaultPaperAgentConfig(),
+				pdfTranslation: { engine },
+			});
+			expect((await loadPaperAgentConfig(root)).pdfTranslation.engine).toBe(engine);
+		}
 
 		const selected = {
 			...modelCapabilities(),

@@ -115,13 +115,18 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			]);
 			const errors: string[] = [];
 			if (catalogResult.status === "fulfilled") setProviderCatalog(catalogResult.value.providers);
-			else errors.push(catalogResult.reason instanceof Error ? catalogResult.reason.message : String(catalogResult.reason));
+			else
+				errors.push(
+					catalogResult.reason instanceof Error ? catalogResult.reason.message : String(catalogResult.reason),
+				);
 			if (configResult.status === "fulfilled") {
 				const config = configResult.value;
 				const catalog = catalogResult.status === "fulfilled" ? catalogResult.value.providers : [];
 				const available = new Set(
 					catalog
-						.filter((provider) => provider.credentialsAvailable && provider.capabilities.includes("keyword-search"))
+						.filter(
+							(provider) => provider.credentialsAvailable && provider.capabilities.includes("keyword-search"),
+						)
 						.map((provider) => provider.id),
 				);
 				setProviders(catalog.length ? config.search.providers.filter((provider) => available.has(provider)) : []);
@@ -129,11 +134,19 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				setPagesPerProvider(String(config.search.pagesPerProvider));
 				setQueryExpansions(config.search.queryExpansions.join("\n"));
 				setReuseCorpus(config.search.reuseCorpus);
-			} else errors.push(configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason));
+			} else
+				errors.push(
+					configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason),
+				);
 			if (namespaceResult.status === "fulfilled") {
 				setNamespace(namespaceResult.value.defaultNamespace);
 				setNamespaces(namespaceResult.value.personal);
-			} else errors.push(namespaceResult.reason instanceof Error ? namespaceResult.reason.message : String(namespaceResult.reason));
+			} else
+				errors.push(
+					namespaceResult.reason instanceof Error
+						? namespaceResult.reason.message
+						: String(namespaceResult.reason),
+				);
 			if (errors.length) setError([...new Set(errors)].join("；"));
 		})();
 	}, []);
@@ -236,10 +249,11 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		}
 	};
 
-	const toggleProvider = (provider: string) =>
+	const toggleProvider = (provider: string) => {
 		setProviders((current) =>
 			current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider],
 		);
+	};
 
 	const runIdBody = () => (selectedRun ? { searchRunId: selectedRun.id } : { searchJobId: job?.id });
 
@@ -336,15 +350,17 @@ export function SearchPage({ onTask }: SearchPageProps) {
 							<div className="chip-row">
 								{(providerCatalog.length
 									? providerCatalog.filter((provider) => provider.capabilities.includes("keyword-search"))
-									: ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "exa", "usenix"].map((id) => ({
-											id,
-											label: id,
-											description: id,
-											capabilities: ["keyword-search"],
-											credentialsAvailable: true,
-											searchLimits: undefined,
-											requiresEnvironmentVariable: undefined,
-										}))
+									: ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "exa", "usenix"].map(
+											(id) => ({
+												id,
+												label: id,
+												description: id,
+												capabilities: ["keyword-search"],
+												credentialsAvailable: true,
+												searchLimits: undefined,
+												requiresEnvironmentVariable: undefined,
+											}),
+										)
 								).map((provider) => (
 									<button
 										className={`${providers.includes(provider.id) ? "chip active" : "chip"}${provider.credentialsAvailable ? "" : " unavailable"}`}

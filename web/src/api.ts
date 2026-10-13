@@ -148,6 +148,6 @@ export async function apiEventStream(
 	if (buffer.trim()) await dispatchBlock(buffer);
 }
 
-export function jsonBody(value: unknown, method: "POST" | "PATCH" = "POST"): RequestInit {
+export function jsonBody(value: unknown, method: "POST" | "PATCH" | "PUT" = "POST"): RequestInit {
 	return { method, body: JSON.stringify(value) };
 }

@@ -12,11 +12,17 @@ import type {
 } from "./types";
 
 export function configuredPdfTranslationModels(config: PaperAgentConfigView) {
-	const options = new Map<string, { key: string; label: string }>();
+	const options = new Map<string, { key: string; label: string; providerId: string }>();
 	for (const model of [config.model, ...(config.models ?? [])]) {
-		if (!model || model.api !== "openai-completions") continue;
+		if (
+			!model ||
+			model.api !== "openai-completions" ||
+			!(model.input ?? ["text"]).includes("text") ||
+			/^(?:gpt-image|dall-e)(?:-|$)/i.test(model.modelId)
+		)
+			continue;
 		const key = `${model.providerId}/${model.modelId}`;
-		options.set(key, { key, label: `${model.name ?? model.modelId} (${model.providerId})` });
+		options.set(key, { key, label: model.name ?? model.modelId, providerId: model.providerId });
 	}
 	return [...options.values()];
 }
@@ -220,7 +226,15 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 	if (!config) return <>{error ? <div className="error-banner">{error}</div> : <LoadingBlock />}</>;
 
 	const pdfTranslationModels = configuredPdfTranslationModels(config);
-	const selectedPdfTranslationModel = config.pdfTranslation.modelKey ?? pdfTranslationModels[0]?.key ?? "";
+	const selectedPdfTranslationModel =
+		pdfTranslationModels.find((model) => model.key === config.pdfTranslation.modelKey) ?? pdfTranslationModels[0];
+	const selectedPdfTranslationProvider =
+		config.pdfTranslation.engine === "active-model"
+			? selectedPdfTranslationModel
+				? `model:${selectedPdfTranslationModel.providerId}`
+				: ""
+			: config.pdfTranslation.engine;
+	const pdfTranslationProviders = [...new Set(pdfTranslationModels.map((model) => model.providerId))];
 
 	return (
 		<>
@@ -631,36 +645,42 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 										: ""}
 								</p>
 							)}
-							<div className="translation-engine-options" role="radiogroup" aria-label="PDF 翻译引擎">
-								<label className={config.pdfTranslation.engine === "siliconflowfree" ? "active" : ""}>
-									<input
-										type="radio"
-										name="pdf-translation-engine"
-										value="siliconflowfree"
-										checked={config.pdfTranslation.engine === "siliconflowfree"}
-										onChange={() =>
+							<div className="form-grid">
+								<label className="wide">
+									<span>翻译提供商</span>
+									<select
+										value={selectedPdfTranslationProvider}
+										onChange={(event) =>
 											update((next) => {
-												next.pdfTranslation.engine = "siliconflowfree";
+												const providerId = event.target.value;
+												if (["siliconflowfree", "google", "bing", "deepl"].includes(providerId)) {
+													next.pdfTranslation.engine = providerId as
+														| "siliconflowfree"
+														| "google"
+														| "bing"
+														| "deepl";
+													return;
+												}
+												const model = pdfTranslationModels.find(
+													(item) => `model:${item.providerId}` === providerId,
+												);
+												if (model) {
+													next.pdfTranslation.engine = "active-model";
+													next.pdfTranslation.modelKey = model.key;
+												}
 											})
 										}
-									/>
-									<strong>SiliconFlowFree</strong>
-									<span>无需配置模型密钥</span>
-								</label>
-								<label className={config.pdfTranslation.engine === "active-model" ? "active" : ""}>
-									<input
-										type="radio"
-										name="pdf-translation-engine"
-										value="active-model"
-										checked={config.pdfTranslation.engine === "active-model"}
-										onChange={() =>
-											update((next) => {
-												next.pdfTranslation.engine = "active-model";
-											})
-										}
-									/>
-									<strong>Paper Agent 模型</strong>
-									<span>使用下方指定模型的接口与密钥</span>
+									>
+										<option value="siliconflowfree">SiliconFlowFree（无需密钥）</option>
+										<option value="google">Google（PDF2zh 内置）</option>
+										<option value="bing">Bing（PDF2zh 内置）</option>
+										<option value="deepl">DeepL（使用已保存的 API Key）</option>
+										{pdfTranslationProviders.map((providerId) => (
+											<option key={providerId} value={`model:${providerId}`}>
+												{providerId}
+											</option>
+										))}
+									</select>
 								</label>
 							</div>
 							{config.pdfTranslation.engine === "active-model" && (
@@ -668,26 +688,30 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 									<label className="wide">
 										<span>PDF 翻译模型</span>
 										<select
-											value={selectedPdfTranslationModel}
-											disabled={pdfTranslationModels.length === 0}
+											value={selectedPdfTranslationModel?.key ?? ""}
+											disabled={!selectedPdfTranslationProvider}
 											onChange={(event) =>
 												update((next) => {
 													next.pdfTranslation.modelKey = event.target.value;
 												})
 											}
 										>
-											{pdfTranslationModels.length === 0 && <option value="">没有兼容的模型</option>}
-											{pdfTranslationModels.map((model) => (
-												<option key={model.key} value={model.key}>
-													{model.label}
-												</option>
-											))}
+											{!selectedPdfTranslationProvider && <option value="">没有兼容的模型</option>}
+											{pdfTranslationModels
+												.filter((model) => `model:${model.providerId}` === selectedPdfTranslationProvider)
+												.map((model) => (
+													<option key={model.key} value={model.key}>
+														{model.label}
+													</option>
+												))}
 										</select>
 									</label>
 								</div>
 							)}
 							<p className="form-hint">
-								仅列出 PDF2zh Next 支持的 OpenAI Completions 兼容模型；切换只影响之后创建的翻译任务。
+								Google、Bing 是 PDF2zh 的内置翻译服务；DeepL 复用「PDF 选区翻译」中的密钥。
+								百度只支持当前的选区翻译，安装的 PDF2zh Next
+								未提供百度命令。已配置的文本模型也可用于整篇翻译；切换只影响新任务。
 							</p>
 						</section>
 					</div>

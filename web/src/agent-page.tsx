@@ -19,7 +19,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -861,6 +861,9 @@ export function AgentPage({
 	canvasContext,
 	canvasNodes,
 	focusSessionId,
+	initialSessionListScrollTop = 0,
+	onActiveSessionChange,
+	onSessionListScroll,
 	onPaperSessionTitleChange,
 	paperSessionMenuContainer,
 	onPaperSessionMenuClose,
@@ -876,6 +879,9 @@ export function AgentPage({
 	canvasContext?: { namespace: string; canvasId: string };
 	canvasNodes?: CanvasAgentNodeCandidate[];
 	focusSessionId?: string;
+	initialSessionListScrollTop?: number;
+	onActiveSessionChange?: (sessionId?: string) => void;
+	onSessionListScroll?: (scrollTop: number) => void;
 	onPaperSessionTitleChange?: (title: string) => void;
 	paperSessionMenuContainer?: HTMLElement | null;
 	onPaperSessionMenuClose?: () => void;
@@ -1052,6 +1058,10 @@ export function AgentPage({
 	}, []);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
+	const activeIdRef = useRef<string | undefined>(undefined);
+	activeIdRef.current = active?.id;
+	const sessionListRef = useRef<HTMLDivElement>(null);
+	const initialSessionListScrollTopRef = useRef(initialSessionListScrollTop);
 	const resultDocuments = useMemo(
 		() => collectAgentResultDocuments(active?.messages ?? [], active?.tools ?? []),
 		[active?.messages, active?.tools],
@@ -1145,6 +1155,11 @@ export function AgentPage({
 	}, [selectionDraft, onSelectionDraftConsumed]);
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
+	useLayoutEffect(() => {
+		if (!loading && !embedded && sessionListRef.current) {
+			sessionListRef.current.scrollTop = initialSessionListScrollTopRef.current;
+		}
+	}, [loading, embedded]);
 	useEffect(() => {
 		if (embedded && !loading) onPaperSessionTitleChange?.(active?.title || "新会话");
 	}, [active?.title, embedded, loading, onPaperSessionTitleChange]);
@@ -1308,6 +1323,7 @@ export function AgentPage({
 	);
 
 	useEffect(() => {
+		if (focusSessionId && focusSessionId === activeIdRef.current) return;
 		void (async () => {
 			try {
 				if (focusSessionId) {
@@ -1350,6 +1366,9 @@ export function AgentPage({
 	]);
 
 	const activeId = active?.id;
+	useEffect(() => {
+		if (!embedded && !loading) onActiveSessionChange?.(activeId);
+	}, [activeId, embedded, loading, onActiveSessionChange]);
 	const dismissSessionError = useCallback(async (sessionId: string) => {
 		setActive((current) =>
 			current?.id === sessionId
@@ -1918,7 +1937,7 @@ export function AgentPage({
 							<Plus size={15} strokeWidth={2.5} />
 							<span>新建研究会话</span>
 						</button>
-						<div className="agent-session-list">
+						<div className="agent-session-list" ref={sessionListRef} onScroll={(event) => onSessionListScroll?.(event.currentTarget.scrollTop)}>
 							{orderedSessions.map((session) => {
 								const isActive = active?.id === session.id;
 								const isRunning = session.status === "running";
@@ -2307,7 +2326,7 @@ export function AgentPage({
 									rows={3}
 									disabled={(!active && !paperContext) || running}
 								/>
-								<div className="agent-composer-toolbar">
+								<div className={`agent-composer-toolbar${canvasContext ? " has-canvas-node-attach" : ""}`}>
 									<div className="agent-composer-toolbar-left">
 										<button
 											className="agent-attach-btn"

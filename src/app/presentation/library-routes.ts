@@ -401,9 +401,10 @@ export async function handleLibraryRoutes(
 		if (
 			typeof body.searchJobId !== "string" &&
 			typeof body.searchRunId !== "string" &&
+			typeof body.newsBatchId !== "string" &&
 			typeof body.sidebarResultUrl !== "string"
 		) {
-			throw new ApiError(400, "searchJobId, searchRunId, or sidebarResultUrl is required");
+			throw new ApiError(400, "searchJobId, searchRunId, newsBatchId, or sidebarResultUrl is required");
 		}
 		json(
 			response,
@@ -411,6 +412,7 @@ export async function handleLibraryRoutes(
 			await application.prepareCorpusImport({
 				searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
 				searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
+				newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 				sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 				paperIds: stringArray(body.paperIds),
 				namespace: typeof body.namespace === "string" ? body.namespace : undefined,
@@ -531,9 +533,10 @@ export async function handleLibraryRoutes(
 		if (
 			typeof body.searchJobId !== "string" &&
 			typeof body.searchRunId !== "string" &&
+			typeof body.newsBatchId !== "string" &&
 			typeof body.sidebarResultUrl !== "string"
 		) {
-			throw new ApiError(400, "searchJobId, searchRunId, or sidebarResultUrl is required");
+			throw new ApiError(400, "searchJobId, searchRunId, newsBatchId, or sidebarResultUrl is required");
 		}
 		json(
 			response,
@@ -541,6 +544,7 @@ export async function handleLibraryRoutes(
 			await application.saveCorpusImport({
 				searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
 				searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
+				newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 				sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 				paperIds: stringArray(body.paperIds),
 				namespace: typeof body.namespace === "string" ? body.namespace : undefined,
@@ -554,9 +558,10 @@ export async function handleLibraryRoutes(
 		if (
 			typeof body.searchJobId !== "string" &&
 			typeof body.searchRunId !== "string" &&
+			typeof body.newsBatchId !== "string" &&
 			typeof body.sidebarResultUrl !== "string"
 		) {
-			throw new ApiError(400, "searchJobId, searchRunId, or sidebarResultUrl is required");
+			throw new ApiError(400, "searchJobId, searchRunId, newsBatchId, or sidebarResultUrl is required");
 		}
 		json(
 			response,
@@ -565,6 +570,7 @@ export async function handleLibraryRoutes(
 				{
 					searchJobId: typeof body.searchJobId === "string" ? body.searchJobId : undefined,
 					searchRunId: typeof body.searchRunId === "string" ? body.searchRunId : undefined,
+					newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 					sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 					paperIds: stringArray(body.paperIds),
 					namespace: typeof body.namespace === "string" ? body.namespace : undefined,

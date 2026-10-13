@@ -44,6 +44,43 @@ function crossrefItem(index: number) {
 }
 
 describe("collection workflow", () => {
+	it("keeps dated arXiv results in newest-first provider order without old corpus hits", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-dated-arxiv-"));
+		temporaryPaths.push(root);
+		const filters = { arxivSubmittedFrom: "2026-10-10", arxivSubmittedTo: "2026-10-12" };
+		const paper = (id: string): PaperRecord => ({
+			id,
+			title: id,
+			authors: ["Researcher"],
+			year: 2026,
+			identifiers: { arxivId: id },
+			links: [],
+			provenance: [{ provider: "arxiv", query: "kernel", retrievedAt: "2026-10-12T00:00:00Z" }],
+			mergedFrom: [],
+		});
+		const result = await collectLiterature({
+			queries: ["kernel"],
+			providers: ["arxiv"],
+			filters,
+			pagesPerProvider: 1,
+			maxResultsPerProvider: 2,
+			scope: "personal",
+			mode: "once",
+			namespace: "default",
+			cwd: root,
+			providerPageSearch: async (_provider, options) => {
+				expect(options.filters).toEqual(filters);
+				return {
+					provider: "arxiv",
+					query: "kernel",
+					requestUrl: "https://example.test/arxiv",
+					records: [paper("newest"), paper("older")],
+				};
+			},
+		});
+		expect(result.run.results.map((record) => record.id)).toEqual(["newest", "older"]);
+		expect(result.run.corpusHitCount).toBe(0);
+	});
 	it("adds deterministic acronym and hyphenation query variants", () => {
 		expect(expandLiteratureQueries("LLM-based program analysis", ["code intelligence"])).toEqual([
 			"LLM-based program analysis",

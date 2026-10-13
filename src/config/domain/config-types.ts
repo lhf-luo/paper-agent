@@ -3,7 +3,7 @@ import type { OperationConfirmationSettings } from "../../shared/domain/operatio
 export type ModelApiKind = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 export type ModelInputModality = "text" | "image";
 export type PiBuiltinToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export type PdfTranslationEngine = "siliconflowfree" | "active-model";
+export type PdfTranslationEngine = "siliconflowfree" | "google" | "bing" | "deepl" | "active-model";
 export type MineruModelVersion = "pipeline" | "vlm";
 export type ReaderTranslationProvider = "google" | "deepl" | "youdao" | "baidu";
 

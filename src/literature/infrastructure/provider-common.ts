@@ -8,6 +8,10 @@ export interface ProviderSearchOptions {
 	limit: number;
 	cursor?: string;
 	filters?: SearchFilters;
+	/** Restrict an arXiv search to these subject classes. */
+	arxivCategories?: string[];
+	/** Optional spacing hook, called before every arXiv HTTP attempt including retries. */
+	beforeAttempt?: () => Promise<void>;
 	signal?: AbortSignal;
 	fetcher?: Fetcher;
 	openAlexMailto?: string;

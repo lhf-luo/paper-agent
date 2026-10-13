@@ -10,12 +10,13 @@ import {
 	LayoutDashboard,
 	Moon,
 	Network,
+	Newspaper,
 	Search,
 	Settings,
 	Sun,
 	Users,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, launchPdfPath } from "./api";
 import { LoadingBlock, StatusPill } from "./components";
 import { ConfirmationPolicyProvider } from "./confirmation-policy";
@@ -27,6 +28,7 @@ import { useWorkspace, WorkspaceProvider } from "./workspace-context";
 
 const DashboardPage = lazy(() => import("./dashboard-page"));
 const SearchPage = lazy(() => import("./search-page"));
+const ArxivNewsPage = lazy(() => import("./arxiv-news-page"));
 const AgentPage = lazy(() => import("./agent-page").then((m) => ({ default: m.AgentPage })));
 const LibraryPage = lazy(() => import("./library-page"));
 const TasksPage = lazy(() => import("./tasks-page"));
@@ -54,6 +56,7 @@ const NAVIGATION_SECTIONS: NavigationSection[] = [
 			{ id: "dashboard", label: "总览看板", icon: LayoutDashboard },
 			{ id: "library", label: "个人文献库", icon: BookMarked },
 			{ id: "search", label: "检索与收集", icon: Search },
+			{ id: "news", label: "最新资讯", icon: Newspaper },
 			{ id: "agent", label: "Agent 对话", icon: Bot },
 		],
 	},
@@ -80,6 +83,7 @@ const PAGE_TITLES: Record<Page, string> = {
 	dashboard: "总览看板",
 	library: "个人文献库",
 	search: "检索与收集",
+	news: "最新资讯",
 	agent: "Agent 对话",
 	research: "个人笔记",
 	canvas: "关系画布",
@@ -113,6 +117,27 @@ function AppShell() {
 	const [libraryToolbarTarget, setLibraryToolbarTarget] = useState<HTMLDivElement | null>(null);
 	// Held in state rather than the URL: research prompts are long and would blow past practical URL length.
 	const [agentDraft, setAgentDraft] = useState<{ sessionId: string; text: string }>();
+	const lastAgentSessionId = useRef<string | undefined>(
+		window.localStorage.getItem("paper-agent-last-agent-session") || undefined,
+	);
+	const agentSessionListScrollTop = useRef(
+		Math.max(0, Number(window.sessionStorage.getItem("paper-agent-agent-session-list-scroll")) || 0),
+	);
+	const rememberAgentSession = useCallback(
+		(sessionId?: string) => {
+			lastAgentSessionId.current = sessionId;
+			if (sessionId) window.localStorage.setItem("paper-agent-last-agent-session", sessionId);
+			else window.localStorage.removeItem("paper-agent-last-agent-session");
+			if (page === "agent" && params.session !== sessionId) {
+				router.updateParams({ session: sessionId ?? null });
+			}
+		},
+		[page, params.session, router.updateParams],
+	);
+	const rememberAgentSessionListScroll = useCallback((scrollTop: number) => {
+		agentSessionListScrollTop.current = scrollTop;
+		window.sessionStorage.setItem("paper-agent-agent-session-list-scroll", String(scrollTop));
+	}, []);
 	const { namespace } = useWorkspace();
 
 	// Derived from the URL rather than held in state so `?page=research&namespace=<ns>&noteId=<id>`
@@ -155,7 +180,7 @@ function AppShell() {
 
 	const go = useCallback(
 		(next: Page) => {
-			navigate(next);
+			navigate(next, next === "agent" && lastAgentSessionId.current ? { session: lastAgentSessionId.current } : {});
 			void refreshStatus();
 		},
 		[navigate, refreshStatus],
@@ -290,15 +315,19 @@ function AppShell() {
 						)}
 						<div
 							key={page}
-							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : page === "canvas" ? " page-content-canvas" : page === "settings" ? " page-content-settings" : ""}`}
+							className={`page-content${page === "agent" ? " page-content-full" : page === "library" ? " page-content-library" : page === "reader" ? " page-content-reader" : page === "research" ? " page-content-research" : page === "wiki" ? " page-content-wiki" : page === "canvas" ? " page-content-canvas" : page === "settings" ? " page-content-settings" : page === "news" ? " page-content-news" : ""}`}
 						>
 							{error && <div className="error-banner">{error}</div>}
 							<Suspense fallback={<LoadingBlock text="正在加载工作区…" />}>
 								{page === "dashboard" && <DashboardPage status={status} go={go} />}
 								{page === "search" && <SearchPage onTask={trackTask} />}
+								{page === "news" && <ArxivNewsPage onTask={trackTask} />}
 								{page === "agent" && (
 									<AgentPage
-										focusSessionId={params.session}
+										focusSessionId={params.session || lastAgentSessionId.current}
+										initialSessionListScrollTop={agentSessionListScrollTop.current}
+										onActiveSessionChange={rememberAgentSession}
+										onSessionListScroll={rememberAgentSessionListScroll}
 										initialPrompt={
 											agentDraft && agentDraft.sessionId === params.session ? agentDraft.text : undefined
 										}

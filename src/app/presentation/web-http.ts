@@ -129,7 +129,16 @@ export function searchFilters(value: unknown): SearchFilters {
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		throw new ApiError(400, "filters must be a JSON object");
 	const source = value as Record<string, unknown>;
-	const allowed = new Set(["yearFrom", "yearTo", "venues", "authors", "openAccess", "types"]);
+	const allowed = new Set([
+		"yearFrom",
+		"yearTo",
+		"arxivSubmittedFrom",
+		"arxivSubmittedTo",
+		"venues",
+		"authors",
+		"openAccess",
+		"types",
+	]);
 	const unknown = Object.keys(source).filter((key) => !allowed.has(key));
 	if (unknown.length) throw new ApiError(400, `Unsupported search filter(s): ${unknown.join(", ")}`);
 	const yearFrom = integerValue(source.yearFrom, "filters.yearFrom", 1000, 9999);
@@ -137,12 +146,36 @@ export function searchFilters(value: unknown): SearchFilters {
 	if (yearFrom !== undefined && yearTo !== undefined && yearFrom > yearTo) {
 		throw new ApiError(400, "filters.yearFrom cannot be later than filters.yearTo");
 	}
+	const arxivSubmittedDate = (field: "arxivSubmittedFrom" | "arxivSubmittedTo"): string | undefined => {
+		const date = source[field];
+		if (date === undefined) return undefined;
+		const timestamp = typeof date === "string" ? Date.parse(`${date}T00:00:00Z`) : NaN;
+		if (
+			typeof date !== "string" ||
+			!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+			!Number.isFinite(timestamp) ||
+			new Date(timestamp).toISOString().slice(0, 10) !== date
+		) {
+			throw new ApiError(400, `filters.${field} must be a valid YYYY-MM-DD date`);
+		}
+		return date;
+	};
+	const arxivSubmittedFrom = arxivSubmittedDate("arxivSubmittedFrom");
+	const arxivSubmittedTo = arxivSubmittedDate("arxivSubmittedTo");
+	if (Boolean(arxivSubmittedFrom) !== Boolean(arxivSubmittedTo)) {
+		throw new ApiError(400, "arXiv submission date range requires both start and end dates");
+	}
+	if (arxivSubmittedFrom && arxivSubmittedTo && arxivSubmittedFrom > arxivSubmittedTo) {
+		throw new ApiError(400, "filters.arxivSubmittedFrom cannot be later than filters.arxivSubmittedTo");
+	}
 	if (source.openAccess !== undefined && typeof source.openAccess !== "boolean") {
 		throw new ApiError(400, "filters.openAccess must be a boolean");
 	}
 	return {
 		yearFrom,
 		yearTo,
+		arxivSubmittedFrom,
+		arxivSubmittedTo,
 		venues: boundedStringArray(source.venues, "filters.venues", 100, 500),
 		authors: boundedStringArray(source.authors, "filters.authors", 100, 500),
 		openAccess: source.openAccess as boolean | undefined,
