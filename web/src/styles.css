@@ -5169,6 +5169,22 @@ body.paper-reader-resizing .browser-pdf-frame {
 	width: calc(100% - 44px);
 }
 
+.agent-load-earlier {
+	display: block;
+	margin-bottom: 16px;
+	padding: 8px 12px;
+	border: 1px solid var(--brand-300);
+	border-radius: 8px;
+	background: var(--surface-base);
+	color: var(--green-800);
+	cursor: pointer;
+}
+
+.agent-load-earlier:hover,
+.agent-load-earlier:focus-visible {
+	background: var(--brand-50);
+}
+
 .agent-message {
 	width: 100%;
 	padding: 13px 15px;

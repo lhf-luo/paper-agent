@@ -19,7 +19,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -620,13 +620,20 @@ function summaryFromSnapshot(snapshot: AgentSessionSnapshot): AgentSessionSummar
 }
 
 const RESULT_LINK_PATTERN = /\/api\/agent\/results\/[A-Za-z0-9._-]+\.md/g;
+const TRANSCRIPT_PAGE_SIZE = 30;
 
 /** 把消息文本中的论文清单链接替换为 markdown 链接, 交给 ReactMarkdown 渲染成可点击按钮。 */
 function linkifyResultLinks(text: string): string {
 	return text.replace(RESULT_LINK_PATTERN, "[查看论文清单]($1)");
 }
 
-function AgentMarkdown({ content, onOpenResult }: { content: string; onOpenResult: (url: string) => void }) {
+const AgentMarkdown = memo(function AgentMarkdown({
+	content,
+	onOpenResult,
+}: {
+	content: string;
+	onOpenResult: (url: string) => void;
+}) {
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm]}
@@ -634,7 +641,7 @@ function AgentMarkdown({ content, onOpenResult }: { content: string; onOpenResul
 				a: ({ href, children }) => {
 					if (href?.startsWith("/api/agent/results/")) {
 						return (
-							<button type="button" className="agent-result-link" onClick={() => onOpenResult(href)}>
+							<button type="button" className="agent-result-link" onClick={() => void onOpenResult(href)}>
 								{children}
 							</button>
 						);
@@ -650,7 +657,7 @@ function AgentMarkdown({ content, onOpenResult }: { content: string; onOpenResul
 			{linkifyResultLinks(content)}
 		</ReactMarkdown>
 	);
-}
+});
 
 function DismissibleErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
 	return (
@@ -688,7 +695,7 @@ function AgentResultCard({
 	);
 }
 
-function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+const ThinkingBlock = memo(function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
 	const [open, setOpen] = useState(true);
 	return (
 		<details className="agent-thinking" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
@@ -701,7 +708,7 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
 			</div>
 		</details>
 	);
-}
+});
 
 function upsert<T extends { id: string }>(values: T[], value: T): T[] {
 	const index = values.findIndex((entry) => entry.id === value.id);
@@ -711,8 +718,10 @@ function upsert<T extends { id: string }>(values: T[], value: T): T[] {
 	return next;
 }
 
+const agentTimeFormatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" });
+
 function timeLabel(value: string): string {
-	return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+	return agentTimeFormatter.format(new Date(value));
 }
 
 function AgentUIRequestCard({
@@ -773,22 +782,28 @@ function AgentUIRequestCard({
 	);
 }
 
-function AgentToolCard({ tool }: { tool: AgentToolView }) {
+const AgentToolCard = memo(function AgentToolCard({ tool }: { tool: AgentToolView }) {
+	const [open, setOpen] = useState(tool.status !== "succeeded");
+	useEffect(() => setOpen(tool.status !== "succeeded"), [tool.status]);
 	return (
-		<details className={`agent-tool-card ${tool.status}`} open={tool.status !== "succeeded"}>
+		<details
+			className={`agent-tool-card ${tool.status}`}
+			open={open}
+			onToggle={(event) => setOpen(event.currentTarget.open)}
+		>
 			<summary>
 				<span className="agent-tool-icon">⌘</span>
 				<strong>{tool.name}</strong>
 				<span>{tool.status === "running" ? "执行中" : tool.status === "succeeded" ? "已完成" : "失败"}</span>
 				<small>{timeLabel(tool.startedAt)}</small>
 			</summary>
-			{tool.input && (
+			{open && tool.input && (
 				<div>
 					<span className="agent-tool-field-label">输入</span>
 					<pre>{tool.input}</pre>
 				</div>
 			)}
-			{tool.output && (
+			{open && tool.output && (
 				<div>
 					<span className="agent-tool-field-label">输出</span>
 					<pre>{tool.output}</pre>
@@ -796,23 +811,31 @@ function AgentToolCard({ tool }: { tool: AgentToolView }) {
 			)}
 		</details>
 	);
-}
+});
 
-function AgentToolGroup({ tools }: { tools: AgentToolView[] }) {
-	const hasAttentionItem = tools.some((tool) => tool.status !== "succeeded");
-	return (
-		<details className="agent-message-tools" open={hasAttentionItem}>
-			<summary>
-				工具调用 {tools.length} 项{hasAttentionItem && <span>有任务仍在执行或失败</span>}
-			</summary>
-			<div className="agent-message-tool-list">
-				{tools.map((tool) => (
-					<AgentToolCard key={tool.id} tool={tool} />
-				))}
-			</div>
-		</details>
-	);
-}
+const AgentToolGroup = memo(
+	function AgentToolGroup({ tools }: { tools: AgentToolView[] }) {
+		const hasAttentionItem = tools.some((tool) => tool.status !== "succeeded");
+		const [open, setOpen] = useState(hasAttentionItem);
+		useEffect(() => setOpen(hasAttentionItem), [hasAttentionItem]);
+		return (
+			<details className="agent-message-tools" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+				<summary>
+					工具调用 {tools.length} 项{hasAttentionItem && <span>有任务仍在执行或失败</span>}
+				</summary>
+				{open && (
+					<div className="agent-message-tool-list">
+						{tools.map((tool) => (
+							<AgentToolCard key={tool.id} tool={tool} />
+						))}
+					</div>
+				)}
+			</details>
+		);
+	},
+	(previous, next) =>
+		previous.tools.length === next.tools.length && previous.tools.every((tool, index) => tool === next.tools[index]),
+);
 
 export interface PaperAgentContext {
 	paperId: string;
@@ -1171,7 +1194,12 @@ export function AgentPage({
 		() => window.localStorage.getItem("paper-agent-sidebar-open") !== "closed",
 	);
 
+	const activeId = active?.id;
 	const transcriptRef = useRef<HTMLDivElement>(null);
+	const prependScrollRef = useRef<{ height: number; top: number } | undefined>(undefined);
+	const visibleSessionIdRef = useRef<string | undefined>(undefined);
+	const previousTranscriptRef = useRef<{ sessionId?: string; count: number }>({ count: 0 });
+	const [visibleMessageCount, setVisibleMessageCount] = useState(TRANSCRIPT_PAGE_SIZE);
 	const autoFollowTranscript = useRef(true);
 	const [showLatestButton, setShowLatestButton] = useState(false);
 	const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -1192,6 +1220,38 @@ export function AgentPage({
 		autoFollowTranscript.current = false;
 		setShowLatestButton(true);
 	}, []);
+	useEffect(() => {
+		if (visibleSessionIdRef.current === activeId) return;
+		visibleSessionIdRef.current = activeId;
+		prependScrollRef.current = undefined;
+		setVisibleMessageCount(TRANSCRIPT_PAGE_SIZE);
+	}, [activeId]);
+	useLayoutEffect(() => {
+		const count = active?.messages.length ?? 0;
+		const previous = previousTranscriptRef.current;
+		if (previous.sessionId === activeId && count > previous.count && !autoFollowTranscript.current) {
+			setVisibleMessageCount((current) => current + count - previous.count);
+		}
+		previousTranscriptRef.current = { sessionId: activeId, count };
+	}, [activeId, active?.messages.length]);
+	useLayoutEffect(() => {
+		const anchor = prependScrollRef.current;
+		const transcript = transcriptRef.current;
+		if (!anchor || !transcript) return;
+		transcript.scrollTop = anchor.top + transcript.scrollHeight - anchor.height;
+		prependScrollRef.current = undefined;
+	});
+	const effectiveVisibleMessageCount =
+		visibleSessionIdRef.current === activeId ? visibleMessageCount : TRANSCRIPT_PAGE_SIZE;
+	const visibleMessages = active?.messages.slice(-effectiveVisibleMessageCount) ?? [];
+	const olderMessageCount = Math.max(0, (active?.messages.length ?? 0) - effectiveVisibleMessageCount);
+	const showOlderMessages = () => {
+		const transcript = transcriptRef.current;
+		if (transcript) prependScrollRef.current = { height: transcript.scrollHeight, top: transcript.scrollTop };
+		autoFollowTranscript.current = false;
+		setShowLatestButton(true);
+		setVisibleMessageCount((count) => count + TRANSCRIPT_PAGE_SIZE);
+	};
 
 	const applyConfig = useCallback((next: AgentConfigView) => {
 		setConfig(next);
@@ -1326,9 +1386,14 @@ export function AgentPage({
 		if (focusSessionId && focusSessionId === activeIdRef.current) return;
 		void (async () => {
 			try {
+				const [nextConfig, sessionResult] = await Promise.all([
+					api<AgentConfigView>("/api/agent/config"),
+					api<{ sessions: AgentSessionSummary[] }>(sessionListUrl),
+				]);
+				applyConfig(nextConfig);
+				setSessions(sessionResult.sessions);
 				if (focusSessionId) {
 					if (await focusSessionById(focusSessionId)) {
-						applyConfig(await api<AgentConfigView>("/api/agent/config"));
 						return;
 					}
 					if (canvasContextCanvasId) {
@@ -1336,12 +1401,6 @@ export function AgentPage({
 						return;
 					}
 				}
-				const [nextConfig, sessionResult] = await Promise.all([
-					api<AgentConfigView>("/api/agent/config"),
-					api<{ sessions: AgentSessionSummary[] }>(sessionListUrl),
-				]);
-				applyConfig(nextConfig);
-				setSessions(sessionResult.sessions);
 				const initialSession = sessionResult.sessions[0];
 				if (initialSession) {
 					const snapshot = await api<AgentSessionSnapshot>(
@@ -1365,7 +1424,6 @@ export function AgentPage({
 		canvasContextCanvasId,
 	]);
 
-	const activeId = active?.id;
 	useEffect(() => {
 		if (!embedded && !loading) onActiveSessionChange?.(activeId);
 	}, [activeId, embedded, loading, onActiveSessionChange]);
@@ -1536,15 +1594,15 @@ export function AgentPage({
 					void reason;
 				}
 				await new Promise<void>((resolve) => {
-					const timer = window.setTimeout(resolve, 1_200);
-					controller.signal.addEventListener(
-						"abort",
-						() => {
-							window.clearTimeout(timer);
-							resolve();
-						},
-						{ once: true },
-					);
+					const onAbort = () => {
+						window.clearTimeout(timer);
+						resolve();
+					};
+					const timer = window.setTimeout(() => {
+						controller.signal.removeEventListener("abort", onAbort);
+						resolve();
+					}, 1_200);
+					controller.signal.addEventListener("abort", onAbort, { once: true });
 				});
 			}
 		})();
@@ -1937,7 +1995,11 @@ export function AgentPage({
 							<Plus size={15} strokeWidth={2.5} />
 							<span>新建研究会话</span>
 						</button>
-						<div className="agent-session-list" ref={sessionListRef} onScroll={(event) => onSessionListScroll?.(event.currentTarget.scrollTop)}>
+						<div
+							className="agent-session-list"
+							ref={sessionListRef}
+							onScroll={(event) => onSessionListScroll?.(event.currentTarget.scrollTop)}
+						>
 							{orderedSessions.map((session) => {
 								const isActive = active?.id === session.id;
 								const isRunning = session.status === "running";
@@ -2113,7 +2175,12 @@ export function AgentPage({
 								onScroll={handleTranscriptScroll}
 								onWheel={handleTranscriptWheel}
 							>
-								{active?.messages.map((message) => {
+								{olderMessageCount > 0 && (
+									<button type="button" className="agent-load-earlier" onClick={showOlderMessages}>
+										加载更早的消息（剩余 {olderMessageCount} 条）
+									</button>
+								)}
+								{visibleMessages.map((message) => {
 									const messageResults = resultDocumentsByMessage.get(message.id) ?? [];
 									const messageTools = toolsByMessage.get(message.id) ?? [];
 									return (
@@ -2125,10 +2192,7 @@ export function AgentPage({
 											<div className="agent-message-text">
 												{message.content ? (
 													message.role === "assistant" ? (
-														<AgentMarkdown
-															content={message.content}
-															onOpenResult={(url) => void openSidebarDocument(url)}
-														/>
+														<AgentMarkdown content={message.content} onOpenResult={openSidebarDocument} />
 													) : (
 														<span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
 													)

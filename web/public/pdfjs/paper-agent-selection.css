@@ -1,6 +1,13 @@
-.paper-agent-explain-selection {
+.paper-agent-selection-actions {
 	position: fixed;
 	z-index: 10000;
+	display: flex;
+	gap: 4px;
+}
+
+.paper-agent-selection-actions[hidden] { display: none; }
+
+.paper-agent-selection-actions button {
 	padding: 7px 12px;
 	border: 1px solid #9fc7b6;
 	border-radius: 7px;
@@ -11,4 +18,16 @@
 	cursor: pointer;
 }
 
-.paper-agent-explain-selection[hidden] { display: none; }
+.paper-agent-selection-actions button:disabled {
+	opacity: .5;
+	cursor: not-allowed;
+}
+
+.paper-agent-reader-highlight {
+	position: absolute;
+	z-index: 3;
+	pointer-events: none;
+	border-radius: 2px;
+	background: rgb(250 204 21 / 42%);
+	mix-blend-mode: multiply;
+}

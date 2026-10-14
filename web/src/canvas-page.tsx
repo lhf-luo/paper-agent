@@ -2940,6 +2940,20 @@ export default function CanvasPage({
 											<div className="research-canvas-context-heading">
 												{nodeNames[contextNode.kind]}节点
 											</div>
+											{contextNode.kind === "paper" && (
+												<button
+													type="button"
+													role="menuitem"
+													disabled={!contextNode.entityId || !paperById.has(contextNode.entityId)}
+													onClick={() => {
+														setContextMenu(undefined);
+														void openPaper(contextNode.entityId ?? "");
+													}}
+												>
+													<BookOpen size={16} />
+													阅读
+												</button>
+											)}
 											<button type="button" role="menuitem" onClick={() => copyNode(contextNode)}>
 												<Copy size={16} />
 												复制节点

@@ -3,6 +3,8 @@ import { connectPdfJsBilingualSelectionBridge } from "./pdfjs-bilingual-selectio
 import { connectPdfJsReaderSelection, type ReaderTextSelection } from "./pdfjs-reader-selection";
 import { mozillaPdfViewerUrl } from "./pdfjs-viewer-url";
 
+export const PDF_READER_RESIZE_COMMIT_EVENT = "paper-agent-reader-resize-commit";
+
 export function MozillaPdfReader({
 	url,
 	title,
@@ -103,8 +105,11 @@ export function MozillaPdfReader({
 					}
 					const cleanups: Array<() => void> = [];
 					const viewerWindow = frame.contentWindow;
+					let lastViewerWidth = 0;
 					const resizeViewer = () => {
-						if (!viewerWindow || !frame.clientWidth) return;
+						const width = frame.clientWidth;
+						if (!viewerWindow || !width || width === lastViewerWidth) return;
+						lastViewerWidth = width;
 						viewerWindow.dispatchEvent(new Event("resize"));
 					};
 					const container = frame.parentElement;
@@ -122,15 +127,20 @@ export function MozillaPdfReader({
 							viewsToggle.click();
 							narrowHandled = true;
 						};
-						const observer = new ResizeObserver(() => {
+						const syncViewerLayout = () => {
 							resizeViewer();
 							const isNarrow = container.clientWidth < 700;
 							if (isNarrow && !wasNarrow) narrowHandled = false;
 							wasNarrow = isNarrow;
 							collapseOutline();
+						};
+						const observer = new ResizeObserver(() => {
+							if (!document.body.classList.contains("paper-reader-resizing")) syncViewerLayout();
 						});
 						observer.observe(container);
 						cleanups.push(() => observer.disconnect());
+						window.addEventListener(PDF_READER_RESIZE_COMMIT_EVENT, syncViewerLayout);
+						cleanups.push(() => window.removeEventListener(PDF_READER_RESIZE_COMMIT_EVENT, syncViewerLayout));
 						if (viewsToggle) {
 							const menuObserver = new MutationObserver(collapseOutline);
 							menuObserver.observe(viewsToggle, { attributes: true, attributeFilter: ["aria-expanded"] });
@@ -144,6 +154,7 @@ export function MozillaPdfReader({
 								(value) => onSelectionRef.current(value),
 								(value) => onExplainRef.current(value),
 								() => translationModeRef.current,
+								url,
 							),
 						);
 					} catch (reason) {

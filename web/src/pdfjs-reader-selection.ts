@@ -1,3 +1,5 @@
+import { connectPdfJsReaderHighlights } from "./pdfjs-reader-highlights";
+
 export interface ReaderTextSelection {
 	text: string;
 	pages: number[];
@@ -83,38 +85,53 @@ export function connectPdfJsReaderSelection(
 	onSelection: (selection: ReaderTextSelection) => void,
 	onExplain: (selection: ReaderTextSelection) => void,
 	translationMode: () => { enabled: boolean; activation: number },
+	pdfUrl: string,
 ): () => void {
 	const document = frame.contentDocument;
 	const frameWindow = frame.contentWindow;
 	if (!document || !frameWindow) return () => undefined;
 	const style = document.createElement("link");
 	style.rel = "stylesheet";
-	style.href = "/pdfjs/paper-agent-selection.css";
+	style.href = "/pdfjs/paper-agent-selection.css?v=2";
 	document.head.append(style);
+	const highlights = connectPdfJsReaderHighlights(frame, pdfUrl);
+	const actions = document.createElement("div");
+	actions.className = "paper-agent-selection-actions";
+	actions.hidden = true;
 	const button = document.createElement("button");
 	button.type = "button";
 	button.className = "paper-agent-explain-selection";
 	button.textContent = "AI 解读";
 	button.setAttribute("aria-label", "把选中文字发送到 AI 输入框解读");
-	button.hidden = true;
-	document.body.append(button);
+	const highlightButton = document.createElement("button");
+	highlightButton.type = "button";
+	highlightButton.className = "paper-agent-highlight-selection";
+	highlightButton.textContent = "高亮";
+	highlightButton.title = "保存在当前浏览器，不修改原 PDF";
+	highlightButton.setAttribute("aria-label", "高亮选中的 PDF 文字");
+	actions.append(button, highlightButton);
+	document.body.append(actions);
 	let timer = 0;
 	let captured: ReaderTextSelection | undefined;
 	let lastKey = "";
 	const update = () => {
 		const result = currentSelection(document);
 		if (!result) {
-			button.hidden = true;
+			actions.hidden = true;
 			captured = undefined;
 			lastKey = "";
 			return;
 		}
 		captured = result.value;
-		const top = Math.max(8, Math.min(frameWindow.innerHeight - 38, result.rect.bottom + 8));
-		const left = Math.max(8, Math.min(frameWindow.innerWidth - 92, result.rect.left));
-		button.style.top = `${top}px`;
-		button.style.left = `${left}px`;
-		button.hidden = false;
+		const top = Math.max(8, Math.min(frameWindow.innerHeight - 40, result.rect.bottom + 8));
+		const left = Math.max(8, Math.min(frameWindow.innerWidth - 178, result.rect.left));
+		actions.style.top = `${top}px`;
+		actions.style.left = `${left}px`;
+		actions.hidden = false;
+		const action = highlights?.selectedAction();
+		highlightButton.disabled = !action;
+		highlightButton.textContent = action === "remove" ? "取消高亮" : "高亮";
+		highlightButton.setAttribute("aria-label", action === "remove" ? "取消所选文字的高亮" : "高亮选中的 PDF 文字");
 		const mode = translationMode();
 		if (!mode.enabled) {
 			lastKey = "";
@@ -133,10 +150,22 @@ export function connectPdfJsReaderSelection(
 	const preserve = (event: PointerEvent) => event.preventDefault();
 	const explain = () => {
 		if (captured) onExplain(captured);
-		button.hidden = true;
+		actions.hidden = true;
+	};
+	const toggleHighlight = () => {
+		const result = highlights?.toggleSelected();
+		if (result === "error" || result === "full") {
+			highlightButton.textContent = result === "full" ? "高亮数量已达上限" : "高亮保存失败";
+			return;
+		}
+		if (result === "unavailable") return;
+		document.getSelection()?.removeAllRanges();
+		actions.hidden = true;
 	};
 	button.addEventListener("pointerdown", preserve);
 	button.addEventListener("click", explain);
+	highlightButton.addEventListener("pointerdown", preserve);
+	highlightButton.addEventListener("click", toggleHighlight);
 	document.addEventListener("selectionchange", schedule);
 	document.addEventListener("pointerup", schedule);
 	document.addEventListener("keyup", schedule);
@@ -147,7 +176,10 @@ export function connectPdfJsReaderSelection(
 		document.removeEventListener("keyup", schedule);
 		button.removeEventListener("pointerdown", preserve);
 		button.removeEventListener("click", explain);
-		button.remove();
+		highlightButton.removeEventListener("pointerdown", preserve);
+		highlightButton.removeEventListener("click", toggleHighlight);
+		actions.remove();
+		highlights?.dispose();
 		style.remove();
 	};
 }

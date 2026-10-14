@@ -15,7 +15,7 @@ import { AgentPage } from "./agent-page";
 import { api } from "./api";
 import { formatFileSize } from "./components";
 import { MineruControl } from "./mineru-control";
-import { MozillaPdfReader } from "./mozilla-pdf-reader";
+import { MozillaPdfReader, PDF_READER_RESIZE_COMMIT_EVENT } from "./mozilla-pdf-reader";
 import { PdfTranslationControl } from "./pdf-translation-control";
 import type { ReaderTextSelection } from "./pdfjs-reader-selection";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
@@ -71,6 +71,7 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
 	const readerLayoutRef = useRef<HTMLDivElement>(null);
+	const resizeCleanupRef = useRef<(() => void) | null>(null);
 	const { ref: workspaceRef, width: workspaceWidth } = useElementWidth<HTMLElement>();
 	const railRef = useRef<HTMLElement>(null);
 	const workspaceOpen = tabs.length > 0;
@@ -108,10 +109,12 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 		setTranslationOpen(!translationOpen);
 	};
 
-	const resizeReaderPane = useCallback(
-		(clientX: number) => {
-			const bounds = readerLayoutRef.current?.getBoundingClientRect();
-			if (!bounds) return;
+	const startReaderResize = useCallback(
+		(event: React.PointerEvent<HTMLHRElement>) => {
+			event.preventDefault();
+			const layout = readerLayoutRef.current;
+			const bounds = layout?.getBoundingClientRect();
+			if (!layout || !bounds) return;
 			const hasTranslationColumn = translationOpen && layoutMode === "wide";
 			const maximum = Math.max(
 				320,
@@ -121,48 +124,54 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 					layoutMode === "medium" ? bounds.width * 0.42 : 720,
 				),
 			);
-			setReaderWorkspaceWidth(
-				Math.max(320, Math.min(maximum, bounds.right - (hasTranslationColumn ? 366 : 46) - clientX)),
-			);
+			const widthAt = (clientX: number) =>
+				Math.max(320, Math.min(maximum, bounds.right - (hasTranslationColumn ? 366 : 46) - clientX));
+			const pointerId = event.pointerId;
+			let width = widthAt(event.clientX);
+			let frame: number | undefined;
+			const paint = () => {
+				frame = undefined;
+				layout.style.setProperty("--paper-agent-pane-width", `${width}px`);
+			};
+			document.body.classList.add("paper-reader-resizing");
+			function onMove(move: PointerEvent) {
+				if (move.pointerId !== pointerId) return;
+				width = widthAt(move.clientX);
+				if (frame === undefined) frame = window.requestAnimationFrame(paint);
+			}
+			function cleanup() {
+				if (frame !== undefined) window.cancelAnimationFrame(frame);
+				document.body.classList.remove("paper-reader-resizing");
+				window.removeEventListener("pointermove", onMove);
+				window.removeEventListener("pointerup", onUp);
+				window.removeEventListener("pointercancel", onCancel);
+				window.removeEventListener("blur", onCancel);
+				resizeCleanupRef.current = null;
+			}
+			function finish(clientX?: number) {
+				if (clientX !== undefined) width = widthAt(clientX);
+				cleanup();
+				paint();
+				setReaderWorkspaceWidth(width);
+				window.localStorage.setItem("paper-agent-reader-pane-width", String(Math.round(width)));
+				window.dispatchEvent(new Event(PDF_READER_RESIZE_COMMIT_EVENT));
+			}
+			function onUp(up: PointerEvent) {
+				if (up.pointerId === pointerId) finish(up.clientX);
+			}
+			function onCancel() {
+				finish();
+			}
+			resizeCleanupRef.current = cleanup;
+			window.addEventListener("pointermove", onMove);
+			window.addEventListener("pointerup", onUp);
+			window.addEventListener("pointercancel", onCancel, { once: true });
+			window.addEventListener("blur", onCancel, { once: true });
 		},
 		[layoutMode, translationOpen],
 	);
 
-	const startReaderResize = useCallback(
-		(event: React.PointerEvent<HTMLHRElement>) => {
-			event.preventDefault();
-			document.body.classList.add("paper-reader-resizing");
-			const onMove = (move: PointerEvent) => resizeReaderPane(move.clientX);
-			const onUp = (up: PointerEvent) => {
-				resizeReaderPane(up.clientX);
-				document.body.classList.remove("paper-reader-resizing");
-				window.removeEventListener("pointermove", onMove);
-				window.removeEventListener("pointerup", onUp);
-				const bounds = readerLayoutRef.current?.getBoundingClientRect();
-				if (bounds) {
-					const hasTranslationColumn = translationOpen && layoutMode === "wide";
-					const maximum = Math.max(
-						320,
-						Math.min(
-							720,
-							bounds.width - (hasTranslationColumn ? 792 : 468),
-							layoutMode === "medium" ? bounds.width * 0.42 : 720,
-						),
-					);
-					const width = Math.max(
-						320,
-						Math.min(maximum, bounds.right - (hasTranslationColumn ? 366 : 46) - up.clientX),
-					);
-					window.localStorage.setItem("paper-agent-reader-pane-width", String(Math.round(width)));
-				}
-			};
-			window.addEventListener("pointermove", onMove);
-			window.addEventListener("pointerup", onUp, { once: true });
-		},
-		[layoutMode, resizeReaderPane, translationOpen],
-	);
-
-	useEffect(() => () => document.body.classList.remove("paper-reader-resizing"), []);
+	useEffect(() => () => resizeCleanupRef.current?.(), []);
 
 	const loadReaderData = useCallback(async () => {
 		if (!reader.paperId || !reader.namespace) return;
