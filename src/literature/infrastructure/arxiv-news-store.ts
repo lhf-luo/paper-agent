@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_NEWS_FILTER_GROUPS, type NewsFilterGroup } from "../application/arxiv-news-screening.ts";
+import { DEFAULT_NEWS_FILTER_GROUPS, type NewsFilterGroup } from "../domain/arxiv-news.ts";
 import type { PaperRecord } from "../domain/literature-types.ts";
 
 /** A standalone feed scope, separate from personal-library namespaces. */

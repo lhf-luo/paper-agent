@@ -1,4 +1,4 @@
-import { connectPdfJsReaderHighlights } from "./pdfjs-reader-highlights";
+import { connectPdfJsReaderHighlights } from "./pdfjs-reader-highlights.js";
 
 export interface ReaderTextSelection {
 	text: string;

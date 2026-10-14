@@ -301,19 +301,17 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</button>
 						</div>
 					)}
-					<div
+					<section
 						id="settings-panel-models"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-models"
 						hidden={activeCategory !== "models"}
 					>
 						<ModelProvidersPanel config={config} saveNow={saveNow} onSaved={load} busy={busy} />
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-workspace"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-workspace"
 						hidden={activeCategory !== "workspace"}
 					>
@@ -401,11 +399,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								配置文件：<code>{config.path}</code>
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-network"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-network"
 						hidden={activeCategory !== "network"}
 					>
@@ -461,11 +458,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								https://，并包含端口。直连域名留空时使用内置默认列表。保存代理变更后需重启 Paper Agent。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-reader-translation"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-reader-translation"
 						hidden={activeCategory !== "reader-translation"}
 					>
@@ -580,11 +576,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</label>
 							</div>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-wiki"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-wiki"
 						hidden={activeCategory !== "wiki"}
 					>
@@ -609,11 +604,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</label>
 							</div>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-pdf-translation"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-pdf-translation"
 						hidden={activeCategory !== "pdf-translation"}
 					>
@@ -714,11 +708,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								未提供百度命令。已配置的文本模型也可用于整篇翻译；切换只影响新任务。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-mineru"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-mineru"
 						hidden={activeCategory !== "mineru"}
 					>
@@ -782,11 +775,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								材料按需生成，并保存在论文 PDF 同级的 mineru 目录中。系统优先使用 unzip，缺少时回退到 tar。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-confirmations"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-confirmations"
 						hidden={activeCategory !== "confirmations"}
 					>
@@ -850,11 +842,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</div>
 							<p className="form-hint">团队操作、令牌、备份恢复、配置修改和系统文件操作始终需要确认。</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-search"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-search"
 						hidden={activeCategory !== "search"}
 					>
@@ -947,11 +938,10 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</label>
 						</section>
 						<SearchProviderProbePanel key={probeRevision} />
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-team"
 						className="settings-section"
-						role="region"
 						aria-labelledby="settings-nav-team"
 						hidden={activeCategory !== "team"}
 					>
@@ -1051,7 +1041,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</>
 							)}
 						</section>
-					</div>
+					</section>
 				</div>
 			</div>
 		</>
