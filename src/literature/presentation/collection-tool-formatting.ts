@@ -158,7 +158,7 @@ export function collectionParameters() {
 				minItems: 1,
 				maxItems: 10,
 				description:
-					"Keyword-search providers. Default: arxiv, openalex, crossref, semanticscholar, dblp, core, exa. ACL Anthology requires one exact year and one ACL-family venue. USENIX searches official conference pages. Missing abstracts with a DOI are completed automatically after search.",
+					"Keyword-search providers. Default: arxiv, openalex, crossref, semanticscholar, dblp, core, exa, usenix. ACL Anthology requires one exact year and one ACL-family venue, so it is enabled only when explicitly selected. USENIX searches official conference pages. Missing abstracts with a DOI are completed automatically after search.",
 			}),
 		),
 		year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
@@ -247,7 +247,16 @@ export function optionsFromParams(
 			params.auto_expand === false
 				? uniqueQueries([params.query, ...(params.query_expansions ?? [])])
 				: expandLiteratureQueries(params.query, params.query_expansions),
-		providers: params.providers ?? ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa"],
+		providers: params.providers ?? [
+			"arxiv",
+			"openalex",
+			"crossref",
+			"semanticscholar",
+			"dblp",
+			"core",
+			"exa",
+			"usenix",
+		],
 		filters: {
 			yearFrom: params.year_from,
 			yearTo: params.year_to,

@@ -4,15 +4,17 @@ import { normalizeDoi } from "../domain/literature-identifiers.ts";
 import type { PaperLink, PaperRecord, ProviderFailure, ProviderPage } from "../domain/literature-types.ts";
 import {
 	LiteratureProviderHttpError,
+	type ProviderSearchOptions,
 	passesFilters,
 	providerFailureFromError,
-	type ProviderSearchOptions,
 	withId,
 } from "./provider-common.ts";
 
 const USENIX_ORIGIN = "https://www.usenix.org";
 const DETAIL_LIMIT = 10;
 const DETAIL_CONCURRENCY = 2;
+const CLOUDFLARE_CHALLENGE =
+	/<title[^>]*>\s*(?:just a moment|attention required!?)(?:\.\.\.)?\s*<\/title>|id=["']cf-(?:chl-widget|error-details)["']/i;
 
 function htmlAttribute(tag: string, name: string): string | undefined {
 	const match = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(tag);
@@ -121,7 +123,9 @@ function recordFromHtml(html: string, pageUrl: string, query: string, retrievedA
 		publicationType: "conference paper",
 		identifiers: { doi },
 		links,
-		provenance: [{ provider: "usenix", query, retrievedAt, providerRecordId: conferenceRecordId(url), rawUrl: pageUrl }],
+		provenance: [
+			{ provider: "usenix", query, retrievedAt, providerRecordId: conferenceRecordId(url), rawUrl: pageUrl },
+		],
 		mergedFrom: [],
 	});
 }
@@ -152,6 +156,9 @@ export async function searchUsenixPage(options: ProviderSearchOptions): Promise<
 	});
 	if (!response.ok) throw new LiteratureProviderHttpError("USENIX", response);
 	const searchHtml = await response.text();
+	if (CLOUDFLARE_CHALLENGE.test(searchHtml)) {
+		throw new Error("USENIX returned a Cloudflare challenge instead of search results");
+	}
 	if (!/<html\b/i.test(searchHtml) && !/<(?:ol|form)\b[^>]*(?:search-results|search-form)/i.test(searchHtml)) {
 		throw new Error("USENIX returned an unexpected search payload");
 	}

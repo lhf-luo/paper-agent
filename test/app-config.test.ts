@@ -40,6 +40,12 @@ afterEach(() => {
 });
 
 describe("Paper Agent local configuration", () => {
+	it("enables official USENIX discovery by default while leaving constrained ACL search opt-in", () => {
+		const config = defaultPaperAgentConfig();
+		expect(config.search.providers).toContain("usenix");
+		expect(config.search.providers).not.toContain("acl_anthology");
+	});
+
 	it("registers an Obsidian Wiki vault once and reuses its stable vault id", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-obsidian-"));
 		try {
