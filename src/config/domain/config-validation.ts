@@ -56,7 +56,7 @@ export function defaultPaperAgentConfig(): PaperAgentConfig {
 		},
 		wiki: {},
 		search: {
-			providers: ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa"],
+			providers: ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa", "usenix"],
 			doiEnrichmentProviders: ["crossref", "openalex", "semanticscholar", "opencitations", "unpaywall"],
 			maxResultsPerProvider: 20,
 			pagesPerProvider: 1,

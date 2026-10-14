@@ -22,13 +22,15 @@ Paper Agent uses provider adapters behind one normalized record and provenance m
 
 OpenCitations and Unpaywall are not keyword-search engines and therefore do not appear in the Web search-source selector. They run automatically after a selected search result or local PDF has an exact DOI. The default DOI enrichment chain is Crossref, OpenAlex, Semantic Scholar, OpenCitations, and Unpaywall.
 
-ACL Anthology and USENIX are optional and are not added to the default provider list. ACL Anthology accepts only a single exact year and one supported venue: AACL, ACL, ANLP, COLING, CONLL, EACL, EMNLP, IJCNLP, LREC, NAACL, SemEval, or TACL. Invalid ACL requests are rejected before any network call. USENIX first discovers official presentation pages and then reads at most ten deduplicated details per page. If some detail pages fail, successful papers remain in the result and the search run records the provider as partial instead of discarding them.
+USENIX is enabled by default so recently published USENIX conference papers can be discovered from their official pages before metadata aggregators index them. It first discovers official presentation pages and then reads at most ten deduplicated details per page. If some detail pages fail, successful papers remain in the result and the search run records the provider as partial instead of discarding them.
+
+ACL Anthology remains opt-in because it accepts only a single exact year and one supported venue: AACL, ACL, ANLP, COLING, CONLL, EACL, EMNLP, IJCNLP, LREC, NAACL, SemEval, or TACL. Invalid ACL requests are rejected before any network call.
 
 Configure the phases separately in `.paper-agent/config/search.json`:
 
 ```json
 {
-  "providers": ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa"],
+  "providers": ["arxiv", "openalex", "crossref", "semanticscholar", "dblp", "core", "exa", "usenix"],
   "doiEnrichmentProviders": ["crossref", "openalex", "semanticscholar", "opencitations", "unpaywall"]
 }
 ```

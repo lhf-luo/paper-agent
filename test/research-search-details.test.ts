@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchDetails } from "../src/literature/presentation/literature-discovery-tools.ts";
 import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
+import { buildSearchDetails } from "../src/literature/presentation/literature-discovery-tools.ts";
 
 describe("search_literature details", () => {
 	it("returns persisted source handles and separates discovery from DOI enrichment providers", () => {
@@ -22,7 +22,7 @@ describe("search_literature details", () => {
 			completedAt: "2026-09-05T00:00:02.000Z",
 			queries: ["title author"],
 			filters: {},
-			providers: ["arxiv", "openalex", "crossref"],
+			providers: ["arxiv", "openalex", "crossref", "usenix"],
 			pagesPerProvider: 1,
 			maxResultsPerProvider: 5,
 			results: [candidate],
@@ -38,7 +38,7 @@ describe("search_literature details", () => {
 
 		expect(details).toMatchObject({
 			searchRunId: "search-doi",
-			discoveryProviders: ["arxiv", "openalex", "crossref"],
+			discoveryProviders: ["arxiv", "openalex", "crossref", "usenix"],
 			enrichmentProviders: ["unpaywall"],
 			candidates: [
 				expect.objectContaining({

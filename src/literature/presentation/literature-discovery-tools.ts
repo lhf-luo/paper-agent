@@ -32,7 +32,7 @@ export interface SearchDetails {
 	}>;
 }
 
-const QUICK_SEARCH_PROVIDERS: LiteratureProvider[] = ["arxiv", "openalex", "crossref"];
+const QUICK_SEARCH_PROVIDERS: LiteratureProvider[] = ["arxiv", "openalex", "crossref", "usenix"];
 const QUICK_SEARCH_PROVIDER_NAMES = new Set<string>(QUICK_SEARCH_PROVIDERS);
 
 function formatResult(result: PaperRecord, index: number): string {
@@ -84,8 +84,8 @@ export function registerLiteratureDiscoveryTools(pi: ExtensionAPI): void {
 		name: "search_literature",
 		label: "Search literature",
 		description:
-			"Quick search across arXiv, OpenAlex, and Crossref with DOI/arXiv/title deduplication and partial-source failure reporting. For reproducible searches use collect_literature.",
-		promptSnippet: "Quickly search three literature metadata providers",
+			"Quick search across arXiv, OpenAlex, Crossref, and official USENIX conference pages with DOI/arXiv/title deduplication and partial-source failure reporting. For reproducible searches use collect_literature.",
+		promptSnippet: "Quickly search four literature discovery providers",
 		promptGuidelines: [
 			"Use the complete title plus the first author when filling missing metadata.",
 			"Use the returned searchRunId and Paper ID for later list edits or saves.",

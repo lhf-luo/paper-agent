@@ -190,4 +190,18 @@ describe("replayable literature provider fixtures", () => {
 			}),
 		).rejects.toThrow("could not read any paper detail page");
 	});
+
+	it("reports a USENIX Cloudflare challenge instead of treating it as an empty result", async () => {
+		await expect(
+			searchUsenixPage({
+				query: "Motion in the Clear",
+				limit: 10,
+				fetcher: async () =>
+					new Response(
+						"<html><head><title>Just a moment...</title></head><body><div id='cf-chl-widget'></div></body></html>",
+						{ status: 200 },
+					),
+			}),
+		).rejects.toThrow("Cloudflare challenge");
+	});
 });
