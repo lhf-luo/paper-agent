@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { ResearchCanvas, ResearchCanvasSummary } from "../domain/research-canvas.ts";
 import { validateCanvasDocument } from "../domain/research-canvas.ts";
+import { emitCanvasResearchChange } from "./canvas-research-events.ts";
+import { syncResearchHistory } from "./canvas-research-history.ts";
 
 interface CanvasRow {
 	id: string;
@@ -27,6 +29,7 @@ export class ResearchCanvasStore {
 	private withDatabase<T>(operation: (database: DatabaseSync) => T): T {
 		const database = new DatabaseSync(this.databasePath);
 		try {
+			database.exec("PRAGMA busy_timeout = 5000");
 			database.exec(`CREATE TABLE IF NOT EXISTS research_canvases (
 				namespace_id TEXT NOT NULL,
 				id TEXT NOT NULL,
@@ -95,7 +98,7 @@ export class ResearchCanvasStore {
 	}
 
 	duplicate(id: string, expectedRevision: number): ResearchCanvas | undefined {
-		return this.withDatabase((database) => {
+		return this.withTransaction((database) => {
 			const row = database
 				.prepare("SELECT * FROM research_canvases WHERE namespace_id = ? AND id = ?")
 				.get(this.namespace, id) as CanvasRow | undefined;
@@ -105,11 +108,26 @@ export class ResearchCanvasStore {
 			const source = this.canvasFrom(row);
 			const document = validateCanvasDocument({
 				title: `${source.title.slice(0, 117)} 副本`,
-				nodes: source.nodes,
-				edges: source.edges,
+				nodes: source.nodes.map((node) =>
+					node.generatedFrom ? { ...node, generatedFrom: { ...node.generatedFrom, snapshot: true } } : node,
+				),
+				edges: source.edges.map((edge) =>
+					edge.research ? { ...edge, research: { ...edge.research, evidenceStatus: "needs_review" } } : edge,
+				),
+				groups: source.groups,
 				viewport: source.viewport,
 			});
-			return this.insert(database, document);
+			const copied = this.insert(database, document);
+			if (
+				database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='canvas_research_records'").get()
+			) {
+				database
+					.prepare(
+						"INSERT INTO canvas_research_records SELECT namespace_id, ?, kind, id, 0, session_id, created_at, updated_at, value_json FROM canvas_research_records WHERE namespace_id=? AND canvas_id=? AND kind='settings'",
+					)
+					.run(copied.id, this.namespace, source.id);
+			}
+			return copied;
 		});
 	}
 
@@ -122,7 +140,10 @@ export class ResearchCanvasStore {
 	update(id: string, expectedRevision: number, input: unknown): ResearchCanvas | undefined {
 		const document = validateCanvasDocument(input);
 		const now = new Date().toISOString();
-		return this.withDatabase((database) => {
+		return this.withTransaction((database) => {
+			const previous = database
+				.prepare("SELECT document_json FROM research_canvases WHERE namespace_id=? AND id=?")
+				.get(this.namespace, id) as { document_json: string } | undefined;
 			const result = database
 				.prepare(
 					"UPDATE research_canvases SET title = ?, revision = revision + 1, updated_at = ?, document_json = ? WHERE namespace_id = ? AND id = ? AND revision = ?",
@@ -138,23 +159,56 @@ export class ResearchCanvasStore {
 			const row = database
 				.prepare("SELECT * FROM research_canvases WHERE namespace_id = ? AND id = ?")
 				.get(this.namespace, id) as unknown as CanvasRow;
-			return this.canvasFrom(row);
+			const saved = this.canvasFrom(row);
+			if (previous)
+				syncResearchHistory(
+					database,
+					this.namespace,
+					id,
+					validateCanvasDocument(JSON.parse(previous.document_json)),
+					document,
+					saved.revision,
+				);
+			emitCanvasResearchChange(this.databasePath, this.namespace, id);
+			return saved;
 		});
 	}
 
 	delete(id: string, expectedRevision: number): boolean {
-		return this.withDatabase((database) => {
-			// A canvas owns its nodes, edges, rich text, and viewport in this single JSON row.
-			// Removing the row leaves no canvas child records to accumulate.
+		return this.withTransaction((database) => {
 			const result = database
 				.prepare("DELETE FROM research_canvases WHERE namespace_id = ? AND id = ? AND revision = ?")
 				.run(this.namespace, id, expectedRevision);
-			if (result.changes > 0) return true;
+			if (result.changes > 0) {
+				if (
+					database
+						.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='canvas_research_records'")
+						.get()
+				)
+					database
+						.prepare("DELETE FROM canvas_research_records WHERE namespace_id=? AND canvas_id=?")
+						.run(this.namespace, id);
+				emitCanvasResearchChange(this.databasePath, this.namespace, id);
+				return true;
+			}
 			const exists = database
 				.prepare("SELECT 1 FROM research_canvases WHERE namespace_id = ? AND id = ?")
 				.get(this.namespace, id);
 			if (exists) throw new CanvasRevisionConflict("画布已在其他页面修改，请刷新后再删除。");
 			return false;
+		});
+	}
+	private withTransaction<T>(fn: (database: DatabaseSync) => T): T {
+		return this.withDatabase((database) => {
+			database.exec("BEGIN IMMEDIATE");
+			try {
+				const result = fn(database);
+				database.exec("COMMIT");
+				return result;
+			} catch (error) {
+				database.exec("ROLLBACK");
+				throw error;
+			}
 		});
 	}
 }

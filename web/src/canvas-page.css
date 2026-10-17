@@ -633,47 +633,30 @@
 	color: var(--accent-red);
 	font-size: 12px;
 }
-.research-canvas-note-preview {
-	z-index: 8;
-	min-width: 180px;
-	min-height: 150px;
+.research-canvas-note-panel {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
 }
-.research-canvas-note-preview.dragging {
-	cursor: grabbing;
-	user-select: none;
+.research-canvas-note-panel-heading {
+	flex: 0 0 auto;
+	align-items: flex-start;
 }
-.research-canvas-note-drag-hint {
-	margin-left: 12px;
-	color: var(--text-muted);
-	font-size: 10px;
+.research-canvas-note-panel-heading h3 {
+	margin: 0;
+	font-size: 16px;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
 }
-.research-canvas-page .research-canvas-note-resize-grip {
-	position: absolute;
-	right: 0;
-	bottom: 0;
-	z-index: 1;
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 24px;
-	padding: 0;
-	border: 0;
-	border-radius: 6px 0 14px;
-	color: var(--text-muted);
-	background: var(--surface-base);
-	cursor: nwse-resize;
-	touch-action: none;
-}
-.research-canvas-page .research-canvas-note-resize-grip:hover,
-.research-canvas-page .research-canvas-note-resize-grip:focus-visible {
-	color: var(--brand-700);
-	background: var(--surface-soft);
-}
-.research-canvas-note-preview .research-canvas-paper-preview-head {
+.research-canvas-note-panel-heading svg {
 	flex: 0 0 auto;
 }
-.research-canvas-note-preview .research-canvas-paper-preview-tabs {
+.research-canvas-note-panel .research-canvas-paper-preview-tabs {
 	gap: 24px;
+	margin: 0 16px;
 }
 .research-canvas-note-markdown {
 	flex: 1;
@@ -681,6 +664,11 @@
 	font-size: 14px;
 	line-height: 1.7;
 	overflow-wrap: anywhere;
+}
+.research-canvas-note-panel .research-canvas-note-markdown {
+	min-height: 0;
+	padding: 20px 16px;
+	overflow: auto;
 }
 .research-canvas-note-markdown > :first-child {
 	margin-top: 0;
@@ -967,7 +955,37 @@
 .research-canvas-agent-panel-heading button:hover {
 	background: var(--surface-soft);
 }
-.research-canvas-agent-panel > .agent-workspace {
+.research-canvas-sidebar-content {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+.research-canvas-sidebar-content[hidden] {
+	display: none;
+}
+.research-canvas-sidebar-tabs {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 16px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--border-subtle);
+}
+.research-canvas-page .research-canvas-sidebar-tabs button {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 12px 0;
+	border-bottom: 2px solid transparent;
+	color: var(--text-secondary);
+}
+.research-canvas-page .research-canvas-sidebar-tabs button[aria-selected="true"] {
+	border-bottom-color: var(--brand-700);
+	color: var(--brand-700);
+}
+.research-canvas-sidebar-content > .agent-workspace {
 	height: 100%;
 }
 .research-canvas-agent-panel .agent-chat-panel {
@@ -1456,6 +1474,71 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	flex: 0 0 auto;
+	gap: 12px;
+}
+.research-canvas-picker-head-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.research-canvas-page .research-canvas-picker-new-note {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	border-radius: 7px;
+	color: var(--surface-base);
+	background: var(--brand-700);
+	white-space: nowrap;
+}
+.research-canvas-note-create {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+}
+.research-canvas-note-create-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 8px 0 20px;
+}
+.research-canvas-note-create fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.research-canvas-note-create label {
+	display: grid;
+	gap: 8px;
+	margin: 12px 0 20px;
+}
+.research-canvas-note-create input,
+.research-canvas-note-create select {
+	box-sizing: border-box;
+	width: 100%;
+	padding: 10px 12px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 7px;
+	color: var(--text-primary);
+	background: var(--surface-base);
+}
+.research-canvas-note-create > footer {
+	display: flex;
+	flex: 0 0 auto;
+	justify-content: flex-end;
+	padding-top: 12px;
+	border-top: 1px solid var(--border-subtle);
+}
+.research-canvas-page .research-canvas-note-create > footer button {
+	padding: 10px 14px;
+	border-radius: 7px;
+	color: var(--surface-base);
+	background: var(--brand-700);
+}
+.research-canvas-note-create [role="alert"] {
+	color: var(--accent-red);
 }
 .research-canvas-picker-head h2 {
 	margin: 0 0 14px;

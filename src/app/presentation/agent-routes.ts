@@ -342,6 +342,20 @@ async function handleMessageAction(context: AgentRouteContext, agentService: Web
 		if (body.paperContext !== undefined && !isPaperMessageContext(body.paperContext)) {
 			throw new ApiError(400, "Invalid paper reading context");
 		}
+		if (body.canvasContext !== undefined) {
+			const c = body.canvasContext as Record<string, unknown>;
+			if (
+				!c ||
+				typeof c !== "object" ||
+				Array.isArray(c) ||
+				(c.agentNodeId !== undefined && typeof c.agentNodeId !== "string") ||
+				(c.selectedNodeIds !== undefined &&
+					(!Array.isArray(c.selectedNodeIds) ||
+						c.selectedNodeIds.length > 500 ||
+						c.selectedNodeIds.some((id) => typeof id !== "string")))
+			)
+				throw new ApiError(400, "Invalid canvas context");
+		}
 		json(
 			response,
 			202,
@@ -349,6 +363,7 @@ async function handleMessageAction(context: AgentRouteContext, agentService: Web
 				message: typeof body.message === "string" ? body.message : "",
 				attachments,
 				paperContext: body.paperContext as WebAgentPaperMessageContext | undefined,
+				canvasContext: body.canvasContext as { agentNodeId?: string; selectedNodeIds?: string[] } | undefined,
 			}),
 		);
 	}

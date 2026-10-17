@@ -9958,8 +9958,33 @@ body.paper-reader-resizing .browser-pdf-frame {
 }
 
 .research-note-create {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
 	width: min(680px, calc(100% - 40px));
+	min-height: 0;
 	margin: 36px auto;
+	overflow: hidden;
+}
+
+.research-note-create > header {
+	flex: 0 0 auto;
+}
+
+.research-note-create-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.research-note-create-actions {
+	display: flex;
+	flex: 0 0 auto;
+	justify-content: flex-end;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+	background: var(--surface-base);
 }
 
 .research-note-create > header,
@@ -9977,7 +10002,7 @@ body.paper-reader-resizing .browser-pdf-frame {
 	letter-spacing: 0;
 }
 
-.research-note-create > label {
+.research-note-create-body > label {
 	display: grid;
 	gap: 6px;
 	margin-top: 18px;
@@ -10263,6 +10288,19 @@ body.paper-reader-resizing .browser-pdf-frame {
 	.research-note-create {
 		width: calc(100% - 28px);
 		margin: 20px auto;
+	}
+
+	.research-note-create-body {
+		padding-bottom: 72px;
+	}
+
+	.research-note-create-actions {
+		position: fixed;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 5;
+		padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
 	}
 }
 

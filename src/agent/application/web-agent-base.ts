@@ -54,6 +54,7 @@ export abstract class WebAgentServiceBase {
 	readonly projectRoot: string;
 	protected readonly uiRequestTimeoutMs: number;
 	protected readonly extensionFactory: ExtensionFactory;
+	protected readonly canvasResearchFactory?: WebAgentServiceOptions["canvasResearchFactory"];
 	protected readonly systemPrompt: string;
 	protected readonly projectSkillRoot: string;
 	protected readonly additionalSkillPaths: string[];
@@ -92,6 +93,7 @@ export abstract class WebAgentServiceBase {
 		);
 		this.uiRequestTimeoutMs = Math.max(100, options.uiRequestTimeoutMs ?? DEFAULT_UI_TIMEOUT_MS);
 		this.extensionFactory = options.extensionFactory ?? (() => undefined);
+		this.canvasResearchFactory = options.canvasResearchFactory;
 		this.systemPrompt = options.systemPrompt ?? "You are Paper Agent.";
 		this.projectSkillRoot = join(options.projectRoot, ".agents", "skills");
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [];

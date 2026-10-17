@@ -413,6 +413,14 @@ export interface SearchRun {
 	resumedFromCheckpoint?: boolean;
 	searchPlan?: LiteratureSearchPlan;
 	runKind?: "keyword" | "citation-expansion" | "author-expansion";
+	citationExpansion?: {
+		direction: "references" | "citations" | "both";
+		depth: number;
+		maxNeighborsPerSeed: number;
+		maxTotalNeighbors: number;
+		pagesPerSeed: number;
+		limitReached: boolean;
+	};
 	authorExpansion?: {
 		seedPaperId: string;
 		authorName: string;

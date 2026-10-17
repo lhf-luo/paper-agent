@@ -33,6 +33,11 @@ import { WebAgentPiEvents } from "./web-agent-pi-events.ts";
 import type { ManagedWebAgentSession } from "./web-agent-support.ts";
 
 export abstract class WebAgentRuntime extends WebAgentPiEvents {
+	protected canvasResearchFor(session: ManagedWebAgentSession) {
+		if (session.context?.kind !== "canvas") return undefined;
+		session.canvasResearch ??= this.canvasResearchFactory?.(session.context, session.id);
+		return session.canvasResearch;
+	}
 	protected async createPiSession(session: ManagedWebAgentSession, revision: number): Promise<AgentSession> {
 		const credential = this.credential();
 		if (!this.endpoint.providerId || !this.endpoint.modelId || !this.endpoint.baseUrl) {
@@ -104,7 +109,15 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				noPromptTemplates: true,
 				noThemes: true,
 				additionalSkillPaths: this.additionalSkillPaths,
-				extensionFactories: [{ name: "paper-agent-web", factory: this.extensionFactory }],
+				extensionFactories: [
+					{
+						name: "paper-agent-web",
+						factory: async (pi) => {
+							await this.extensionFactory(pi);
+							await this.canvasResearchFor(session)?.extension(pi);
+						},
+					},
+				],
 				systemPrompt: this.systemPrompt,
 			});
 			await resourceLoader.reload();
@@ -204,6 +217,11 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				}
 			}
 		} finally {
+			try {
+				session.canvasResearch?.finish(session.abortRequested ? "stopped" : session.error ? "failed" : "partial");
+			} catch {
+				/* A deleted canvas must not prevent turn cleanup. */
+			}
 			if (session.abortRequested) {
 				const assistant = session.activeAssistantMessageId
 					? session.messages.find((entry) => entry.id === session.activeAssistantMessageId)

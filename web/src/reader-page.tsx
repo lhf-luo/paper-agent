@@ -37,12 +37,24 @@ export { readerVersionName, readerVersionState };
 export interface ReaderPageProps {
 	reader: ReaderState;
 	onBack: () => void;
+	backLabel?: string;
+	confirmAction?: (message: string) => Promise<boolean>;
+	promptAction?: (title: string, value: string) => Promise<string | null>;
 	initialPrompt?: string;
 	onPromptConsumed?: () => void;
 	focusSessionId?: string;
 }
 
-export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, focusSessionId }: ReaderPageProps) {
+export function ReaderPage({
+	reader,
+	onBack,
+	backLabel = "返回个人库",
+	confirmAction,
+	promptAction,
+	initialPrompt,
+	onPromptConsumed,
+	focusSessionId,
+}: ReaderPageProps) {
 	const restored = useRef(restoredReaderTabs(reader));
 	const focusAgent = Boolean(focusSessionId || initialPrompt);
 	const [activeReader, setActiveReader] = useState(reader);
@@ -373,8 +385,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 					className="paper-reader-back"
 					type="button"
 					onClick={onBack}
-					aria-label="返回个人库"
-					title="返回个人库"
+					aria-label={backLabel}
+					title={backLabel}
 				>
 					<ArrowLeft size={16} />
 				</button>
@@ -571,6 +583,8 @@ export function ReaderPage({ reader, onBack, initialPrompt, onPromptConsumed, fo
 										<AgentPage
 											embedded
 											paperContext={paperContext}
+											confirmAction={confirmAction}
+											promptAction={promptAction}
 											focusSessionId={focusSessionId}
 											initialPrompt={initialPrompt}
 											selectionDraft={selectionDraft}

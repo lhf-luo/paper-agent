@@ -163,6 +163,14 @@ export function collectionParameters() {
 		),
 		year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 		year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+		arxiv_submitted_from: Type.Optional(
+			Type.String({
+				description: "Inclusive arXiv first-submission date in UTC, YYYY-MM-DD; other providers use year filters",
+			}),
+		),
+		arxiv_submitted_to: Type.Optional(
+			Type.String({ description: "Inclusive arXiv first-submission date in UTC, YYYY-MM-DD" }),
+		),
 		venues: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		authors: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		open_access: Type.Optional(Type.Boolean()),
@@ -215,6 +223,8 @@ export function optionsFromParams(
 		providers?: LiteratureProvider[];
 		year_from?: number;
 		year_to?: number;
+		arxiv_submitted_from?: string;
+		arxiv_submitted_to?: string;
 		venues?: string[];
 		authors?: string[];
 		open_access?: boolean;
@@ -251,6 +261,8 @@ export function optionsFromParams(
 		filters: {
 			yearFrom: params.year_from,
 			yearTo: params.year_to,
+			arxivSubmittedFrom: params.arxiv_submitted_from,
+			arxivSubmittedTo: params.arxiv_submitted_to,
 			venues: params.venues,
 			authors: params.authors,
 			openAccess: params.open_access,

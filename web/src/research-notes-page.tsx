@@ -704,6 +704,16 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 										<button
 											type="button"
 											onClick={() => {
+												setNewFolderId(folder.id);
+												setCreateOpen(true);
+												setMenuKey(undefined);
+											}}
+										>
+											新建笔记
+										</button>
+										<button
+											type="button"
+											onClick={() => {
 												setFolderEditor({ name: "", parentId: folder.id });
 												setMenuKey(undefined);
 											}}
@@ -1152,41 +1162,45 @@ function CreateNoteForm({
 					取消
 				</button>
 			</header>
-			<label>
-				<span>笔记名称</span>
-				<input value={title} onChange={(event) => setTitle(event.target.value)} />
-			</label>
-			<label>
-				<span>文件夹</span>
-				<select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
-					<option value="">根目录</option>
-					{folders.map((folder) => (
-						<option key={folder.id} value={folder.id}>
-							{folderLabel(folder)}
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				<span>模板</span>
-				<select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-					{templates.map((template) => (
-						<option key={template.id} value={template.id}>
-							{template.name}
-						</option>
-					))}
-				</select>
-			</label>
-			<PaperPicker
-				query={paperQuery}
-				setQuery={setPaperQuery}
-				papers={papers}
-				selected={selected}
-				setSelected={setSelected}
-			/>
-			<button className="button primary" type="button" disabled={busy || !title.trim()} onClick={onCreate}>
-				创建笔记
-			</button>
+			<div className="research-note-create-body">
+				<label>
+					<span>笔记名称</span>
+					<input value={title} onChange={(event) => setTitle(event.target.value)} />
+				</label>
+				<label>
+					<span>文件夹</span>
+					<select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
+						<option value="">根目录</option>
+						{folders.map((folder) => (
+							<option key={folder.id} value={folder.id}>
+								{folderLabel(folder)}
+							</option>
+						))}
+					</select>
+				</label>
+				<label>
+					<span>模板</span>
+					<select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+						{templates.map((template) => (
+							<option key={template.id} value={template.id}>
+								{template.name}
+							</option>
+						))}
+					</select>
+				</label>
+				<PaperPicker
+					query={paperQuery}
+					setQuery={setPaperQuery}
+					papers={papers}
+					selected={selected}
+					setSelected={setSelected}
+				/>
+			</div>
+			<footer className="research-note-create-actions">
+				<button className="button primary" type="button" disabled={busy || !title.trim()} onClick={onCreate}>
+					创建笔记
+				</button>
+			</footer>
 		</section>
 	);
 }

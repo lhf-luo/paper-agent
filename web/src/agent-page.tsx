@@ -882,6 +882,7 @@ export function AgentPage({
 	embedded = false,
 	paperContext,
 	canvasContext,
+	beforeCanvasMessage,
 	canvasNodes,
 	focusSessionId,
 	initialSessionListScrollTop = 0,
@@ -899,7 +900,8 @@ export function AgentPage({
 	onPromptConsumed?: () => void;
 	embedded?: boolean;
 	paperContext?: PaperAgentContext;
-	canvasContext?: { namespace: string; canvasId: string };
+	canvasContext?: { namespace: string; canvasId: string; agentNodeId?: string };
+	beforeCanvasMessage?: () => Promise<boolean>;
 	canvasNodes?: CanvasAgentNodeCandidate[];
 	focusSessionId?: string;
 	initialSessionListScrollTop?: number;
@@ -1727,6 +1729,8 @@ export function AgentPage({
 		autoFollowTranscript.current = true;
 		setShowLatestButton(false);
 		try {
+			if (canvasContext && beforeCanvasMessage && !(await beforeCanvasMessage()))
+				throw new Error("请先处理画布保存冲突，再发送研究任务");
 			const selectedCandidates = resolveCanvasAgentSelection(selectedCanvasNodes, canvasNodes ?? []);
 			const textCandidates = selectedCandidates.filter((candidate) => candidate.kind === "text");
 			if (attachments.length + textCandidates.length > 10)
@@ -1762,6 +1766,7 @@ export function AgentPage({
 						message: composeCanvasNodeMessage(prompt, selectedCandidates, textAttachmentNames),
 						attachments: messageAttachments,
 						...(paperContext ? { paperContext } : {}),
+						...(canvasContext ? { canvasContext: { agentNodeId: canvasContext.agentNodeId } } : {}),
 					}),
 				},
 			);

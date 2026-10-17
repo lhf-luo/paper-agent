@@ -192,7 +192,12 @@ export interface WebAgentServiceApi {
 	dismissError?(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	sendMessage(
 		id: string,
-		input: { message: string; attachments?: WebAgentAttachmentRef[]; paperContext?: WebAgentPaperMessageContext },
+		input: {
+			message: string;
+			attachments?: WebAgentAttachmentRef[];
+			paperContext?: WebAgentPaperMessageContext;
+			canvasContext?: { agentNodeId?: string; selectedNodeIds?: string[] };
+		},
 	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	uploadAttachment(
 		id: string,

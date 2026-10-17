@@ -1,4 +1,5 @@
 import type { AgentSession, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { CanvasResearchRuntime } from "../../canvas/presentation/canvas-research-tools.ts";
 import type {
 	ModelApiKind,
 	ModelInputModality,
@@ -141,6 +142,7 @@ export interface ManagedWebAgentSession {
 	permissionMode: "ask" | "auto";
 	/** Set once a session has been told its provider returns no reasoning content. */
 	reasoningNoticeSent?: boolean;
+	canvasResearch?: CanvasResearchRuntime;
 }
 
 export function normalizeThinkingLevel(value: unknown): WebAgentThinkingLevel | undefined {
@@ -163,6 +165,10 @@ export interface WebAgentServiceOptions {
 	shellPath?: string;
 	paperSessionDatabasePath?: string;
 	canvasDatabasePath?: (namespace: string) => string;
+	canvasResearchFactory?: (
+		context: Extract<WebAgentSessionContext, { kind: "canvas" }>,
+		sessionId: string,
+	) => CanvasResearchRuntime;
 }
 
 export function timestamp(): string {

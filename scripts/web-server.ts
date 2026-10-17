@@ -2,8 +2,11 @@ import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createWebAgentService } from "../src/agent/application/web-agent-service.ts";
+import type { WebAgentServiceApi } from "../src/agent/domain/web-agent-contracts.ts";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
+import { CanvasResearchService } from "../src/canvas/application/canvas-research-service.ts";
+import { createCanvasResearchRuntime } from "../src/canvas/presentation/canvas-research-tools.ts";
 import { loadPaperAgentConfig } from "../src/config/application/config-service.ts";
 import paperAgentExtension, { paperSystemPrompt } from "../src/index.ts";
 import { setProviderCredentials } from "../src/literature/infrastructure/literature-providers.ts";
@@ -76,12 +79,37 @@ const application = new PaperAgentApplication({
 await application.initialize();
 const personalStore = application.personalStore();
 await personalStore.initialize();
-const agentService = await createWebAgentService({
+const agentService: WebAgentServiceApi = await createWebAgentService({
 	projectRoot,
 	extensionFactory: paperAgentExtension,
 	systemPrompt: paperSystemPrompt,
 	paperSessionDatabasePath: personalStore.databasePath,
 	canvasDatabasePath: (namespace) => application.personalStore(namespace).databasePath,
+	canvasResearchFactory: (context, sessionId) =>
+		createCanvasResearchRuntime(
+			new CanvasResearchService(
+				application.personalStore(context.namespace),
+				context.namespace,
+				context.canvasId,
+				sessionId,
+				async (id) => {
+					const session = (
+						await agentService.listSessions({
+							scope: "canvas",
+							namespace: context.namespace,
+							canvasId: context.canvasId,
+						})
+					).find((s) => s.id === id);
+					if (!session) return undefined;
+					return {
+						title: session.title,
+						status: session.status,
+						updatedAt: session.updatedAt,
+						pendingRequests: session.pendingUIRequests,
+					};
+				},
+			),
+		),
 });
 const handle = await startLocalWebServer(application, {
 	host: "127.0.0.1",

@@ -6,7 +6,7 @@ import { tagCitationExpansionRecords } from "../application/literature-query-pla
 import { buildCitationExpansionTable, collectCitationPages } from "../application/literature-search-planning.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../application/literature-store.ts";
 import { deduplicatePaperRecords } from "../domain/literature-identifiers.ts";
-import type { LiteratureProvider, PaperRecord, SearchRun } from "../domain/literature-types.ts";
+import type { LiteratureProvider, PaperRecord, ProviderFailure, SearchRun } from "../domain/literature-types.ts";
 import {
 	fetchOpenAlexWorks,
 	searchOpenAlexByDoi,
@@ -34,6 +34,8 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 				Type.Union([Type.Literal("references"), Type.Literal("citations"), Type.Literal("both")]),
 			),
 			depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 2 })),
+			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			max_neighbors_per_seed: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			pages_per_seed: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
 			max_total_neighbors: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
@@ -96,6 +98,8 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 			let frontier = seeds;
 			const discovered: PaperRecord[] = [];
 			const failures: string[] = [];
+			const providerFailures: ProviderFailure[] = [];
+			let limitReached = false;
 			const visited = new Set(seeds.map((seed) => seed.id));
 			for (let level = 1; level <= depth; level++) {
 				const next: PaperRecord[] = [];
@@ -108,7 +112,14 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 						provider: LiteratureProvider,
 					) => {
 						const discoveredAt = new Date().toISOString();
+						if (records.length >= seedRemaining) limitReached = true;
 						for (const record of deduplicatePaperRecords(records)) {
+							if (
+								record.year !== undefined &&
+								((params.year_from !== undefined && record.year < params.year_from) ||
+									(params.year_to !== undefined && record.year > params.year_to))
+							)
+								continue;
 							if (seedRemaining <= 0 || discovered.length >= maxTotalNeighbors) break;
 							if (visited.has(record.id)) continue;
 							const [tagged] = tagCitationExpansionRecords(
@@ -154,6 +165,12 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 							}
 						} catch (error) {
 							failures.push(`${seed.id}/references: ${readableErrorMessage(error)}`);
+							providerFailures.push({
+								provider: seed.referencedWorks?.length ? "openalex" : "semanticscholar",
+								query: `references:${seed.id}`,
+								message: readableErrorMessage(error),
+								retryable: true,
+							});
 						}
 					}
 					if ((direction === "citations" || direction === "both") && seedRemaining > 0) {
@@ -194,6 +211,12 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 							}
 						} catch (error) {
 							failures.push(`${seed.id}/citations: ${readableErrorMessage(error)}`);
+							providerFailures.push({
+								provider: seed.identifiers.openAlexId ? "openalex" : "semanticscholar",
+								query: `citations:${seed.id}`,
+								message: readableErrorMessage(error),
+								retryable: true,
+							});
 						}
 					}
 				}
@@ -204,7 +227,7 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 			const expansionTable = buildCitationExpansionTable(unique);
 			// 扩展结果不写入个人库, 但保存为一个临时 search run, 供论文清单匹配和后续保存定位。
 			let expansionRunId: string | undefined;
-			if (unique.length) {
+			{
 				const now = new Date().toISOString();
 				const expansionProviders = [
 					...new Set(
@@ -221,12 +244,20 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 					startedAt: now,
 					completedAt: now,
 					queries: seeds.map((seed) => seed.id),
-					filters: {},
+					filters: { yearFrom: params.year_from, yearTo: params.year_to },
 					providers: expansionProviders,
 					pagesPerProvider: pagesPerSeed,
 					maxResultsPerProvider: maxTotalNeighbors,
 					results: unique,
-					failures: [],
+					failures: providerFailures,
+					citationExpansion: {
+						direction,
+						depth,
+						pagesPerSeed,
+						maxNeighborsPerSeed: limit,
+						maxTotalNeighbors,
+						limitReached: limitReached || unique.length >= maxTotalNeighbors,
+					},
 					sourceCounts: Object.fromEntries(
 						expansionProviders.map((provider) => [
 							provider,
@@ -241,12 +272,8 @@ export function registerCitationExpansionTool(pi: ExtensionAPI): void {
 					parentSearchRunId: params.source_search_run_id,
 					seedPaperIds: seeds.map((seed) => seed.id),
 				};
-				try {
-					await store.saveSearchRun(run);
-					expansionRunId = run.id;
-				} catch {
-					// 保存临时 run 是尽力而为, 失败不影响返回结果。
-				}
+				await store.saveSearchRun(run);
+				expansionRunId = run.id;
 			}
 			return {
 				content: [

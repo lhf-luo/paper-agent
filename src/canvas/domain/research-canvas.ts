@@ -1,3 +1,6 @@
+import { parseCanvasGroups, parseNodeResearchFields } from "./canvas-groups.ts";
+import type { CanvasResearchRelation } from "./canvas-research.ts";
+import { parseRelation } from "./canvas-research-validation.ts";
 import { type CanvasRichContent, parseCanvasRichContent, validCanvasUrl } from "./canvas-rich-content.ts";
 
 export type CanvasNodeKind = "paper" | "note" | "text" | "author" | "team" | "agent";
@@ -22,6 +25,18 @@ export interface CanvasNode {
 		members?: string[];
 	};
 	entityId?: string;
+	groupId?: string;
+	pinned?: boolean;
+	generatedFrom?: { analysisId: string; snapshot?: boolean };
+}
+
+export interface CanvasGroup {
+	id: string;
+	title: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
 }
 
 export interface CanvasEdge {
@@ -32,6 +47,7 @@ export interface CanvasEdge {
 	toSide?: "left" | "right";
 	label: string;
 	evidence?: string;
+	research?: CanvasResearchRelation;
 }
 
 export interface CanvasViewport {
@@ -49,6 +65,7 @@ export interface ResearchCanvas {
 	nodes: CanvasNode[];
 	edges: CanvasEdge[];
 	viewport: CanvasViewport;
+	groups?: CanvasGroup[];
 }
 
 export interface ResearchCanvasSummary {
@@ -61,7 +78,9 @@ export interface ResearchCanvasSummary {
 
 export class CanvasDocumentError extends Error {}
 
-export function validateCanvasDocument(value: unknown): Pick<ResearchCanvas, "title" | "nodes" | "edges" | "viewport"> {
+export function validateCanvasDocument(
+	value: unknown,
+): Pick<ResearchCanvas, "title" | "nodes" | "edges" | "viewport" | "groups"> {
 	try {
 		return parseCanvasDocument(value);
 	} catch (error) {
@@ -69,7 +88,9 @@ export function validateCanvasDocument(value: unknown): Pick<ResearchCanvas, "ti
 	}
 }
 
-function parseCanvasDocument(value: unknown): Pick<ResearchCanvas, "title" | "nodes" | "edges" | "viewport"> {
+function parseCanvasDocument(
+	value: unknown,
+): Pick<ResearchCanvas, "title" | "nodes" | "edges" | "viewport" | "groups"> {
 	if (!value || typeof value !== "object") throw new Error("Invalid canvas document");
 	const input = value as Record<string, unknown>;
 	const title = typeof input.title === "string" ? input.title.trim() : "";
@@ -163,6 +184,7 @@ function parseCanvasDocument(value: unknown): Pick<ResearchCanvas, "title" | "no
 				throw new Error("Linked node requires an entity ID");
 		}
 		return {
+			...parseNodeResearchFields(node),
 			id: node.id,
 			kind: node.kind as CanvasNodeKind,
 			x: node.x as number,
@@ -208,6 +230,7 @@ function parseCanvasDocument(value: unknown): Pick<ResearchCanvas, "title" | "no
 			...(typeof edge.toSide === "string" ? { toSide: edge.toSide as "left" | "right" } : {}),
 			label: edge.label,
 			...(typeof edge.evidence === "string" ? { evidence: edge.evidence } : {}),
+			...(edge.research !== undefined ? { research: parseRelation(edge.research) } : {}),
 		};
 	});
 	if (!input.viewport || typeof input.viewport !== "object") throw new Error("Invalid canvas viewport");
@@ -225,5 +248,12 @@ function parseCanvasDocument(value: unknown): Pick<ResearchCanvas, "title" | "no
 		viewport.scale > 3
 	)
 		throw new Error("Invalid canvas viewport");
-	return { title, nodes, edges, viewport: { x: viewport.x, y: viewport.y, scale: viewport.scale } };
+	const groups = parseCanvasGroups(input.groups, nodes);
+	return {
+		title,
+		nodes,
+		edges,
+		...(groups ? { groups } : {}),
+		viewport: { x: viewport.x, y: viewport.y, scale: viewport.scale },
+	};
 }

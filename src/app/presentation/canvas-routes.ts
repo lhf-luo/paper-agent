@@ -3,6 +3,7 @@ import type { WebAgentServiceApi } from "../../agent/domain/web-agent-contracts.
 import { CanvasDocumentError } from "../../canvas/domain/research-canvas.ts";
 import { CanvasRevisionConflict, ResearchCanvasStore } from "../../canvas/infrastructure/research-canvas-store.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
+import { handleCanvasResearchRoutes } from "./canvas-research-routes.ts";
 import { ApiError, json, namespaceValue, readJson } from "./web-http.ts";
 
 export async function handleCanvasRoutes(
@@ -11,8 +12,10 @@ export async function handleCanvasRoutes(
 	response: ServerResponse,
 	url: URL,
 	agentService?: WebAgentServiceApi,
+	openStreams?: Set<ServerResponse>,
 ): Promise<boolean> {
 	if (!url.pathname.startsWith("/api/canvases")) return false;
+	if (await handleCanvasResearchRoutes(application, request, response, url, agentService, openStreams)) return true;
 	const body = request.method === "GET" ? undefined : await readJson(request);
 	const namespace =
 		namespaceValue(body?.namespace ?? url.searchParams.get("namespace")) ?? application.defaultNamespace;

@@ -8,6 +8,7 @@ import {
 	Copy,
 	Files,
 	FileText,
+	FlaskConical,
 	Focus,
 	Folder,
 	Hand,
@@ -41,16 +42,22 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { CanvasEvidence, CanvasResearchRelation } from "../../src/canvas/domain/canvas-research";
 import {
 	type CanvasRichContent,
 	canvasRichPlainText,
 	validCanvasUrl,
 } from "../../src/canvas/domain/canvas-rich-content";
 import { getTeamLeaderNames, getTeamMemberNames } from "../../src/canvas/domain/canvas-team";
+import type { CanvasGroup } from "../../src/canvas/domain/research-canvas";
 import { api } from "./api";
 import { connectedCanvasAgentNodes } from "./canvas-agent-nodes";
+import { CanvasGroups } from "./canvas-groups";
+import { CanvasNoteCreate } from "./canvas-note-create";
 import { CanvasNotePreview } from "./canvas-note-preview";
 import { type CanvasPaperDetails, CanvasPaperPreview } from "./canvas-paper-preview";
+import { CanvasResearchPanel } from "./canvas-research-panel";
+import { CanvasResearchReader } from "./canvas-research-reader";
 import { CanvasTextView, canvasTextDocument } from "./canvas-rich-text";
 import { CanvasTextEditor } from "./canvas-text-editor";
 import { buildCollectionTree, type CollectionTreeNode } from "./collection-tree";
@@ -78,6 +85,9 @@ interface LinkOrigin {
 	side: LinkSide;
 }
 interface CanvasNode {
+	groupId?: string;
+	pinned?: boolean;
+	generatedFrom?: { analysisId: string; snapshot?: boolean };
 	id: string;
 	kind: NodeKind;
 	x: number;
@@ -99,6 +109,7 @@ interface CanvasNode {
 	entityId?: string;
 }
 interface CanvasEdge {
+	research?: CanvasResearchRelation;
 	id: string;
 	from: string;
 	to: string;
@@ -123,6 +134,7 @@ interface CanvasContextMenu {
 	linkFrom?: LinkOrigin;
 }
 interface Board {
+	groups?: CanvasGroup[];
 	id: string;
 	title: string;
 	revision: number;
@@ -142,7 +154,7 @@ interface BoardSummary {
 type CanvasActionDialog =
 	| { kind: "prompt"; title: string; value: string }
 	| { kind: "confirm"; title: string; message: string; danger: boolean };
-type BoardDocument = Pick<Board, "title" | "nodes" | "edges" | "viewport">;
+type BoardDocument = Pick<Board, "title" | "nodes" | "edges" | "viewport" | "groups">;
 
 const nodeNames: Record<NodeKind, string> = {
 	paper: "论文",
@@ -163,6 +175,7 @@ const teamRelationLabel = (from?: CanvasNode, to?: CanvasNode) => {
 	return "";
 };
 const documentOf = (board: Board): BoardDocument => ({
+	groups: board.groups,
 	title: board.title,
 	nodes: board.nodes,
 	edges: board.edges,
@@ -203,6 +216,46 @@ function visiblePickerNoteFolders(folders: ResearchNoteFolder[], expanded: Set<s
 	return rows;
 }
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+interface PaperPickerMemory {
+	collectionId: string;
+	query: string;
+	expandedIds: string[];
+	collectionScrollTop: number;
+	resultsScrollTop: number;
+}
+
+function paperPickerMemoryKey(namespace: string, boardId: string): string {
+	return `paper-agent:canvas-paper-picker:${encodeURIComponent(namespace)}:${encodeURIComponent(boardId)}`;
+}
+
+function readPaperPickerMemory(namespace: string, boardId: string): PaperPickerMemory | undefined {
+	try {
+		const raw = window.localStorage.getItem(paperPickerMemoryKey(namespace, boardId));
+		if (!raw) return undefined;
+		const value: unknown = JSON.parse(raw);
+		if (!value || typeof value !== "object") return undefined;
+		const memory = value as Record<string, unknown>;
+		if (typeof memory.collectionId !== "string" || typeof memory.query !== "string") return undefined;
+		return {
+			collectionId: memory.collectionId,
+			query: memory.query,
+			expandedIds: Array.isArray(memory.expandedIds)
+				? memory.expandedIds.filter((id): id is string => typeof id === "string")
+				: [],
+			collectionScrollTop:
+				typeof memory.collectionScrollTop === "number" && Number.isFinite(memory.collectionScrollTop)
+					? Math.max(0, memory.collectionScrollTop)
+					: 0,
+			resultsScrollTop:
+				typeof memory.resultsScrollTop === "number" && Number.isFinite(memory.resultsScrollTop)
+					? Math.max(0, memory.resultsScrollTop)
+					: 0,
+		};
+	} catch {
+		return undefined;
+	}
+}
 
 function textEditorPosition(card: HTMLElement) {
 	const rect = card.getBoundingClientRect();
@@ -303,6 +356,9 @@ export default function CanvasPage({
 	const [board, setBoard] = useState<Board>();
 	const boardRef = useRef<Board | undefined>(undefined);
 	const [selectedNode, setSelectedNode] = useState<string>();
+	const [researchOpen, setResearchOpen] = useState(false);
+	const [researchPrompt, setResearchPrompt] = useState("");
+	const [researchReader, setResearchReader] = useState<ReaderState>();
 	const [selectedEdge, setSelectedEdge] = useState<string>();
 	const [editingEdge, setEditingEdge] = useState<{ id: string; label: string; evidence: string }>();
 	const [editingAuthor, setEditingAuthor] = useState<{
@@ -346,9 +402,11 @@ export default function CanvasPage({
 	const [pickerQuery, setPickerQuery] = useState("");
 	const [pickerCollection, setPickerCollection] = useState("all");
 	const [pickerCollections, setPickerCollections] = useState<PaperCollection[]>([]);
+	const [pickerCollectionsReady, setPickerCollectionsReady] = useState(false);
 	const [pickerExpanded, setPickerExpanded] = useState<Set<string>>(new Set());
 	const [pickerCollectionsError, setPickerCollectionsError] = useState("");
 	const [pickerFolder, setPickerFolder] = useState("all");
+	const [noteCreateOpen, setNoteCreateOpen] = useState(false);
 	const [pickerFolders, setPickerFolders] = useState<ResearchNoteFolder[]>([]);
 	const [pickerFolderExpanded, setPickerFolderExpanded] = useState<Set<string>>(new Set());
 	const [pickerFoldersError, setPickerFoldersError] = useState("");
@@ -379,14 +437,12 @@ export default function CanvasPage({
 	const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
 	const [openedAgentId, setOpenedAgentId] = useState<string>();
 	const [agentPickerOpen, setAgentPickerOpen] = useState(false);
-	const [openedNote, setOpenedNote] = useState<{
-		nodeId: string;
-		noteId: string;
-		left: number;
-		top: number;
-		width: number;
-		maxHeight: number;
-	}>();
+	const [openedNote, setOpenedNote] = useState<{ nodeId: string; noteId: string; edit?: boolean }>();
+	const [canvasSidebar, setCanvasSidebar] = useState<"agent" | "note">("agent");
+	const openCanvasAgent = (id: string) => {
+		setOpenedAgentId(id);
+		setCanvasSidebar("agent");
+	};
 	const openedNoteDirty = useRef(false);
 	const suppressNodeClick = useRef<string | undefined>(undefined);
 	const [newTitle, setNewTitle] = useState("");
@@ -415,6 +471,13 @@ export default function CanvasPage({
 	const layoutBand = useRef<"wide" | "medium" | "narrow" | undefined>(undefined);
 	const [, setHistoryTick] = useState(0);
 	const canvasRef = useRef<HTMLDivElement>(null);
+	const pickerCollectionNavRef = useRef<HTMLElement>(null);
+	const pickerPaperItemsRef = useRef<HTMLDivElement>(null);
+	const paperPickerRestoreRef = useRef<PaperPickerMemory | undefined>(undefined);
+	const paperPickerCollectionRestoredRef = useRef(false);
+	const paperPickerResultsRestoredRef = useRef(false);
+	const paperPickerMemoryRef = useRef<{ key: string; value: PaperPickerMemory } | undefined>(undefined);
+	const paperPickerSaveTimerRef = useRef<number | undefined>(undefined);
 	const authorNameInputRef = useRef<HTMLInputElement>(null);
 	const teamNameInputRef = useRef<HTMLInputElement>(null);
 	const boardRenameInputRef = useRef<HTMLInputElement>(null);
@@ -477,6 +540,88 @@ export default function CanvasPage({
 	const saving = useRef<Promise<boolean> | null>(null);
 	const saveNowRef = useRef<() => Promise<boolean>>(async () => true);
 	const activeId = router.params.canvas || boards[0]?.id;
+	const paperPickerScopeKey = activeId ? paperPickerMemoryKey(namespace, activeId) : undefined;
+	const savePaperPickerMemory = useCallback(() => {
+		const snapshot = paperPickerMemoryRef.current;
+		if (!snapshot) return;
+		window.clearTimeout(paperPickerSaveTimerRef.current);
+		paperPickerSaveTimerRef.current = undefined;
+		try {
+			window.localStorage.setItem(snapshot.key, JSON.stringify(snapshot.value));
+		} catch {
+			// The picker still works if browser storage is unavailable.
+		}
+	}, []);
+	const schedulePaperPickerMemorySave = useCallback(() => {
+		window.clearTimeout(paperPickerSaveTimerRef.current);
+		paperPickerSaveTimerRef.current = window.setTimeout(savePaperPickerMemory, 200);
+	}, [savePaperPickerMemory]);
+	useEffect(() => {
+		if (!paperPickerScopeKey) return;
+		return () => savePaperPickerMemory();
+	}, [paperPickerScopeKey, savePaperPickerMemory]);
+	useEffect(() => {
+		if (picker !== "paper" || !activeId || boardRef.current?.id !== activeId) return;
+		const key = paperPickerMemoryKey(namespace, activeId);
+		const previous = paperPickerMemoryRef.current;
+		paperPickerMemoryRef.current = {
+			key,
+			value: {
+				collectionId: pickerCollection,
+				query: pickerQuery,
+				expandedIds: [...pickerExpanded],
+				collectionScrollTop: previous?.key === key ? previous.value.collectionScrollTop : 0,
+				resultsScrollTop: previous?.key === key ? previous.value.resultsScrollTop : 0,
+			},
+		};
+		schedulePaperPickerMemorySave();
+	}, [activeId, namespace, picker, pickerCollection, pickerExpanded, pickerQuery, schedulePaperPickerMemorySave]);
+	const openLibraryPicker = (kind: "paper" | "note") => {
+		if (kind === "paper") {
+			const memory = activeId ? readPaperPickerMemory(namespace, activeId) : undefined;
+			paperPickerRestoreRef.current = memory;
+			paperPickerCollectionRestoredRef.current = false;
+			paperPickerResultsRestoredRef.current = false;
+			paperPickerMemoryRef.current = activeId
+				? {
+						key: paperPickerMemoryKey(namespace, activeId),
+						value: memory ?? {
+							collectionId: "all",
+							query: "",
+							expandedIds: [],
+							collectionScrollTop: 0,
+							resultsScrollTop: 0,
+						},
+					}
+				: undefined;
+			setPickerCollectionsReady(false);
+			setPickerQuery(memory?.query ?? "");
+			setPickerCollection(memory?.collectionId ?? "all");
+			setPickerExpanded(new Set(memory?.expandedIds ?? []));
+		} else {
+			setPickerQuery("");
+			setPickerFolder("all");
+		}
+		setPicker(kind);
+	};
+	const changePaperPickerCollection = (collectionId: string) => {
+		paperPickerRestoreRef.current = undefined;
+		paperPickerResultsRestoredRef.current = true;
+		if (paperPickerMemoryRef.current) paperPickerMemoryRef.current.value.resultsScrollTop = 0;
+		setPickerCollection(collectionId);
+	};
+	const changePaperPickerQuery = (query: string) => {
+		paperPickerRestoreRef.current = undefined;
+		paperPickerResultsRestoredRef.current = true;
+		if (paperPickerMemoryRef.current) paperPickerMemoryRef.current.value.resultsScrollTop = 0;
+		setPickerQuery(query);
+	};
+	const recordPaperPickerScroll = (area: "collection" | "results", scrollTop: number) => {
+		if (!paperPickerMemoryRef.current) return;
+		if (area === "collection") paperPickerMemoryRef.current.value.collectionScrollTop = scrollTop;
+		else paperPickerMemoryRef.current.value.resultsScrollTop = scrollTop;
+		schedulePaperPickerMemorySave();
+	};
 	const refreshAgentSessions = useCallback(async () => {
 		if (!activeId) return [];
 		const result = await api<{ sessions: AgentSessionSummary[] }>(
@@ -745,6 +890,47 @@ export default function CanvasPage({
 		}
 		return savedVersion.current >= changeVersion.current;
 	}, [saveNow]);
+	useEffect(() => {
+		if (!activeId) return;
+		const events = new EventSource(
+			`/api/canvases/${encodeURIComponent(activeId)}/research/events?namespace=${encodeURIComponent(namespace)}`,
+		);
+		let timer: ReturnType<typeof setTimeout>;
+		let active = true;
+		const sync = async () => {
+			try {
+				if (saving.current) await saving.current;
+				const result = await api<{ canvas: Board }>(
+					`/api/canvases/${encodeURIComponent(activeId)}?namespace=${encodeURIComponent(namespace)}`,
+				);
+				const current = boardRef.current;
+				if (!active || current?.id !== activeId || result.canvas.revision <= revision.current) return;
+				if (savedVersion.current < changeVersion.current) {
+					setSaveState("conflict");
+					setError("画布已在其他页面修改。当前草稿仍保留，请核对后重新生成预览。");
+					return;
+				}
+				const next = { ...result.canvas, viewport: current.viewport };
+				revision.current = next.revision;
+				boardRef.current = next;
+				setBoard(next);
+				history.current = [];
+				future.current = [];
+				setHistoryTick((v) => v + 1);
+			} catch (e) {
+				if (active) setError(String(e));
+			}
+		};
+		events.onmessage = () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => void sync(), 250);
+		};
+		return () => {
+			active = false;
+			clearTimeout(timer);
+			events.close();
+		};
+	}, [activeId, namespace]);
 
 	useEffect(() => {
 		if (busy || !board || savedVersion.current >= changeVersion.current || saveState === "conflict") return;
@@ -786,6 +972,55 @@ export default function CanvasPage({
 		if (isFullscreen) setEditingEdge({ id: edge.id, label: edge.label, evidence: edge.evidence ?? "" });
 		else setPanelOpen(true);
 	};
+	const applyResearchProposal = useCallback(
+		async (id: string, selectedIds: string[], undo = false) => {
+			if (!(await flush())) throw new Error("画布尚未保存，请先处理保存冲突");
+			const current = boardRef.current;
+			if (!current) throw new Error("画布未打开");
+			setBusy(true);
+			try {
+				const result = await api<{ canvas: Board; replayed: boolean }>(
+					`/api/canvases/${encodeURIComponent(current.id)}/research/proposals/${encodeURIComponent(id)}/${undo ? "undo" : "apply"}`,
+					{
+						method: "POST",
+						body: JSON.stringify({ namespace, selectedIds, expectedRevision: revision.current }),
+					},
+				);
+				if (boardRef.current?.id !== current.id) return;
+				if (!result.replayed) {
+					history.current = [...history.current.slice(-49), documentOf(current)];
+					future.current = [];
+					setHistoryTick((v) => v + 1);
+				}
+				const next = { ...result.canvas, viewport: current.viewport };
+				revision.current = next.revision;
+				boardRef.current = next;
+				setBoard(next);
+				savedVersion.current = changeVersion.current;
+				setSaveState("saved");
+			} finally {
+				setBusy(false);
+			}
+		},
+		[flush, namespace],
+	);
+	const changeResearchGroup = (group: CanvasGroup) =>
+		edit((current) => {
+			const old = current.groups?.find((g) => g.id === group.id);
+			const dx = group.x - (old?.x ?? group.x),
+				dy = group.y - (old?.y ?? group.y);
+			return {
+				...current,
+				groups: current.groups?.map((g) => (g.id === group.id ? group : g)),
+				nodes: current.nodes.map((n) => (n.groupId === group.id ? { ...n, x: n.x + dx, y: n.y + dy } : n)),
+			};
+		});
+	const removeResearchGroup = (id: string) =>
+		edit((current) => ({
+			...current,
+			groups: current.groups?.filter((g) => g.id !== id),
+			nodes: current.nodes.map((n) => (n.groupId === id ? { ...n, groupId: undefined } : n)),
+		}));
 	const deleteEdge = (id: string) => {
 		if (!boardRef.current?.edges.some((edge) => edge.id === id)) return;
 		edit((current) => ({ ...current, edges: current.edges.filter((edge) => edge.id !== id) }));
@@ -836,6 +1071,7 @@ export default function CanvasPage({
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
+			if (researchReader) return;
 			if (busy || boardDialog || actionDialog || boardMenu) return;
 			if (editingEdge) {
 				if (event.key === "Escape") setEditingEdge(undefined);
@@ -885,6 +1121,7 @@ export default function CanvasPage({
 		actionDialog,
 		boardMenu,
 		editingEdge,
+		researchReader,
 		fullscreenAddOpen,
 		fullscreenNodesOpen,
 		fullscreenNodeMenuId,
@@ -970,58 +1207,75 @@ export default function CanvasPage({
 		loadPaperDetails(node.entityId);
 	};
 	const noteById = useMemo(() => new Map(notes.map((note) => [note.id, note])), [notes]);
-	const openNotePreview = async (node: CanvasNode, element: HTMLElement) => {
+	const openNotePreview = async (node: CanvasNode) => {
 		if (node.kind !== "note" || !node.entityId || connectingFrom || linkPreview || contextMenu) return;
 		if (!noteById.has(node.entityId)) {
 			setError("个人库中已找不到这篇笔记。");
 			return;
 		}
-		if (openedNote?.nodeId === node.id) return;
+		if (openedNote?.nodeId === node.id) {
+			setCanvasSidebar("note");
+			return;
+		}
 		if (openedNoteDirty.current && !(await confirmCanvasAction("笔记有未保存的修改。放弃修改并打开另一篇吗？")))
 			return;
-		const stage = canvasRef.current?.getBoundingClientRect();
-		if (!stage) return;
-		const card = element.getBoundingClientRect();
-		const width = Math.min(620, Math.max(0, stage.width - 24));
-		const maxHeight = Math.min(640, Math.max(0, stage.height - 24));
-		if (width < 180 || maxHeight < 150) return;
-		let left = card.right - stage.left + 10;
-		if (left + width > stage.width - 12) left = card.left - stage.left - width - 10;
 		openedNoteDirty.current = false;
 		closePaperPreview();
-		setOpenedNote({
-			nodeId: node.id,
-			noteId: node.entityId,
-			left: clamp(left, 12, stage.width - width - 12),
-			top: clamp(card.top - stage.top, 12, stage.height - maxHeight - 12),
-			width,
-			maxHeight,
-		});
+		setCanvasSidebar("note");
+		setOpenedNote({ nodeId: node.id, noteId: node.entityId });
 	};
 	useEffect(() => {
 		if (picker !== "paper") return;
 		let cancelled = false;
 		setPickerCollections([]);
+		setPickerCollectionsReady(false);
 		setPickerCollectionsError("");
 		void api<PaperCollection[]>(`/api/library/collections?namespace=${encodeURIComponent(namespace)}`)
 			.then((collections) => {
 				if (cancelled) return;
 				setPickerCollections(collections);
-				setPickerExpanded(
-					new Set(
-						collections
-							.filter((item) => collections.some((child) => child.parentId === item.id))
-							.map((item) => item.id),
-					),
+				const memory = paperPickerRestoreRef.current;
+				if (
+					memory &&
+					memory.collectionId !== "all" &&
+					memory.collectionId !== "__uncategorized__" &&
+					!collections.some((item) => item.id === memory.collectionId)
+				) {
+					paperPickerRestoreRef.current = undefined;
+					if (paperPickerMemoryRef.current) paperPickerMemoryRef.current.value.resultsScrollTop = 0;
+					setPickerCollection("all");
+				}
+				const expanded = new Set(
+					memory
+						? memory.expandedIds.filter((id) => collections.some((item) => item.id === id))
+						: collections
+								.filter((item) => collections.some((child) => child.parentId === item.id))
+								.map((item) => item.id),
 				);
+				const byId = new Map(collections.map((item) => [item.id, item]));
+				const visited = new Set<string>();
+				let parentId = byId.get(memory?.collectionId ?? "")?.parentId;
+				while (parentId && !visited.has(parentId)) {
+					visited.add(parentId);
+					expanded.add(parentId);
+					parentId = byId.get(parentId)?.parentId;
+				}
+				setPickerExpanded(expanded);
+				setPickerCollectionsReady(true);
 			})
 			.catch((reason) => {
-				if (!cancelled) setPickerCollectionsError(reason instanceof Error ? reason.message : String(reason));
+				if (!cancelled) {
+					setPickerCollectionsError(reason instanceof Error ? reason.message : String(reason));
+					setPickerCollectionsReady(true);
+				}
 			});
 		return () => {
 			cancelled = true;
 		};
 	}, [picker, namespace]);
+	useEffect(() => {
+		if (picker !== "note") setNoteCreateOpen(false);
+	}, [picker]);
 	useEffect(() => {
 		if (picker !== "note") return;
 		let cancelled = false;
@@ -1340,6 +1594,7 @@ export default function CanvasPage({
 		}));
 		setSelectedNode(edge ? undefined : node.id);
 		setSelectedEdge(edge?.id);
+		if (kind === "paper") savePaperPickerMemory();
 		setPicker(undefined);
 		setContextMenu(undefined);
 		pendingNodePosition.current = undefined;
@@ -1347,6 +1602,7 @@ export default function CanvasPage({
 		setConnectingFrom(undefined);
 		setConnectingSide(undefined);
 		setLinkPreview(undefined);
+		return node;
 	};
 	const createAgentNode = async (position?: { x: number; y: number }, linkFrom?: LinkOrigin) => {
 		const canvasId = boardRef.current?.id;
@@ -1363,19 +1619,19 @@ export default function CanvasPage({
 			setAgentSessions((current) => [session, ...current]);
 			if (boardRef.current?.id !== canvasId) return;
 			addNode("agent", session, position, linkFrom);
-			setOpenedAgentId(session.id);
+			openCanvasAgent(session.id);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		}
 	};
 	const attachAgentSession = (session: AgentSessionSummary) => {
 		if (boardRef.current?.nodes.some((node) => node.kind === "agent" && node.entityId === session.id)) {
-			setOpenedAgentId(session.id);
+			openCanvasAgent(session.id);
 			setAgentPickerOpen(false);
 			return;
 		}
 		addNode("agent", session);
-		setOpenedAgentId(session.id);
+		openCanvasAgent(session.id);
 		setAgentPickerOpen(false);
 	};
 	const permanentlyDeleteAgentSession = async (session: AgentSessionSummary) => {
@@ -1442,6 +1698,8 @@ export default function CanvasPage({
 		}
 		const copy: CanvasNode = {
 			...structuredClone(node),
+			groupId: boardRef.current?.groups?.some((g) => g.id === node.groupId) ? node.groupId : undefined,
+			...(node.generatedFrom ? { generatedFrom: { ...node.generatedFrom, snapshot: true } } : {}),
 			id: crypto.randomUUID(),
 			x,
 			y,
@@ -1530,10 +1788,7 @@ export default function CanvasPage({
 		if (kind === "agent") {
 			void createAgentNode();
 		} else if (kind === "paper" || kind === "note") {
-			setPickerQuery("");
-			if (kind === "paper") setPickerCollection("all");
-			else setPickerFolder("all");
-			setPicker(kind);
+			openLibraryPicker(kind);
 		} else {
 			addNode(kind);
 		}
@@ -1612,10 +1867,7 @@ export default function CanvasPage({
 		} else if (kind === "paper" || kind === "note") {
 			pendingNodePosition.current = position;
 			pendingLinkFrom.current = linkFrom;
-			setPickerQuery("");
-			if (kind === "paper") setPickerCollection("all");
-			else setPickerFolder("all");
-			setPicker(kind);
+			openLibraryPicker(kind);
 		} else {
 			addNode(kind, undefined, position, linkFrom);
 		}
@@ -2114,15 +2366,25 @@ export default function CanvasPage({
 			deleteEdge(selectedEdge);
 		}
 	};
-	const openPaper = async (paperId: string) => {
+	const openPaper = async (paperId: string, evidence?: CanvasEvidence) => {
 		if (!(await flush())) return;
 		try {
 			const details = await api<{ paper: PaperRecord; versions: PaperVersionView[] }>(
 				`/api/papers/${encodeURIComponent(paperId)}?namespace=${encodeURIComponent(namespace)}`,
 			);
-			const version = details.versions.find((item) => item.isPreferred) ?? details.versions[0];
+			const version =
+				(evidence?.sourceSha256
+					? details.versions.find((item) => item.sha256 === evidence.sourceSha256)
+					: undefined) ??
+				details.versions.find((item) => item.isPreferred) ??
+				details.versions[0];
 			if (!version) throw new Error("这篇论文尚无本地 PDF 版本");
-			onOpenReader(readerVersionState(details.paper, namespace, version));
+			if (evidence?.sourceSha256 && version.sha256 !== evidence.sourceSha256)
+				throw new Error("证据对应的 PDF 版本已不可用，请重新核验");
+			const reader = readerVersionState(details.paper, namespace, version);
+			if (evidence?.page) reader.url += `#page=${evidence.page}`;
+			if (isFullscreen) setResearchReader(reader);
+			else onOpenReader(reader);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		}
@@ -2158,6 +2420,24 @@ export default function CanvasPage({
 					.toLocaleLowerCase()
 					.includes(nodeManagerQuery)),
 	);
+	useEffect(() => {
+		if (picker !== "paper" || !pickerCollectionsReady || paperPickerCollectionRestoredRef.current) return;
+		const list = pickerCollectionNavRef.current;
+		if (!list) return;
+		list.scrollTop = paperPickerRestoreRef.current?.collectionScrollTop ?? 0;
+		paperPickerCollectionRestoredRef.current = true;
+	}, [picker, pickerCollectionsReady]);
+	useEffect(() => {
+		if (picker !== "paper" || !pickerPaperPage || paperPickerResultsRestoredRef.current) return;
+		const list = pickerPaperItemsRef.current;
+		if (!list) return;
+		list.scrollTop = paperPickerRestoreRef.current?.resultsScrollTop ?? 0;
+		paperPickerResultsRestoredRef.current = true;
+	}, [picker, pickerPaperPage]);
+
+	const visibleNote =
+		openedNote && nodeMap.has(openedNote.nodeId) && noteById.has(openedNote.noteId) ? openedNote : undefined;
+	const sidebarKind = visibleNote && (!openedAgentId || canvasSidebar === "note") ? "note" : "agent";
 
 	return (
 		<div className="research-canvas-page" ref={layoutRef}>
@@ -2231,6 +2511,17 @@ export default function CanvasPage({
 			)}
 			<div className="research-canvas-main" inert={busy || !!boardDialog || !!actionDialog}>
 				<header className="research-canvas-toolbar">
+					{board && (
+						<button
+							type="button"
+							onClick={() => setResearchOpen((v) => !v)}
+							title="画布研究"
+							aria-pressed={researchOpen}
+						>
+							<FlaskConical size={17} />
+							画布研究
+						</button>
+					)}
 					{!listOpen && (
 						<button
 							type="button"
@@ -2312,6 +2603,12 @@ export default function CanvasPage({
 								transform: `translate(${board.viewport.x}px, ${board.viewport.y}px) scale(${board.viewport.scale})`,
 							}}
 						>
+							<CanvasGroups
+								groups={board.groups ?? []}
+								scale={board.viewport.scale}
+								onChange={changeResearchGroup}
+								onRemove={removeResearchGroup}
+							/>
 							<svg className="research-canvas-connections" role="img" aria-label="节点关系">
 								{board.edges.map((edge) => {
 									const from = nodeMap.get(edge.from);
@@ -2628,8 +2925,8 @@ export default function CanvasPage({
 													}
 													chooseNode(node.id);
 													if (node.kind === "paper") openPaperPreview(node, event.currentTarget);
-													if (node.kind === "note") openNotePreview(node, event.currentTarget);
-													if (node.kind === "agent" && node.entityId) setOpenedAgentId(node.entityId);
+													if (node.kind === "note") openNotePreview(node);
+													if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
 												}}
 												onKeyDown={(event) => {
 													if (event.target !== event.currentTarget) return;
@@ -2638,8 +2935,8 @@ export default function CanvasPage({
 														chooseNode(node.id);
 														suppressNodeClick.current = undefined;
 														if (node.kind === "paper") openPaperPreview(node, event.currentTarget);
-														if (node.kind === "note") openNotePreview(node, event.currentTarget);
-														if (node.kind === "agent" && node.entityId) setOpenedAgentId(node.entityId);
+														if (node.kind === "note") openNotePreview(node);
+														if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
 													} else if (event.key === "F2") {
 														event.preventDefault();
 														if (node.kind === "text") startTextEditing(node, event.currentTarget);
@@ -2653,7 +2950,7 @@ export default function CanvasPage({
 													if ((event.target as HTMLElement).closest("a")) return;
 													if (node.kind === "text") startTextEditing(node, event.currentTarget);
 													else if (node.kind === "team") startTeamEditing(node);
-													else if (node.kind === "agent" && node.entityId) setOpenedAgentId(node.entityId);
+													else if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
 													else startAuthorEditing(node);
 												}}
 											>
@@ -2845,31 +3142,7 @@ export default function CanvasPage({
 								onClose={closePaperPreview}
 							/>
 						)}
-						{openedNote && nodeMap.has(openedNote.nodeId) && noteById.has(openedNote.noteId) && (
-							<CanvasNotePreview
-								key={openedNote.nodeId}
-								namespace={namespace}
-								noteId={openedNote.noteId}
-								summary={noteById.get(openedNote.noteId)!}
-								placement={{
-									left: openedNote.left,
-									top: openedNote.top,
-									width: openedNote.width,
-									height: openedNote.maxHeight,
-								}}
-								onDirtyChange={(dirty) => {
-									openedNoteDirty.current = dirty;
-								}}
-								onSaved={(note: ResearchNote) =>
-									setNotes((current) => current.map((item) => (item.id === note.id ? note : item)))
-								}
-								confirmAction={confirmCanvasAction}
-								onClose={() => {
-									openedNoteDirty.current = false;
-									setOpenedNote(undefined);
-								}}
-							/>
-						)}
+
 						{contextMenu && (
 							<div
 								ref={contextMenuRef}
@@ -2969,6 +3242,23 @@ export default function CanvasPage({
 											<button type="button" role="menuitem" onClick={() => renameNode(contextNode)}>
 												<Pencil size={16} />
 												重命名
+											</button>
+											<button
+												type="button"
+												role="menuitemcheckbox"
+												aria-checked={Boolean(contextNode.pinned)}
+												onClick={() => {
+													edit((current) => ({
+														...current,
+														nodes: current.nodes.map((n) =>
+															n.id === contextNode.id ? { ...n, pinned: !n.pinned } : n,
+														),
+													}));
+													setContextMenu(undefined);
+												}}
+											>
+												{" "}
+												{contextNode.pinned ? "取消固定位置" : "固定位置（Agent 布局）"}
 											</button>
 											<div className="research-canvas-context-separator" />
 											<button
@@ -3112,6 +3402,15 @@ export default function CanvasPage({
 								}}
 							>
 								<ListTree size={22} />
+							</button>
+							<button
+								type="button"
+								title="画布研究"
+								aria-label="画布研究"
+								aria-pressed={researchOpen}
+								onClick={() => setResearchOpen((v) => !v)}
+							>
+								<FlaskConical size={22} />
 							</button>
 						</nav>
 						{fullscreenAddOpen && (
@@ -3512,7 +3811,7 @@ export default function CanvasPage({
 									<button
 										type="button"
 										className="research-canvas-action"
-										onClick={() => setOpenedAgentId(selected.entityId)}
+										onClick={() => openCanvasAgent(selected.entityId!)}
 									>
 										<Bot size={15} /> 打开对话
 									</button>
@@ -3665,30 +3964,120 @@ export default function CanvasPage({
 					)}
 				</aside>
 			)}
-			{board && openedAgentId && (
-				<aside className="research-canvas-agent-panel" aria-label="画布 Agent 对话">
-					<div className="research-canvas-agent-panel-heading">
-						<div>
-							<Bot size={18} />
-							<strong>{agentById.get(openedAgentId)?.title ?? "Agent 对话"}</strong>
+			{board && researchOpen && (
+				<CanvasResearchPanel
+					key={`${board.id}:${openedAgentId ?? "user"}`}
+					canvasId={board.id}
+					namespace={namespace}
+					sessionId={openedAgentId}
+					agentNodeId={board.nodes.find((n) => n.kind === "agent" && n.entityId === openedAgentId)?.id}
+					nodes={board.nodes}
+					onClose={() => setResearchOpen(false)}
+					onRead={(e) => void openPaper(e.paperId, e)}
+					apply={applyResearchProposal}
+					beforePreview={flush}
+					onStart={
+						openedAgentId
+							? () => {
+									setCanvasSidebar("agent");
+									setResearchPrompt(
+										"请使用 canvas-research 流程，围绕已保存的研究目标总结当前画布论文的方法、审计覆盖并提出有证据的关系和编排建议。从有效检查点继续；补搜先提出计划，所有修改先预览。完成已批准检索后更新研究检查点。",
+									);
+									setResearchOpen(false);
+								}
+							: undefined
+					}
+				/>
+			)}
+			{researchReader && (
+				<CanvasResearchReader
+					key={researchReader.url}
+					reader={researchReader}
+					onClose={() => setResearchReader(undefined)}
+				/>
+			)}
+			{board && (openedAgentId || visibleNote) && (
+				<aside
+					className="research-canvas-agent-panel"
+					aria-label={sidebarKind === "note" ? "画布笔记" : "画布 Agent 对话"}
+				>
+					{openedAgentId && visibleNote && (
+						<div className="research-canvas-sidebar-tabs" role="tablist" aria-label="画布侧栏">
+							<button
+								type="button"
+								role="tab"
+								aria-selected={sidebarKind === "agent"}
+								onClick={() => setCanvasSidebar("agent")}
+							>
+								<Bot size={16} /> Agent 对话
+							</button>
+							<button
+								type="button"
+								role="tab"
+								aria-selected={sidebarKind === "note"}
+								onClick={() => setCanvasSidebar("note")}
+							>
+								<FileText size={16} /> 笔记
+							</button>
 						</div>
-						<button type="button" onClick={() => setOpenedAgentId(undefined)} aria-label="关闭 Agent 对话">
-							<X size={18} />
-						</button>
+					)}
+					<div className="research-canvas-sidebar-content" hidden={sidebarKind !== "note"}>
+						{openedNote && nodeMap.has(openedNote.nodeId) && noteById.has(openedNote.noteId) && (
+							<CanvasNotePreview
+								key={openedNote.nodeId}
+								namespace={namespace}
+								noteId={openedNote.noteId}
+								initialMode={openedNote.edit ? "edit" : "preview"}
+								summary={noteById.get(openedNote.noteId)!}
+								onDirtyChange={(dirty) => {
+									openedNoteDirty.current = dirty;
+								}}
+								onSaved={(note: ResearchNote) =>
+									setNotes((current) => current.map((item) => (item.id === note.id ? note : item)))
+								}
+								confirmAction={confirmCanvasAction}
+								onClose={() => {
+									openedNoteDirty.current = false;
+									setOpenedNote(undefined);
+								}}
+							/>
+						)}
 					</div>
-					<Suspense fallback={<div className="research-canvas-agent-loading">正在加载对话…</div>}>
-						<AgentPage
-							key={`${board.id}:${openedAgentId}`}
-							embedded
-							canvasContext={{ namespace, canvasId: board.id }}
-							canvasNodes={connectedAgentNodes}
-							focusSessionId={openedAgentId}
-							confirmAction={confirmCanvasAction}
-							promptAction={promptCanvasAction}
-						/>
-					</Suspense>
+					{openedAgentId && (
+						<div className="research-canvas-sidebar-content" hidden={sidebarKind !== "agent"}>
+							<div className="research-canvas-agent-panel-heading">
+								<div>
+									<Bot size={18} />
+									<strong>{agentById.get(openedAgentId)?.title ?? "Agent 对话"}</strong>
+								</div>
+								<button type="button" onClick={() => setOpenedAgentId(undefined)} aria-label="关闭 Agent 对话">
+									<X size={18} />
+								</button>
+							</div>
+							<Suspense fallback={<div className="research-canvas-agent-loading">正在加载对话…</div>}>
+								<AgentPage
+									key={`${board.id}:${openedAgentId}`}
+									embedded
+									canvasContext={{
+										namespace,
+										canvasId: board.id,
+										agentNodeId: board.nodes.find((n) => n.kind === "agent" && n.entityId === openedAgentId)
+											?.id,
+									}}
+									initialPrompt={researchPrompt}
+									onPromptConsumed={() => setResearchPrompt("")}
+									canvasNodes={connectedAgentNodes}
+									beforeCanvasMessage={flush}
+									focusSessionId={openedAgentId}
+									confirmAction={confirmCanvasAction}
+									promptAction={promptCanvasAction}
+								/>
+							</Suspense>
+						</div>
+					)}
 				</aside>
 			)}
+
 			{board && agentPickerOpen && (
 				<div
 					className="research-canvas-agent-picker-backdrop"
@@ -4010,7 +4399,8 @@ export default function CanvasPage({
 				<div
 					className="research-canvas-picker-backdrop"
 					onPointerDown={(event) => {
-						if (event.target === event.currentTarget) {
+						if (!busy && event.target === event.currentTarget) {
+							if (picker === "paper") savePaperPickerMemory();
 							setPicker(undefined);
 							pendingNodePosition.current = undefined;
 							pendingLinkFrom.current = undefined;
@@ -4024,196 +4414,258 @@ export default function CanvasPage({
 						aria-label={`添加${nodeNames[picker]}`}
 					>
 						<div className="research-canvas-picker-head">
-							<h2>从个人库添加{nodeNames[picker]}</h2>
-							<button
-								type="button"
-								onClick={() => {
-									setPicker(undefined);
-									pendingNodePosition.current = undefined;
-									pendingLinkFrom.current = undefined;
-								}}
-								aria-label="关闭"
-							>
-								<X size={18} />
-							</button>
-						</div>
-						<div className="research-canvas-picker-content">
-							{picker === "paper" && (
-								<aside className="research-canvas-picker-collections" aria-label="论文分类">
-									<strong>分类</strong>
-									<nav aria-label="按分类筛选论文">
-										<button
-											type="button"
-											className={pickerCollection === "all" ? "active" : ""}
-											aria-pressed={pickerCollection === "all"}
-											onClick={() => setPickerCollection("all")}
-										>
-											<BookOpen size={15} /> 全部论文
-										</button>
-										<button
-											type="button"
-											className={pickerCollection === "__uncategorized__" ? "active" : ""}
-											aria-pressed={pickerCollection === "__uncategorized__"}
-											onClick={() => setPickerCollection("__uncategorized__")}
-										>
-											<Folder size={15} /> 未分类
-										</button>
-										{pickerCollectionRows.map(({ collection, depth, hasChildren }) => (
-											<div
-												className="research-canvas-picker-collection-row"
-												key={collection.id}
-												style={{ paddingLeft: depth * 13 }}
-											>
-												{hasChildren ? (
-													<button
-														type="button"
-														className="research-canvas-picker-collection-toggle"
-														aria-label={`${pickerExpanded.has(collection.id) ? "折叠" : "展开"}${collection.name}`}
-														aria-expanded={pickerExpanded.has(collection.id)}
-														onClick={() =>
-															setPickerExpanded((current) => {
-																const next = new Set(current);
-																if (next.has(collection.id)) next.delete(collection.id);
-																else next.add(collection.id);
-																return next;
-															})
-														}
-													>
-														<ChevronRight
-															size={14}
-															className={pickerExpanded.has(collection.id) ? "expanded" : ""}
-														/>
-													</button>
-												) : (
-													<span className="research-canvas-picker-collection-spacer" />
-												)}
-												<button
-													type="button"
-													className={pickerCollection === collection.id ? "active" : ""}
-													aria-pressed={pickerCollection === collection.id}
-													title={collection.name}
-													onClick={() => setPickerCollection(collection.id)}
-												>
-													<Folder size={15} /> <span>{collection.name}</span>
-												</button>
-											</div>
-										))}
-									</nav>
-									{pickerCollectionsError && <p role="alert">分类加载失败：{pickerCollectionsError}</p>}
-								</aside>
-							)}
-							{picker === "note" && (
-								<aside className="research-canvas-picker-collections" aria-label="笔记文件夹">
-									<strong>文件夹</strong>
-									<nav aria-label="按文件夹筛选笔记">
-										<button
-											type="button"
-											className={pickerFolder === "all" ? "active" : ""}
-											aria-pressed={pickerFolder === "all"}
-											onClick={() => setPickerFolder("all")}
-										>
-											<FileText size={15} /> 全部笔记
-										</button>
-										<button
-											type="button"
-											className={pickerFolder === "__unfiled__" ? "active" : ""}
-											aria-pressed={pickerFolder === "__unfiled__"}
-											onClick={() => setPickerFolder("__unfiled__")}
-										>
-											<Folder size={15} /> 未归档
-										</button>
-										{pickerNoteFolderRows.map(({ folder, depth, hasChildren }) => (
-											<div
-												className="research-canvas-picker-collection-row"
-												key={folder.id}
-												style={{ paddingLeft: depth * 13 }}
-											>
-												{hasChildren ? (
-													<button
-														type="button"
-														className="research-canvas-picker-collection-toggle"
-														aria-label={`${pickerFolderExpanded.has(folder.id) ? "折叠" : "展开"}${folder.name}`}
-														aria-expanded={pickerFolderExpanded.has(folder.id)}
-														onClick={() =>
-															setPickerFolderExpanded((current) => {
-																const next = new Set(current);
-																if (next.has(folder.id)) next.delete(folder.id);
-																else next.add(folder.id);
-																return next;
-															})
-														}
-													>
-														<ChevronRight
-															size={14}
-															className={pickerFolderExpanded.has(folder.id) ? "expanded" : ""}
-														/>
-													</button>
-												) : (
-													<span className="research-canvas-picker-collection-spacer" />
-												)}
-												<button
-													type="button"
-													className={pickerFolder === folder.id ? "active" : ""}
-													aria-pressed={pickerFolder === folder.id}
-													title={folder.name}
-													onClick={() => setPickerFolder(folder.id)}
-												>
-													<Folder size={15} /> <span>{folder.name}</span>
-												</button>
-											</div>
-										))}
-									</nav>
-									{pickerFoldersError && <p role="alert">文件夹加载失败：{pickerFoldersError}</p>}
-								</aside>
-							)}
-							<div className="research-canvas-picker-results">
-								<div className="research-canvas-picker-search">
-									<Search size={17} />
-									<input
-										value={pickerQuery}
-										onChange={(event) => setPickerQuery(event.target.value)}
-										placeholder={`搜索${nodeNames[picker]}…`}
-									/>
-								</div>
-								{picker === "paper" && pickerPaperPage && !pickerPaperPage.error && (
-									<small className="research-canvas-picker-count">
-										{pickerPaperPage.total} 篇论文
-										{pickerPaperPage.total > pickerPaperPage.papers.length
-											? `，显示前 ${pickerPaperPage.papers.length} 篇`
-											: ""}
-									</small>
+							<h2>{picker === "note" && noteCreateOpen ? "新建笔记" : `从个人库添加${nodeNames[picker]}`}</h2>
+							<div className="research-canvas-picker-head-actions">
+								{picker === "note" && (
+									<button
+										type="button"
+										className="research-canvas-picker-new-note"
+										disabled={busy}
+										onClick={() => setNoteCreateOpen((value) => !value)}
+									>
+										{noteCreateOpen ? <ChevronLeft size={16} /> : <Plus size={16} />}
+										{noteCreateOpen ? "返回列表" : "新建笔记"}
+									</button>
 								)}
-								{picker === "note" && pickerNotePage && !pickerNotePage.error && (
-									<small className="research-canvas-picker-count">{pickerItems.length} 篇笔记</small>
-								)}
-								<div
-									className="research-canvas-picker-items"
-									key={picker === "paper" ? pickerPaperKey : `note:${pickerFolder}`}
+								<button
+									type="button"
+									onClick={() => {
+										if (picker === "paper") savePaperPickerMemory();
+										setPicker(undefined);
+										pendingNodePosition.current = undefined;
+										pendingLinkFrom.current = undefined;
+									}}
+									disabled={busy}
+									aria-label="关闭"
 								>
-									{picker === "paper" && !pickerPaperPage ? <p>正在加载论文…</p> : null}
-									{picker === "note" && !pickerNotePage ? <p>正在加载笔记…</p> : null}
-									{picker === "paper" && pickerPaperPage?.error ? (
-										<p role="alert">加载论文失败：{pickerPaperPage.error}</p>
-									) : null}
-									{picker === "note" && pickerNotePage?.error ? (
-										<p role="alert">加载笔记失败：{pickerNotePage.error}</p>
-									) : null}
-									{pickerItems.map((item) => (
-										<button key={item.id} type="button" onClick={() => addNode(picker, item)}>
-											<strong>{item.title}</strong>
-											{"authors" in item && <small>{item.authors.slice(0, 3).join("、")}</small>}
-											{"folderPath" in item && item.folderPath && <small>{item.folderPath}</small>}
-										</button>
-									))}
-									{pickerItems.length === 0 &&
-										(picker === "paper"
-											? pickerPaperPage && !pickerPaperPage.error
-											: pickerNotePage && !pickerNotePage.error) && (
-											<p>没有找到匹配的{nodeNames[picker]}。</p>
-										)}
-								</div>
+									<X size={18} />
+								</button>
 							</div>
 						</div>
+						{picker === "note" && noteCreateOpen ? (
+							<CanvasNoteCreate
+								key={`${namespace}:${board?.id}`}
+								namespace={namespace}
+								folders={pickerFolders}
+								initialTitle={pickerQuery}
+								initialFolderId={pickerFolders.some((folder) => folder.id === pickerFolder) ? pickerFolder : ""}
+								onBusyChange={setBusy}
+								beforeCreate={async () => {
+									if (!board || boardRef.current?.id !== board.id)
+										throw new Error("画布已切换，请重新打开窗口");
+									if (!(await flush())) throw new Error("请先处理画布保存冲突");
+									if (
+										openedNoteDirty.current &&
+										!(await confirmCanvasAction("笔记有未保存的修改。放弃修改并新建笔记吗？"))
+									)
+										throw new Error("已取消创建，原笔记草稿仍保留");
+								}}
+								onCreated={(note) => {
+									if (boardRef.current?.id !== board?.id)
+										throw new Error("笔记已创建，请从所属个人库重新添加到画布");
+									const node = addNode("note", note);
+									if (!node) throw new Error("笔记已创建，请重新尝试加入画布");
+									setNotes((items) => mergeById(items, [note]));
+									openedNoteDirty.current = false;
+									setOpenedNote({ nodeId: node.id, noteId: note.id, edit: true });
+									setCanvasSidebar("note");
+								}}
+							/>
+						) : (
+							<div className="research-canvas-picker-content">
+								{picker === "paper" && (
+									<aside className="research-canvas-picker-collections" aria-label="论文分类">
+										<strong>分类</strong>
+										<nav
+											ref={pickerCollectionNavRef}
+											aria-label="按分类筛选论文"
+											onScroll={(event) =>
+												recordPaperPickerScroll("collection", event.currentTarget.scrollTop)
+											}
+										>
+											<button
+												type="button"
+												className={pickerCollection === "all" ? "active" : ""}
+												aria-pressed={pickerCollection === "all"}
+												onClick={() => changePaperPickerCollection("all")}
+											>
+												<BookOpen size={15} /> 全部论文
+											</button>
+											<button
+												type="button"
+												className={pickerCollection === "__uncategorized__" ? "active" : ""}
+												aria-pressed={pickerCollection === "__uncategorized__"}
+												onClick={() => changePaperPickerCollection("__uncategorized__")}
+											>
+												<Folder size={15} /> 未分类
+											</button>
+											{pickerCollectionRows.map(({ collection, depth, hasChildren }) => (
+												<div
+													className="research-canvas-picker-collection-row"
+													key={collection.id}
+													style={{ paddingLeft: depth * 13 }}
+												>
+													{hasChildren ? (
+														<button
+															type="button"
+															className="research-canvas-picker-collection-toggle"
+															aria-label={`${pickerExpanded.has(collection.id) ? "折叠" : "展开"}${collection.name}`}
+															aria-expanded={pickerExpanded.has(collection.id)}
+															onClick={() =>
+																setPickerExpanded((current) => {
+																	const next = new Set(current);
+																	if (next.has(collection.id)) next.delete(collection.id);
+																	else next.add(collection.id);
+																	return next;
+																})
+															}
+														>
+															<ChevronRight
+																size={14}
+																className={pickerExpanded.has(collection.id) ? "expanded" : ""}
+															/>
+														</button>
+													) : (
+														<span className="research-canvas-picker-collection-spacer" />
+													)}
+													<button
+														type="button"
+														className={pickerCollection === collection.id ? "active" : ""}
+														aria-pressed={pickerCollection === collection.id}
+														title={collection.name}
+														onClick={() => changePaperPickerCollection(collection.id)}
+													>
+														<Folder size={15} /> <span>{collection.name}</span>
+													</button>
+												</div>
+											))}
+										</nav>
+										{pickerCollectionsError && <p role="alert">分类加载失败：{pickerCollectionsError}</p>}
+									</aside>
+								)}
+								{picker === "note" && (
+									<aside className="research-canvas-picker-collections" aria-label="笔记文件夹">
+										<strong>文件夹</strong>
+										<nav aria-label="按文件夹筛选笔记">
+											<button
+												type="button"
+												className={pickerFolder === "all" ? "active" : ""}
+												aria-pressed={pickerFolder === "all"}
+												onClick={() => setPickerFolder("all")}
+											>
+												<FileText size={15} /> 全部笔记
+											</button>
+											<button
+												type="button"
+												className={pickerFolder === "__unfiled__" ? "active" : ""}
+												aria-pressed={pickerFolder === "__unfiled__"}
+												onClick={() => setPickerFolder("__unfiled__")}
+											>
+												<Folder size={15} /> 未归档
+											</button>
+											{pickerNoteFolderRows.map(({ folder, depth, hasChildren }) => (
+												<div
+													className="research-canvas-picker-collection-row"
+													key={folder.id}
+													style={{ paddingLeft: depth * 13 }}
+												>
+													{hasChildren ? (
+														<button
+															type="button"
+															className="research-canvas-picker-collection-toggle"
+															aria-label={`${pickerFolderExpanded.has(folder.id) ? "折叠" : "展开"}${folder.name}`}
+															aria-expanded={pickerFolderExpanded.has(folder.id)}
+															onClick={() =>
+																setPickerFolderExpanded((current) => {
+																	const next = new Set(current);
+																	if (next.has(folder.id)) next.delete(folder.id);
+																	else next.add(folder.id);
+																	return next;
+																})
+															}
+														>
+															<ChevronRight
+																size={14}
+																className={pickerFolderExpanded.has(folder.id) ? "expanded" : ""}
+															/>
+														</button>
+													) : (
+														<span className="research-canvas-picker-collection-spacer" />
+													)}
+													<button
+														type="button"
+														className={pickerFolder === folder.id ? "active" : ""}
+														aria-pressed={pickerFolder === folder.id}
+														title={folder.name}
+														onClick={() => setPickerFolder(folder.id)}
+													>
+														<Folder size={15} /> <span>{folder.name}</span>
+													</button>
+												</div>
+											))}
+										</nav>
+										{pickerFoldersError && <p role="alert">文件夹加载失败：{pickerFoldersError}</p>}
+									</aside>
+								)}
+								<div className="research-canvas-picker-results">
+									<div className="research-canvas-picker-search">
+										<Search size={17} />
+										<input
+											value={pickerQuery}
+											onChange={(event) =>
+												picker === "paper"
+													? changePaperPickerQuery(event.target.value)
+													: setPickerQuery(event.target.value)
+											}
+											placeholder={`搜索${nodeNames[picker]}…`}
+										/>
+									</div>
+									{picker === "paper" && pickerPaperPage && !pickerPaperPage.error && (
+										<small className="research-canvas-picker-count">
+											{pickerPaperPage.total} 篇论文
+											{pickerPaperPage.total > pickerPaperPage.papers.length
+												? `，显示前 ${pickerPaperPage.papers.length} 篇`
+												: ""}
+										</small>
+									)}
+									{picker === "note" && pickerNotePage && !pickerNotePage.error && (
+										<small className="research-canvas-picker-count">{pickerItems.length} 篇笔记</small>
+									)}
+									<div
+										className="research-canvas-picker-items"
+										ref={picker === "paper" ? pickerPaperItemsRef : undefined}
+										key={picker === "paper" ? pickerPaperKey : `note:${pickerFolder}`}
+										onScroll={
+											picker === "paper"
+												? (event) => recordPaperPickerScroll("results", event.currentTarget.scrollTop)
+												: undefined
+										}
+									>
+										{picker === "paper" && !pickerPaperPage ? <p>正在加载论文…</p> : null}
+										{picker === "note" && !pickerNotePage ? <p>正在加载笔记…</p> : null}
+										{picker === "paper" && pickerPaperPage?.error ? (
+											<p role="alert">加载论文失败：{pickerPaperPage.error}</p>
+										) : null}
+										{picker === "note" && pickerNotePage?.error ? (
+											<p role="alert">加载笔记失败：{pickerNotePage.error}</p>
+										) : null}
+										{pickerItems.map((item) => (
+											<button key={item.id} type="button" onClick={() => addNode(picker, item)}>
+												<strong>{item.title}</strong>
+												{"authors" in item && <small>{item.authors.slice(0, 3).join("、")}</small>}
+												{"folderPath" in item && item.folderPath && <small>{item.folderPath}</small>}
+											</button>
+										))}
+										{pickerItems.length === 0 &&
+											(picker === "paper"
+												? pickerPaperPage && !pickerPaperPage.error
+												: pickerNotePage && !pickerNotePage.error) && (
+												<p>没有找到匹配的{nodeNames[picker]}。</p>
+											)}
+									</div>
+								</div>
+							</div>
+						)}
 					</section>
 				</div>
 			)}

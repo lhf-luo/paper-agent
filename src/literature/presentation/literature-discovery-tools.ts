@@ -94,24 +94,30 @@ export function registerLiteratureDiscoveryTools(pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			query: Type.String({ description: "Paper title, author/title combination, or focused research query" }),
 			max_results_per_source: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 5 })),
+			namespace: Type.Optional(Type.String({ description: "Personal namespace; default: default" })),
+			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
+			arxiv_submitted_from: Type.Optional(Type.String()),
+			arxiv_submitted_to: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await collectLiterature({
 				queries: [params.query],
 				providers: QUICK_SEARCH_PROVIDERS,
-				filters: {},
+				filters: {
+					yearFrom: params.year_from,
+					yearTo: params.year_to,
+					arxivSubmittedFrom: params.arxiv_submitted_from,
+					arxivSubmittedTo: params.arxiv_submitted_to,
+				},
 				pagesPerProvider: 1,
 				maxResultsPerProvider: params.max_results_per_source ?? 5,
 				scope: "personal",
 				mode: "once",
-				namespace: "default",
+				namespace: params.namespace ?? "default",
 				cwd: ctx.cwd,
 				signal,
 			});
-			if (!result.run.results.length) {
-				const reasons = result.run.failures.map((failure) => `${failure.provider}: ${failure.message}`).join("; ");
-				throw new Error(`Literature search returned no results.${reasons ? ` Provider failures: ${reasons}` : ""}`);
-			}
 			const details = buildSearchDetails(params.query, result.run);
 			return {
 				content: [

@@ -16,10 +16,10 @@ import type {
 	PdfDownloadPreparationInput,
 } from "../application/paper-agent-application.ts";
 import { handleAgentResearchLaunch, handleAgentRoutes } from "./agent-routes.ts";
+import { handleArxivNewsRoutes } from "./arxiv-news-routes.ts";
 import { handleCanvasRoutes } from "./canvas-routes.ts";
 import { handleConnectorRoutes } from "./connector-routes.ts";
 import { handleJobRoutes } from "./job-routes.ts";
-import { handleArxivNewsRoutes } from "./arxiv-news-routes.ts";
 import { handleLibraryRoutes } from "./library-routes.ts";
 import { handleReaderTranslationRoutes } from "./reader-translation-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
@@ -141,7 +141,7 @@ export async function startLocalWebServer(
 			if (await handleReaderTranslationRoutes(application, request, response, url)) return;
 			if (await handleMineruRoutes(application, request, response, url)) return;
 			if (await handleWikiRoutes(application, request, response, url)) return;
-			if (await handleCanvasRoutes(application, request, response, url, options.agentService)) return;
+			if (await handleCanvasRoutes(application, request, response, url, options.agentService, openStreams)) return;
 			if (url.pathname === "/api/agent/research/start") {
 				if (!options.agentService) throw new ApiError(503, "Web Agent service is unavailable");
 				if (await handleAgentResearchLaunch(application, options.agentService, request, response, url)) return;

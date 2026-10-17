@@ -40,6 +40,7 @@ export class WebAgentActions extends WebAgentRuntime {
 	async startPaperSessionCleanup(): Promise<void> {
 		void this.cleanupDeletedPaperSessions();
 		await this.cleanupOrphanCanvasSessions();
+		for (const session of this.sessions.values()) this.canvasResearchFor(session)?.finish("interrupted");
 		this.paperCleanupTimer = setInterval(() => void this.cleanupDeletedPaperSessions(), 1_000);
 		this.paperCleanupTimer.unref?.();
 	}
@@ -76,7 +77,12 @@ export class WebAgentActions extends WebAgentRuntime {
 	}
 	async sendMessage(
 		id: string,
-		input: { message: string; attachments?: WebAgentAttachmentRef[]; paperContext?: WebAgentPaperMessageContext },
+		input: {
+			message: string;
+			attachments?: WebAgentAttachmentRef[];
+			paperContext?: WebAgentPaperMessageContext;
+			canvasContext?: { agentNodeId?: string; selectedNodeIds?: string[] };
+		},
 	): Promise<WebAgentSessionSnapshot> {
 		this.assertOpen();
 		const session = this.managedSession(id);
@@ -116,7 +122,10 @@ export class WebAgentActions extends WebAgentRuntime {
 						"用户说“这篇论文”时默认指此论文；若用户明确指定其他来源，以用户要求为准。PDF 路径仅用于按需读取，不表示已阅读其内容。",
 					].join("\n")
 				: undefined;
-		const promptText = paperHeader ? `${paperHeader}\n\n${text}` : text;
+		if (input.canvasContext && session.context?.kind !== "canvas")
+			throw new WebAgentServiceError(400, "画布上下文只能用于画布会话");
+		const canvasHeader = await this.canvasResearchFor(session)?.prepare(input.canvasContext);
+		const promptText = [canvasHeader, paperHeader, text].filter(Boolean).join("\n\n");
 		const revision = this.configRevision;
 		const pi = await this.ensurePiSession(session, revision);
 		if (revision !== this.configRevision || !this.sessions.has(id)) {
