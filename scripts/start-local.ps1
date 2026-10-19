@@ -11,6 +11,11 @@ $ErrorActionPreference = "Stop"
 $CallerDirectory = (Get-Location).Path
 . (Join-Path $PSScriptRoot "local-environment.ps1")
 Set-Location $PaperAgentEnvironment.ProjectRoot
+& $PaperAgentEnvironment.NodeExe (Join-Path $PSScriptRoot "initialize-pi.ts")
+if ($LASTEXITCODE -ne 0) { throw "Pi configuration initialization failed." }
+if (-not $env:PI_CODING_AGENT_DIR) {
+	$env:PI_CODING_AGENT_DIR = Join-Path $PaperAgentEnvironment.ProjectRoot ".paper-agent\pi"
+}
 
 $extension = Join-Path $PaperAgentEnvironment.ProjectRoot "src\index.ts"
 $skills = Join-Path $PaperAgentEnvironment.ProjectRoot ".agents\skills"

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import {
 	type AgentSession,
+	type PromptOptions,
 	createAgentSession,
 	DefaultResourceLoader,
 	ModelRuntime,
@@ -39,11 +40,12 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 		return session.canvasResearch;
 	}
 	protected async createPiSession(session: ManagedWebAgentSession, revision: number): Promise<AgentSession> {
+		const nativeRuntime = await this.piModels?.runtime();
 		const credential = this.credential();
-		if (!this.endpoint.providerId || !this.endpoint.modelId || !this.endpoint.baseUrl) {
+		if (!this.endpoint.providerId || !this.endpoint.modelId || (!nativeRuntime && !this.endpoint.baseUrl)) {
 			throw new WebAgentServiceError(409, "请先配置 Provider、Model 和 Base URL");
 		}
-		if (!credential.key) {
+		if (!nativeRuntime && !credential.key) {
 			const environmentHint = this.endpoint.apiKeyEnvironmentVariable
 				? `，或设置环境变量 ${this.endpoint.apiKeyEnvironmentVariable}`
 				: "";
@@ -71,39 +73,47 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 			},
 		};
 		try {
-			const modelRuntime = await ModelRuntime.create({
-				credentials: emptyCredentialStore as never,
-				modelsPath: null,
-				allowModelNetwork: false,
-				refreshOnCreate: false,
-			});
-			modelRuntime.registerProvider(this.endpoint.providerId, {
-				name: this.endpoint.providerId,
-				baseUrl: this.endpoint.baseUrl,
-				api: this.endpoint.api,
-				apiKey: "$PAPER_AGENT_WEB_EPHEMERAL_KEY",
-				headers: this.endpoint.headers,
-				authHeader: this.endpoint.api === "openai-completions" || this.endpoint.api === "openai-responses",
-				models: [
-					{
-						id: this.endpoint.modelId,
-						name: this.endpoint.modelId,
-						reasoning: this.endpoint.reasoning,
-						input: this.endpoint.input,
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						contextWindow: this.endpoint.contextWindow,
-						maxTokens: this.endpoint.maxTokens,
-						compat: this.endpoint.compat,
-						thinkingLevelMap: this.endpoint.thinkingLevelMap,
-					},
-				],
-			});
-			await modelRuntime.setRuntimeApiKey(this.endpoint.providerId, credential.key);
+			const modelRuntime =
+				nativeRuntime ??
+				(await ModelRuntime.create({
+					credentials: emptyCredentialStore as never,
+					modelsPath: null,
+					allowModelNetwork: false,
+					refreshOnCreate: false,
+				}));
+			if (!nativeRuntime) {
+				modelRuntime.registerProvider(this.endpoint.providerId, {
+					name: this.endpoint.providerId,
+					baseUrl: this.endpoint.baseUrl,
+					api: this.endpoint.api,
+					apiKey: "$PAPER_AGENT_WEB_EPHEMERAL_KEY",
+					headers: this.endpoint.headers,
+					authHeader: this.endpoint.api === "openai-completions" || this.endpoint.api === "openai-responses",
+					models: [
+						{
+							id: this.endpoint.modelId,
+							name: this.endpoint.modelId,
+							reasoning: this.endpoint.reasoning,
+							input: this.endpoint.input,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+							contextWindow: this.endpoint.contextWindow,
+							maxTokens: this.endpoint.maxTokens,
+							compat: this.endpoint.compat,
+							thinkingLevelMap: this.endpoint.thinkingLevelMap,
+						},
+					],
+				});
+				await modelRuntime.setRuntimeApiKey(this.endpoint.providerId, credential.key!);
+			}
 			const model = modelRuntime.getModel(this.endpoint.providerId, this.endpoint.modelId);
 			if (!model) throw new Error("Pi 未能注册所选模型");
+			if (nativeRuntime) {
+				const auth = await nativeRuntime.getAuth(model);
+				this.rememberRuntimeSecrets(auth?.auth.apiKey, ...Object.values(auth?.env ?? {}));
+			}
 			const resourceLoader = new DefaultResourceLoader({
 				cwd: this.projectRoot,
-				agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
+				agentDir: this.piModels?.directory ?? join(this.projectRoot, ".paper-agent", "web-agent-memory"),
 				noExtensions: true,
 				noContextFiles: true,
 				noPromptTemplates: true,
@@ -141,6 +151,8 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				settingsManager: SettingsManager.inMemory(
 					{
 						compaction: { enabled: true },
+						steeringMode: "one-at-a-time",
+						followUpMode: "one-at-a-time",
 						retry: { enabled: true, maxRetries: 2 },
 						shellPath: this.shellPath,
 					},
@@ -200,9 +212,16 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 		session.activeAssistantMessageId = undefined;
 	}
 
-	protected async runPrompt(session: ManagedWebAgentSession, pi: AgentSession, message: string): Promise<void> {
+	protected onRunFinished(_session: ManagedWebAgentSession): void {}
+
+	protected async runPrompt(
+		session: ManagedWebAgentSession,
+		pi: AgentSession,
+		message: string,
+		options?: PromptOptions,
+	): Promise<void> {
 		try {
-			await pi.prompt(message, { source: "rpc" });
+			await pi.prompt(message, { source: "rpc", ...options });
 		} catch (error) {
 			if (!session.abortRequested) {
 				session.error = this.redact(error);
@@ -217,6 +236,7 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				}
 			}
 		} finally {
+			if (session.abortRequested || session.error) this.queueFor(session).pause(pi);
 			try {
 				session.canvasResearch?.finish(session.abortRequested ? "stopped" : session.error ? "failed" : "partial");
 			} catch {
@@ -240,8 +260,9 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 			session.runPromise = undefined;
 			session.abortRequested = false;
 			this.touch(session);
-			if (session.mode === "once") this.disposePiSession(session);
+			if (session.mode === "once" && !session.inputState.pending.length) this.disposePiSession(session);
 			this.emitSession(session);
+			this.onRunFinished(session);
 		}
 	}
 }

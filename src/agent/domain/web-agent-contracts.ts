@@ -1,6 +1,8 @@
+import type { WebAgentDelivery, WebAgentPendingInput } from "./web-agent-inputs.ts";
+export type { WebAgentDelivery, WebAgentPendingInput } from "./web-agent-inputs.ts";
 export type WebAgentMode = "once" | "persistent";
 export type WebAgentSessionStatus = "idle" | "running" | "stopping" | "error";
-export type WebAgentCredentialSource = "memory" | "config" | "environment" | "none";
+export type WebAgentCredentialSource = "memory" | "config" | "environment" | "pi" | "none";
 export type WebAgentThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type WebAgentPermissionMode = "ask" | "auto";
 
@@ -115,6 +117,8 @@ export interface WebAgentSessionSnapshot extends WebAgentSessionSummary {
 	messages: WebAgentMessageView[];
 	tools: WebAgentToolView[];
 	uiRequests: WebAgentUIRequestView[];
+	pendingInputs: WebAgentPendingInput[];
+	queuePaused: boolean;
 }
 
 interface WebAgentEventBase {
@@ -132,6 +136,12 @@ export type WebAgentEvent =
 	| (WebAgentEventBase & { type: "ui_request"; request: WebAgentUIRequestView })
 	| (WebAgentEventBase & { type: "ui_resolved"; requestId: string })
 	| (WebAgentEventBase & { type: "notice"; level: "info" | "warning" | "error"; message: string })
+	| (WebAgentEventBase & {
+			type: "queue";
+			pendingInputs: WebAgentPendingInput[];
+			queuePaused: boolean;
+			updatedAt: string;
+	  })
 	| (WebAgentEventBase & { type: "deleted" });
 
 export type WebAgentEventPayload = WebAgentEvent extends infer Event
@@ -197,6 +207,8 @@ export interface WebAgentServiceApi {
 			attachments?: WebAgentAttachmentRef[];
 			paperContext?: WebAgentPaperMessageContext;
 			canvasContext?: { agentNodeId?: string; selectedNodeIds?: string[] };
+			delivery?: WebAgentDelivery;
+			clientMessageId?: string;
 		},
 	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	uploadAttachment(
@@ -204,6 +216,8 @@ export interface WebAgentServiceApi {
 		input: { name: string; data: Uint8Array },
 	): WebAgentAttachment | Promise<WebAgentAttachment>;
 	abortSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	resumeQueue(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
+	clearQueue(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	respondToUI(
 		id: string,
 		requestId: string,

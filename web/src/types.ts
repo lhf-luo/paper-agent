@@ -636,7 +636,7 @@ export interface AgentConfigView {
 	apiKeyEnvironmentVariable?: string;
 	configured: boolean;
 	credentialsAvailable: boolean;
-	credentialSource: "memory" | "config" | "environment" | "none";
+	credentialSource: "memory" | "config" | "environment" | "pi" | "none";
 	configuredModels: AgentConfiguredModelView[];
 }
 
@@ -691,7 +691,18 @@ export interface AgentSessionSummary {
 	permissionMode?: AgentPermissionMode;
 }
 
+export interface AgentPendingInput {
+	id: string;
+	delivery: "steer" | "followUp";
+	content: string;
+	attachmentNames?: string[];
+	createdAt: string;
+	status: "queued" | "paused" | "uncertain";
+}
+
 export interface AgentSessionSnapshot extends AgentSessionSummary {
+	pendingInputs: AgentPendingInput[];
+	queuePaused: boolean;
 	messages: AgentMessageView[];
 	tools: AgentToolView[];
 	uiRequests: AgentUIRequestView[];
@@ -704,6 +715,7 @@ interface AgentEventBase {
 }
 
 export type AgentEvent =
+	| (AgentEventBase & { type: "queue"; pendingInputs: AgentPendingInput[]; queuePaused: boolean; updatedAt: string })
 	| (AgentEventBase & { type: "session"; session: AgentSessionSummary })
 	| (AgentEventBase & { type: "message"; message: AgentMessageView })
 	| (AgentEventBase & { type: "message_delta"; messageId: string; delta: string })

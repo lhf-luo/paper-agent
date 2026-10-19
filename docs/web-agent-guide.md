@@ -1,10 +1,16 @@
 # Web Agent User Guide
 
+Agent model settings now use the [project-local Pi native configuration](pi-models.md). Select a built-in provider and follow Pi credential prompts; maintain relays in `.paper-agent/pi/models.json`. This replaces manual endpoint setup in the legacy sections below.
+
 [Documentation index](README.md) | [简体中文](web-agent-guide.zh-CN.md)
 
 Paper Agent's **Agent chat** page is the primary conversational interface for literature research in the browser. It combines the `literature-corpus-manager`, `paper-research`, and `research-wiki` Skills with Paper Agent's paper search, PDF, Artifact, personal-library, team-library, research-workspace, and Wiki tools.
 
 The Skills are loaded automatically. You do not need a slash command or need to name a Skill in every request.
+
+You can keep typing and attaching files or canvas nodes while a run is active. The send menu offers **Steer** (default), delivered after the current assistant turn and its tools, and **Follow up**, delivered when the current task would finish. Ctrl/Cmd + Enter uses the selected mode. Steering does not interrupt tools or resolve approval requests.
+
+Pending inputs appear above the composer. Stop pauses and preserves undelivered inputs; Resume continues them, and Clear removes them. Refreshing or closing a panel leaves normal runs active. Pending inputs stay paused after a server restart. If delivery is uncertain, check history and clear/resubmit the required tasks to avoid duplicate execution. A once session resumes pending tasks with fresh context after a server restart.
 
 ## 1. Open Agent chat
 

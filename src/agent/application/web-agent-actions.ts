@@ -3,9 +3,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type WebAgentAttachment,
-	type WebAgentAttachmentRef,
-	type WebAgentMessageView,
-	type WebAgentPaperMessageContext,
 	WebAgentServiceError,
 	type WebAgentSessionSnapshot,
 } from "../domain/web-agent-contracts.ts";
@@ -30,10 +27,10 @@ export type {
 } from "../domain/web-agent-contracts.ts";
 export { WebAgentServiceError } from "../domain/web-agent-contracts.ts";
 
-import { WebAgentRuntime } from "./web-agent-runtime.ts";
-import { type ManagedWebAgentSession, timestamp } from "./web-agent-support.ts";
+import { WebAgentInputs } from "./web-agent-inputs.ts";
+import type { ManagedWebAgentSession } from "./web-agent-support.ts";
 
-export class WebAgentActions extends WebAgentRuntime {
+export class WebAgentActions extends WebAgentInputs {
 	private paperCleanupTimer?: ReturnType<typeof setInterval>;
 	private paperCleanupRunning?: Promise<void>;
 
@@ -75,83 +72,6 @@ export class WebAgentActions extends WebAgentRuntime {
 		});
 		return this.paperCleanupRunning;
 	}
-	async sendMessage(
-		id: string,
-		input: {
-			message: string;
-			attachments?: WebAgentAttachmentRef[];
-			paperContext?: WebAgentPaperMessageContext;
-			canvasContext?: { agentNodeId?: string; selectedNodeIds?: string[] };
-		},
-	): Promise<WebAgentSessionSnapshot> {
-		this.assertOpen();
-		const session = this.managedSession(id);
-		if (session.runPromise) throw new WebAgentServiceError(409, "该 Agent 会话正在生成，请先停止或等待完成");
-		const message = input.message?.trim();
-		if (!message || message.length > 20_000) {
-			throw new WebAgentServiceError(400, "消息必须包含 1-20000 个字符");
-		}
-		const attachments = (input.attachments ?? []).slice(0, 10);
-		const reading = input.paperContext;
-		if (
-			reading &&
-			(session.context?.kind !== "paper" ||
-				reading.namespace !== session.context.namespace ||
-				reading.paperId !== session.context.paperId)
-		) {
-			throw new WebAgentServiceError(400, "当前阅读论文与 Agent 会话绑定的论文不一致");
-		}
-		let text = message;
-		if (attachments.length > 0) {
-			const lines = attachments.map((attachment) => `- ${attachment.name} (${attachment.path})`).join("\n");
-			text += `\n\n[附件]\n${lines}`;
-		}
-		const paperHeader =
-			session.context?.kind === "paper"
-				? [
-						"[当前阅读论文]",
-						`namespace: ${JSON.stringify(session.context.namespace)}`,
-						`paper_id: ${JSON.stringify(session.context.paperId)}`,
-						...(reading
-							? [
-									`title: ${JSON.stringify(reading.title)}`,
-									`current_pdf_path: ${JSON.stringify(reading.pdfPath)}`,
-									...(reading.pdfSha256 ? [`current_pdf_sha256: ${reading.pdfSha256}`] : []),
-								]
-							: []),
-						"用户说“这篇论文”时默认指此论文；若用户明确指定其他来源，以用户要求为准。PDF 路径仅用于按需读取，不表示已阅读其内容。",
-					].join("\n")
-				: undefined;
-		if (input.canvasContext && session.context?.kind !== "canvas")
-			throw new WebAgentServiceError(400, "画布上下文只能用于画布会话");
-		const canvasHeader = await this.canvasResearchFor(session)?.prepare(input.canvasContext);
-		const promptText = [canvasHeader, paperHeader, text].filter(Boolean).join("\n\n");
-		const revision = this.configRevision;
-		const pi = await this.ensurePiSession(session, revision);
-		if (revision !== this.configRevision || !this.sessions.has(id)) {
-			this.disposePiSession(session);
-			throw new WebAgentServiceError(409, "模型配置已变化，请重新发送消息");
-		}
-		session.error = undefined;
-		session.status = "running";
-		session.abortRequested = false;
-		const safeMessage = this.redact(message);
-		const safePrompt = this.redact(promptText);
-		const userMessage: WebAgentMessageView = {
-			id: randomUUID(),
-			role: "user",
-			content: safeMessage,
-			...(attachments.length
-				? { attachmentNames: attachments.map((attachment) => this.redact(attachment.name)) }
-				: {}),
-			status: "complete",
-			createdAt: timestamp(),
-		};
-		this.appendMessage(session, userMessage);
-		this.emitSession(session);
-		session.runPromise = this.runPrompt(session, pi, safePrompt);
-		return this.snapshot(session);
-	}
 
 	async uploadAttachment(id: string, input: { name: string; data: Uint8Array }): Promise<WebAgentAttachment> {
 		this.assertOpen();
@@ -172,10 +92,15 @@ export class WebAgentActions extends WebAgentRuntime {
 	}
 
 	async abortSession(id: string): Promise<WebAgentSessionSnapshot> {
+		return this.serialInput(this.managedSession(id), () => this.stopSession(id));
+	}
+
+	private async stopSession(id: string): Promise<WebAgentSessionSnapshot> {
 		this.assertOpen();
 		const session = this.managedSession(id);
 		if (!session.runPromise || !session.pi) return this.snapshot(session);
 		session.abortRequested = true;
+		this.queueFor(session).pause(session.pi);
 		session.status = "stopping";
 		this.rejectPendingUI(session);
 		this.touch(session);
@@ -183,6 +108,7 @@ export class WebAgentActions extends WebAgentRuntime {
 		try {
 			await session.pi.abort();
 			await session.runPromise;
+			await this.sessionStore.inputs.flush(id);
 		} catch {
 			// runPrompt performs the final state transition and redaction.
 		}
@@ -224,6 +150,7 @@ export class WebAgentActions extends WebAgentRuntime {
 	}
 
 	protected async disposeManagedSession(session: ManagedWebAgentSession): Promise<void> {
+		this.queueFor(session).pause(session.pi);
 		if (session.runPromise && session.pi) {
 			session.abortRequested = true;
 			this.rejectPendingUI(session);

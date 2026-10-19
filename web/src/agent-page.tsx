@@ -1,5 +1,4 @@
 import {
-	ArrowUp,
 	ArrowUpRight,
 	Bot,
 	Brain,
@@ -15,14 +14,15 @@ import {
 	Plus,
 	ShieldCheck,
 	Sparkles,
-	Square,
 	Trash2,
 	X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import "katex/dist/katex.min.css";
+import { agentMarkdownRehypePlugins, agentMarkdownRemarkPlugins, normalizeAgentMath } from "./agent-markdown";
+import { AgentInputControls, AgentPendingInputs, type AgentDelivery } from "./agent-input-controls";
 import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResultOutput } from "./agent-results";
 import { isAgentTranscriptNearBottom } from "./agent-scroll";
 import { isNewerAgentSessionState } from "./agent-session-state";
@@ -636,7 +636,8 @@ const AgentMarkdown = memo(function AgentMarkdown({
 }) {
 	return (
 		<ReactMarkdown
-			remarkPlugins={[remarkGfm]}
+			remarkPlugins={agentMarkdownRemarkPlugins}
+			rehypePlugins={agentMarkdownRehypePlugins}
 			components={{
 				a: ({ href, children }) => {
 					if (href?.startsWith("/api/agent/results/")) {
@@ -654,7 +655,7 @@ const AgentMarkdown = memo(function AgentMarkdown({
 				},
 			}}
 		>
-			{linkifyResultLinks(content)}
+			{normalizeAgentMath(linkifyResultLinks(content))}
 		</ReactMarkdown>
 	);
 });
@@ -704,7 +705,9 @@ const ThinkingBlock = memo(function ThinkingBlock({ thinking, streaming }: { thi
 				<small>API 可能仅提供摘要</small>
 			</summary>
 			<div className="agent-thinking-body">
-				<ReactMarkdown remarkPlugins={[remarkGfm]}>{thinking}</ReactMarkdown>
+				<ReactMarkdown remarkPlugins={agentMarkdownRemarkPlugins} rehypePlugins={agentMarkdownRehypePlugins}>
+					{normalizeAgentMath(thinking)}
+				</ReactMarkdown>
 			</div>
 		</details>
 	);
@@ -923,6 +926,9 @@ export function AgentPage({
 			? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
 			: "/api/agent/sessions";
 	const [config, setConfig] = useState<AgentConfigView>();
+	const [delivery, setDelivery] = useState<AgentDelivery>("steer");
+	const sendRequestRef = useRef<{ signature: string; id: string } | undefined>(undefined);
+	const sendingRef = useRef(false);
 	const [configuredKey, setConfiguredKey] = useState("");
 	const [menuOpen, setMenuOpen] = useState<{ id: string; left: number; top: number } | null>(null);
 	const sessionMenuCloseTimerRef = useRef<number | undefined>(undefined);
@@ -1501,6 +1507,19 @@ export function AgentPage({
 				);
 				return;
 			}
+			if (event.type === "queue") {
+				setActive((current) =>
+					current?.id === event.sessionId && current.updatedAt <= event.updatedAt
+						? {
+								...current,
+								pendingInputs: event.pendingInputs,
+								queuePaused: event.queuePaused,
+								updatedAt: event.updatedAt,
+							}
+						: current,
+				);
+				return;
+			}
 			if (event.type === "message_delta") {
 				setActive((current) =>
 					current?.id === event.sessionId
@@ -1723,7 +1742,8 @@ export function AgentPage({
 	};
 
 	const send = async () => {
-		if ((!active && !paperContext) || !prompt.trim()) return;
+		if ((!active && !paperContext) || !prompt.trim() || busy || uploading || sendingRef.current) return;
+		sendingRef.current = true;
 		setBusy(true);
 		setError("");
 		autoFollowTranscript.current = true;
@@ -1758,19 +1778,25 @@ export function AgentPage({
 				...attachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
 				...canvasTextAttachments.map((attachment) => ({ path: attachment.path, name: attachment.name })),
 			].filter((attachment, index, all) => all.findIndex((entry) => entry.path === attachment.path) === index);
+			const payload = {
+				message: composeCanvasNodeMessage(prompt, selectedCandidates, textAttachmentNames),
+				attachments: messageAttachments,
+				delivery,
+				...(paperContext ? { paperContext } : {}),
+				...(canvasContext ? { canvasContext: { agentNodeId: canvasContext.agentNodeId } } : {}),
+			};
+			const signature = `${targetSession.id}:${JSON.stringify(payload)}`;
+			if (sendRequestRef.current?.signature !== signature)
+				sendRequestRef.current = { signature, id: crypto.randomUUID() };
 			const snapshot = await api<AgentSessionSnapshot>(
 				`/api/agent/sessions/${encodeURIComponent(targetSession.id)}/messages`,
 				{
 					method: "POST",
-					body: JSON.stringify({
-						message: composeCanvasNodeMessage(prompt, selectedCandidates, textAttachmentNames),
-						attachments: messageAttachments,
-						...(paperContext ? { paperContext } : {}),
-						...(canvasContext ? { canvasContext: { agentNodeId: canvasContext.agentNodeId } } : {}),
-					}),
+					body: JSON.stringify({ ...payload, clientMessageId: sendRequestRef.current.id }),
 				},
 			);
 			setPrompt("");
+			sendRequestRef.current = undefined;
 			setAttachments([]);
 			setSelectedCanvasNodes([]);
 			uploadedCanvasTextRef.current.clear();
@@ -1783,6 +1809,25 @@ export function AgentPage({
 					? upsert(current, summaryFromSnapshot(snapshot))
 					: current;
 			});
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			sendingRef.current = false;
+			setBusy(false);
+		}
+	};
+
+	const queueAction = async (action: "resume" | "clear") => {
+		if (!active || busy) return;
+		setBusy(true);
+		try {
+			const snapshot = await api<AgentSessionSnapshot>(
+				`/api/agent/sessions/${encodeURIComponent(active.id)}/queue/${action}`,
+				{ method: "POST", body: "{}" },
+			);
+			setActive((current) =>
+				current?.id === snapshot.id && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
+			);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -2370,6 +2415,14 @@ export function AgentPage({
 										})}
 									</div>
 								)}
+								<AgentPendingInputs
+									inputs={active?.pendingInputs ?? []}
+									paused={Boolean(active?.queuePaused)}
+									busy={busy}
+									running={running}
+									onResume={() => void queueAction("resume")}
+									onClear={() => void queueAction("clear")}
+								/>
 								<textarea
 									className="agent-composer-textarea"
 									value={prompt}
@@ -2393,7 +2446,7 @@ export function AgentPage({
 									}}
 									placeholder="描述任务，或输入 / 选择技能… Ctrl / Cmd + Enter 发送"
 									rows={3}
-									disabled={(!active && !paperContext) || running}
+									disabled={(!active && !paperContext) || busy}
 								/>
 								<div className={`agent-composer-toolbar${canvasContext ? " has-canvas-node-attach" : ""}`}>
 									<div className="agent-composer-toolbar-left">
@@ -2401,7 +2454,7 @@ export function AgentPage({
 											className="agent-attach-btn"
 											type="button"
 											title="上传附件（PDF / 文本 / 图片，最多 10 个）"
-											disabled={!active || running || uploading}
+											disabled={!active || busy || uploading}
 											onClick={() => fileInputRef.current?.click()}
 										>
 											{uploading ? (
@@ -2425,7 +2478,7 @@ export function AgentPage({
 													title="上传节点：选择与当前 Agent 相连的节点"
 													aria-label="上传节点"
 													aria-expanded={canvasNodePickerOpen}
-													disabled={!active || running || busy}
+													disabled={!active || busy}
 													onClick={() => setCanvasNodePickerOpen((current) => !current)}
 												>
 													<ListTree size={16} />
@@ -2608,38 +2661,22 @@ export function AgentPage({
 												)}
 											</select>
 										</div>
-										<button
-											className={`agent-send-button${embedded && running ? " is-stop" : ""}`}
-											type="button"
-											aria-label={embedded && running ? "停止生成" : running ? "正在生成中" : "发送"}
+										<AgentInputControls
+											running={running}
+											paused={Boolean(active?.queuePaused)}
+											delivery={delivery}
+											onDelivery={setDelivery}
+											onSend={() => void send()}
+											onStop={() => void stop()}
+											stopping={busy || active?.status === "stopping"}
 											disabled={
-												embedded && running
-													? busy
-													: (!active && !paperContext) ||
-														!prompt.trim() ||
-														running ||
-														busy ||
-														!configurationReady
+												(!active && !paperContext) ||
+												!prompt.trim() ||
+												busy ||
+												uploading ||
+												!configurationReady
 											}
-											onClick={() => void (embedded && running ? stop() : send())}
-											title={
-												embedded && running ? "停止生成" : running ? "正在生成中…" : "发送 (Ctrl+Enter)"
-											}
-										>
-											{embedded && running ? (
-												<>
-													<span>停止</span>
-													<Square size={12} fill="currentColor" />
-												</>
-											) : running ? (
-												<Loader2 size={15} className="agent-spinning" />
-											) : (
-												<>
-													<span>发送</span>
-													<ArrowUp size={14} strokeWidth={2.5} />
-												</>
-											)}
-										</button>
+										/>
 									</div>
 								</div>
 							</div>

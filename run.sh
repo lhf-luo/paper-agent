@@ -149,6 +149,8 @@ start_agent() {
 				;;
 		esac
 	done
+	"$NODE_COMMAND" "$AGENT_DIR/scripts/initialize-pi.ts"
+	export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$AGENT_DIR/.paper-agent/pi}"
 	local args=("$AGENT_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" --no-approve --no-extensions --extension "$AGENT_DIR/src/index.ts" --skill "$AGENT_DIR/.agents/skills")
 	if [[ -n "$pdf" ]]; then
 		if [[ ! -f "$pdf" ]]; then echo "PDF not found: $pdf" >&2; exit 1; fi

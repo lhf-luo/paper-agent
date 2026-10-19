@@ -36,6 +36,8 @@ describe("local Web Agent routes", () => {
 			configuredModels: [],
 		};
 		let snapshot: WebAgentSessionSnapshot = {
+			pendingInputs: [],
+			queuePaused: false,
 			id: "session-one",
 			title: "Route test",
 			mode: "persistent",
@@ -52,8 +54,19 @@ describe("local Web Agent routes", () => {
 		let createdContext: unknown;
 		let sentPaperContext: unknown;
 		let listedFilter: unknown;
+		let sentDelivery: unknown;
+		let sentClientId: unknown;
+		const queueActions: string[] = [];
 		const listeners = new Set<(event: WebAgentEvent) => void>();
 		const agentService: WebAgentServiceApi = {
+			resumeQueue: () => {
+				queueActions.push("resume");
+				return snapshot;
+			},
+			clearQueue: () => {
+				queueActions.push("clear");
+				return snapshot;
+			},
 			projectRoot: "/tmp/paper-agent-mock",
 			deleteCanvasSessions: () => undefined,
 			getConfig: () => config,
@@ -88,6 +101,8 @@ describe("local Web Agent routes", () => {
 			getSession: () => snapshot,
 			deleteSession: () => undefined,
 			sendMessage: (_id, input) => {
+				sentDelivery = input.delivery;
+				sentClientId = input.clientMessageId;
 				sentPaperContext = input.paperContext;
 				snapshot = {
 					...snapshot,
@@ -177,6 +192,35 @@ describe("local Web Agent routes", () => {
 			});
 			expect(paperMessageResponse.status).toBe(202);
 			expect(sentPaperContext).toEqual(readingContext);
+			const clientMessageId = "00000000-0000-4000-8000-000000000001";
+			expect(
+				(
+					await authenticated("/api/agent/sessions/session-one/messages", {
+						method: "POST",
+						body: JSON.stringify({ message: "follow", delivery: "followUp", clientMessageId }),
+					})
+				).status,
+			).toBe(202);
+			expect(sentDelivery).toBe("followUp");
+			expect(sentClientId).toBe(clientMessageId);
+			expect(
+				(
+					await authenticated("/api/agent/sessions/session-one/messages", {
+						method: "POST",
+						body: JSON.stringify({ message: "bad", delivery: "interrupt" }),
+					})
+				).status,
+			).toBe(400);
+			for (const action of ["resume", "clear"])
+				expect(
+					(
+						await authenticated(`/api/agent/sessions/session-one/queue/${action}`, {
+							method: "POST",
+							body: "{}",
+						})
+					).status,
+				).toBe(200);
+			expect(queueActions).toEqual(["resume", "clear"]);
 			const invalidPaperMessage = await authenticated("/api/agent/sessions/session-one/messages", {
 				method: "POST",
 				body: JSON.stringify({ message: "read this", paperContext: { title: "missing identity" } }),

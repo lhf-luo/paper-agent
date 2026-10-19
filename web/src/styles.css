@@ -6773,6 +6773,8 @@ body.paper-reader-resizing .browser-pdf-frame {
 /* 底部工具条 */
 .agent-composer-toolbar {
 	display: flex;
+	width: 100%;
+	box-sizing: border-box;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
@@ -8360,6 +8362,26 @@ body.paper-reader-resizing .browser-pdf-frame {
 	display: block;
 	max-width: 100%;
 	overflow-x: auto;
+}
+
+.agent-message.assistant .agent-message-text {
+	white-space: normal;
+}
+
+.agent-message-text .katex-display,
+.agent-thinking-body .katex-display {
+	max-width: 100%;
+	margin: 12px 0;
+	padding: 4px 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+
+.agent-message-text .katex,
+.agent-thinking-body .katex {
+	white-space: nowrap;
+	word-break: normal;
+	overflow-wrap: normal;
 }
 
 /* Literature collection sidebar */

@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { PiModelService } from "../../agent/application/pi-model-service.ts";
 import {
 	loadPaperAgentConfig,
 	loadPaperAgentConfigSync,
@@ -21,6 +22,7 @@ import { PersistentJobQueue } from "../../shared/infrastructure/job-queue.ts";
 
 import type { PaperAgentApplicationConfig } from "./paper-agent-contracts.ts";
 export abstract class PaperAgentApplicationBase {
+	readonly piModels: PiModelService;
 	readonly projectRoot: string;
 	readonly dataRoot: string;
 	readonly corpusRoot: string;
@@ -48,6 +50,7 @@ export abstract class PaperAgentApplicationBase {
 
 	constructor(config: PaperAgentApplicationConfig) {
 		this.projectRoot = resolve(config.projectRoot);
+		this.piModels = new PiModelService(this.projectRoot);
 		this.dataRoot = resolve(config.dataRoot ?? join(this.projectRoot, ".paper-agent"));
 		this.corpusRoot = resolve(config.corpusRoot ?? join(this.dataRoot, "corpus"));
 		this.defaultNamespace = config.defaultNamespace ?? "default";

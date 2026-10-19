@@ -1,0 +1,145 @@
+.agent-input-actions {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+.agent-send-split {
+	display: flex;
+	align-items: stretch;
+}
+.agent-send-split .agent-send-button {
+	border-radius: 9px 0 0 9px;
+	min-width: 54px;
+	padding-inline: 9px;
+}
+.agent-input-actions .agent-delivery-toggle,
+.agent-input-actions .agent-input-stop {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--brand-300);
+	background: var(--brand-50);
+	color: var(--brand-800);
+	cursor: pointer;
+}
+.agent-delivery-toggle {
+	width: 24px;
+	border-radius: 0 9px 9px 0;
+	border-left: 0;
+}
+.agent-input-stop {
+	width: 30px;
+	height: 34px;
+	border-radius: 8px;
+}
+.agent-delivery-toggle:hover,
+.agent-input-stop:hover {
+	background: var(--surface-hover);
+}
+.agent-delivery-toggle:focus-visible,
+.agent-input-stop:focus-visible {
+	outline: 2px solid var(--brand-600);
+	outline-offset: 2px;
+}
+.agent-delivery-menu {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	right: 0;
+	width: min(260px, 75vw);
+	z-index: 30;
+	padding: 5px;
+	border: 1px solid var(--brand-200);
+	border-radius: 10px;
+	background: var(--surface-base);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.agent-input-actions .agent-delivery-menu button {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 100%;
+	padding: 10px;
+	text-align: left;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-primary);
+	cursor: pointer;
+}
+.agent-input-actions .agent-delivery-menu button:hover,
+.agent-input-actions .agent-delivery-menu button[aria-checked="true"] {
+	background: var(--brand-50);
+}
+.agent-delivery-menu small {
+	color: var(--text-secondary);
+	font-size: 11px;
+}
+.agent-pending-inputs {
+	width: 100%;
+	box-sizing: border-box;
+	text-align: left;
+	padding: 8px 12px;
+	margin: 0 0 8px;
+	border-bottom: 1px solid var(--brand-200);
+	font-size: 12px;
+	color: var(--text-primary);
+}
+.agent-pending-inputs summary {
+	padding: 6px 0;
+	cursor: pointer;
+	color: var(--brand-800);
+	font-weight: 600;
+}
+.agent-pending-inputs summary span {
+	margin-left: 8px;
+	font-variant-numeric: tabular-nums;
+}
+.agent-pending-inputs ol {
+	max-height: 145px;
+	overflow-y: auto;
+	margin: 4px 0;
+	padding: 0;
+	list-style: none;
+}
+.agent-pending-inputs li {
+	padding: 6px 0;
+	border-top: 1px solid var(--brand-100);
+}
+.agent-pending-inputs p {
+	margin: 3px 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+.agent-pending-kind {
+	color: var(--brand-800);
+	font-size: 11px;
+}
+.agent-queue-actions {
+	display: flex;
+	gap: 8px;
+	padding: 5px 0 8px;
+}
+.agent-composer-card .agent-queue-actions button {
+	padding: 4px 8px;
+	border: 1px solid var(--brand-300);
+	border-radius: 6px;
+	background: var(--surface-base);
+	color: var(--brand-800);
+	cursor: pointer;
+	font-size: 12px;
+}
+.agent-queue-warning {
+	color: var(--accent-red-text);
+}
+.agent-composer-card .agent-send-button:not(:disabled) {
+	background: var(--green-700);
+	color: #fff;
+}
+@container (max-width: 340px) {
+	.agent-send-split .agent-send-button {
+		min-width: 30px;
+		padding-inline: 4px;
+	}
+}

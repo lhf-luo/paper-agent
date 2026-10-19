@@ -10,6 +10,7 @@ import type {
 	WebAgentToolView,
 } from "../domain/web-agent-contracts.ts";
 import { PaperAgentSessionRepository } from "./paper-agent-session-repository.ts";
+import { WebAgentInputStore } from "./web-agent-input-store.ts";
 
 export interface PersistedSessionView {
 	id: string;
@@ -31,6 +32,7 @@ interface PersistedViewWriteState {
 }
 
 export class WebAgentSessionStore {
+	readonly inputs: WebAgentInputStore;
 	readonly piSessionDir: string;
 	readonly sessionViewDir: string;
 	private readonly resultsDir: string;
@@ -46,6 +48,7 @@ export class WebAgentSessionStore {
 		canvasDatabasePath?: (namespace: string) => string,
 	) {
 		this.personalDatabasePath = paperSessionDatabasePath;
+		this.inputs = new WebAgentInputStore(projectRoot);
 		this.canvasDatabasePath = canvasDatabasePath;
 		this.piSessionDir = join(projectRoot, ".paper-agent", "web-agent-memory", "pi-sessions");
 		this.sessionViewDir = join(projectRoot, ".paper-agent", "web-agent-memory", "session-views");
@@ -133,6 +136,7 @@ export class WebAgentSessionStore {
 	}
 
 	async flush(sessionId?: string): Promise<void> {
+		await this.inputs.flush(sessionId);
 		if (sessionId) {
 			while (this.writes.get(sessionId)?.running) await this.writes.get(sessionId)?.running;
 			return;
@@ -180,6 +184,7 @@ export class WebAgentSessionStore {
 	}
 
 	private async deleteRuntimeFiles(sessionId: string): Promise<void> {
+		await this.inputs.delete(sessionId);
 		const piFile = await this.findPiSessionFile(sessionId);
 		if (piFile) await rm(piFile, { force: true }).catch(() => undefined);
 		await this.deleteResultDocuments(sessionId);

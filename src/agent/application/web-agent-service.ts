@@ -1,6 +1,7 @@
 import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
 import type { PaperAgentModelConfig } from "../../config/domain/config-types.ts";
 import type { WebAgentServiceApi } from "../domain/web-agent-contracts.ts";
+import { PiModelService } from "./pi-model-service.ts";
 import { WebAgentActions } from "./web-agent-actions.ts";
 import {
 	emptyEndpointConfig,
@@ -39,5 +40,7 @@ export class WebAgentService extends WebAgentActions implements WebAgentServiceA
 }
 
 export async function createWebAgentService(options: WebAgentServiceOptions): Promise<WebAgentService> {
-	return WebAgentService.create(options);
+	const piModels = options.piModels ?? new PiModelService(options.projectRoot);
+	await piModels.initialize(await loadPaperAgentConfig(options.projectRoot));
+	return WebAgentService.create({ ...options, piModels });
 }

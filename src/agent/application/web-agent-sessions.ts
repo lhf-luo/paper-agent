@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { emptyWebAgentInputs } from "../domain/web-agent-inputs.ts";
+import { WebAgentInputQueue } from "./web-agent-input-queue.ts";
 import {
 	type WebAgentEvent,
 	type WebAgentEventPayload,
@@ -48,6 +50,26 @@ import {
 } from "./web-agent-support.ts";
 
 export abstract class WebAgentSessions extends WebAgentServiceBase {
+	protected queueFor(session: ManagedWebAgentSession): WebAgentInputQueue {
+		session.inputQueue ??= new WebAgentInputQueue(session.inputState, {
+			persist: (state) => this.sessionStore.inputs.write(session.id, state),
+			changed: () => {
+				if (!this.sessions.has(session.id)) return;
+				this.touch(session);
+				this.emit(session, {
+					type: "queue",
+					pendingInputs: this.queueFor(session).view(),
+					queuePaused: session.inputState.paused,
+					updatedAt: session.updatedAt,
+				});
+			},
+			delivered: (message) => {
+				if (!session.messages.some((m) => m.id === message.id)) this.appendMessage(session, message);
+			},
+			notice: (message) => this.emit(session, { type: "notice", level: "warning", message }),
+		});
+		return session.inputQueue;
+	}
 	protected summary(session: ManagedWebAgentSession): WebAgentSessionSummary {
 		return {
 			id: session.id,
@@ -70,6 +92,8 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			messages: session.messages.map(cloneMessage),
 			tools: session.tools.map(cloneTool),
 			uiRequests: [...session.pendingUI.values()].map((entry) => cloneUIRequest(entry.view)),
+			pendingInputs: this.queueFor(session).view(),
+			queuePaused: session.inputState.paused,
 		};
 	}
 
@@ -136,6 +160,7 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			throw new WebAgentServiceError(400, "不支持的会话上下文");
 		}
 		const session: ManagedWebAgentSession = {
+			inputState: emptyWebAgentInputs(),
 			id: randomUUID(),
 			title: title || `${input.mode === "once" ? "单次" : "持续"}会话 ${this.sessions.size + 1}`,
 			mode: input.mode,

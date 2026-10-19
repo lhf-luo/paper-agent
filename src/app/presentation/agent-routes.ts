@@ -327,6 +327,12 @@ async function handleSessionEvents(context: AgentRouteContext, agentService: Web
 
 async function handleMessageAction(context: AgentRouteContext, agentService: WebAgentServiceApi): Promise<boolean> {
 	const { request, response, url } = context;
+	const queue = /^\/api\/agent\/sessions\/([^/]+)\/queue\/(resume|clear)$/.exec(url.pathname);
+	if (request.method === "POST" && queue) {
+		const id = decodeURIComponent(queue[1]);
+		json(response, 200, await (queue[2] === "resume" ? agentService.resumeQueue(id) : agentService.clearQueue(id)));
+		return true;
+	}
 	const match = /^\/api\/agent\/sessions\/([^/]+)\/(messages|abort|dismiss-error)$/.exec(url.pathname);
 	if (request.method !== "POST" || !match) return false;
 	const id = decodeURIComponent(match[1]);
@@ -336,6 +342,10 @@ async function handleMessageAction(context: AgentRouteContext, agentService: Web
 		json(response, 200, await agentService.dismissError(id));
 	} else {
 		const body = await readJson(request);
+		if (body.delivery !== undefined && body.delivery !== "steer" && body.delivery !== "followUp")
+			throw new ApiError(400, "Invalid message delivery");
+		if (body.clientMessageId !== undefined && typeof body.clientMessageId !== "string")
+			throw new ApiError(400, "Invalid client message ID");
 		const attachments = Array.isArray(body.attachments)
 			? body.attachments.filter(isAttachment).slice(0, 10)
 			: undefined;
@@ -360,6 +370,8 @@ async function handleMessageAction(context: AgentRouteContext, agentService: Web
 			response,
 			202,
 			await agentService.sendMessage(id, {
+				delivery: body.delivery as "steer" | "followUp" | undefined,
+				clientMessageId: body.clientMessageId as string | undefined,
 				message: typeof body.message === "string" ? body.message : "",
 				attachments,
 				paperContext: body.paperContext as WebAgentPaperMessageContext | undefined,

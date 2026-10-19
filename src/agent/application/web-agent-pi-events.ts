@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type { AgentSessionEvent, ExtensionUIContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
 import type { WebAgentUIRequestView } from "../domain/web-agent-contracts.ts";
 
@@ -36,6 +37,12 @@ import {
 export abstract class WebAgentPiEvents extends WebAgentSessions {
 	protected handlePiEvent(session: ManagedWebAgentSession, event: AgentSessionEvent): void {
 		if (!this.sessions.has(session.id)) return;
+		this.queueFor(session).onEvent(session.pi, event);
+		if (event.type === "agent_end" && !event.willRetry && session.error) {
+			const last = event.messages.findLast((message) => message.role === "assistant");
+			if (!last || last.role !== "assistant" || !isContextOverflow(last, session.pi?.model?.contextWindow))
+				this.queueFor(session).pause(session.pi);
+		}
 		if (event.type === "message_start") {
 			const message = event.message as { role?: string };
 			if (message.role === "assistant") this.assistantMessage(session);
@@ -111,7 +118,7 @@ export abstract class WebAgentPiEvents extends WebAgentSessions {
 			return;
 		}
 		if (event.type === "agent_settled") {
-			session.status = session.error ? "error" : "idle";
+			if (!session.runPromise) session.status = session.error ? "error" : "idle";
 			this.touch(session);
 			this.emitSession(session);
 		}

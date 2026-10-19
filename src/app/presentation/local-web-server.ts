@@ -21,6 +21,7 @@ import { handleCanvasRoutes } from "./canvas-routes.ts";
 import { handleConnectorRoutes } from "./connector-routes.ts";
 import { handleJobRoutes } from "./job-routes.ts";
 import { handleLibraryRoutes } from "./library-routes.ts";
+import { handlePiModelRoutes } from "./pi-model-routes.ts";
 import { handleReaderTranslationRoutes } from "./reader-translation-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
 import { handleSearchRoutes } from "./search-routes.ts";
@@ -296,6 +297,7 @@ export async function startLocalWebServer(
 				await handleTeamRoutes(application, request, response, url);
 				return;
 			}
+			if (await handlePiModelRoutes(application, request, response, url)) return;
 			if (await handleResearchRoutes(application, request, response, url)) return;
 			const artifactJobRoute = /^\/api\/artifacts\/jobs\/([^/]+)$/.exec(url.pathname);
 			if (request.method === "GET" && artifactJobRoute) {

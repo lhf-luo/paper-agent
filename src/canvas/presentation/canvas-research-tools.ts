@@ -9,7 +9,7 @@ import { waitForResearchDecision } from "./canvas-research-decision.ts";
 
 export interface CanvasResearchRuntime {
 	extension: ExtensionFactory;
-	prepare(input?: unknown): Promise<string>;
+	prepare(input?: unknown, options?: { continueRound?: boolean }): Promise<string>;
 	finish(status: "stopped" | "failed" | "interrupted" | "partial"): void;
 }
 const pageSchema = {
@@ -42,10 +42,10 @@ export function createCanvasResearchRuntime(service: CanvasResearchService): Can
 				search.after(event.toolCallId, event.details);
 			});
 		},
-		async prepare(input) {
-			service.beginRound();
+		async prepare(input, options) {
+			if (!options?.continueRound) service.beginRound();
 			await service.library.initialize();
-			if (input !== undefined) {
+			if (input !== undefined && !options?.continueRound) {
 				const value = object(input);
 				const current = service.context();
 				service.saveContext({

@@ -1,4 +1,6 @@
 import type { AgentSession, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { WebAgentInputState } from "../domain/web-agent-inputs.ts";
+import type { WebAgentInputQueue } from "./web-agent-input-queue.ts";
 import type { CanvasResearchRuntime } from "../../canvas/presentation/canvas-research-tools.ts";
 import type {
 	ModelApiKind,
@@ -6,6 +8,7 @@ import type {
 	PaperAgentModelConfig,
 	PiBuiltinToolName,
 } from "../../config/application/config-service.ts";
+import type { PiModelService } from "./pi-model-service.ts";
 
 export const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const SUPPORTED_APIS = new Set<ModelApiKind>([
@@ -118,6 +121,9 @@ export interface PendingUIRequest {
 }
 
 export interface ManagedWebAgentSession {
+	inputState: WebAgentInputState;
+	inputQueue?: WebAgentInputQueue;
+	inputOperation?: Promise<unknown>;
 	id: string;
 	title: string;
 	mode: WebAgentMode;
@@ -157,6 +163,7 @@ export function normalizePermissionMode(value: unknown): "ask" | "auto" | undefi
 
 export interface WebAgentServiceOptions {
 	projectRoot: string;
+	piModels?: PiModelService;
 	uiRequestTimeoutMs?: number;
 	extensionFactory?: ExtensionFactory;
 	systemPrompt?: string;

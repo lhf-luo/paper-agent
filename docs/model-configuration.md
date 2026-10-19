@@ -1,4 +1,6 @@
-﻿# Model Configuration
+# Model Configuration
+
+Agent chat now uses the project-local Pi native runtime. See [Pi 原生模型配置](pi-models.md) for the current provider, credential, custom-relay and migration workflow. Endpoint-discovery sections below describe the retained legacy configuration used by independent modules such as PDF translation.
 
 [Documentation index](README.md) | [中文 README](../README.zh-CN.md)
 

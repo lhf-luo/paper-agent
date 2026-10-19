@@ -6,6 +6,7 @@ import {
 	type PiBuiltinToolName,
 	relayHeadersForModelApi,
 } from "../../config/application/config-service.ts";
+import type { PiModelsView } from "../domain/pi-models.ts";
 import {
 	type WebAgentConfigUpdate,
 	type WebAgentConfigView,
@@ -13,6 +14,7 @@ import {
 	WebAgentServiceError,
 } from "../domain/web-agent-contracts.ts";
 import { type PersistedSessionView, WebAgentSessionStore } from "../infrastructure/web-agent-session-store.ts";
+import type { PiModelService } from "./pi-model-service.ts";
 
 export type {
 	WebAgentAttachment,
@@ -52,6 +54,10 @@ import {
 } from "./web-agent-support.ts";
 export abstract class WebAgentServiceBase {
 	readonly projectRoot: string;
+	protected readonly piModels?: PiModelService;
+	private piView?: PiModelsView;
+	private piStamp?: string;
+	private piSecrets: string[] = [];
 	protected readonly uiRequestTimeoutMs: number;
 	protected readonly extensionFactory: ExtensionFactory;
 	protected readonly canvasResearchFactory?: WebAgentServiceOptions["canvasResearchFactory"];
@@ -85,6 +91,7 @@ export abstract class WebAgentServiceBase {
 		configuredModels: PaperAgentModelConfig[],
 	) {
 		this.projectRoot = options.projectRoot;
+		this.piModels = options.piModels;
 		this.configuredModels = configuredModels;
 		this.sessionStore = new WebAgentSessionStore(
 			options.projectRoot,
@@ -109,8 +116,29 @@ export abstract class WebAgentServiceBase {
 
 	protected async restoreSessions(): Promise<void> {
 		for (const view of await this.sessionStore.restore()) {
+			const inputState = await this.sessionStore.inputs.restore(
+				view.id,
+				await this.sessionStore.findPiSessionFile(view.id),
+			);
+			for (const input of inputState.recovered ?? []) {
+				if (!view.messages.some((m) => m.id === input.id)) {
+					const position = view.messages.findIndex((m) => m.createdAt >= (input.deliveredAt ?? input.createdAt));
+					view.messages.splice(position < 0 ? view.messages.length : position, 0, {
+						id: input.id,
+						role: "user",
+						content: input.content,
+						attachmentNames: input.attachmentNames,
+						createdAt: input.createdAt,
+						status: "complete",
+					});
+				}
+			}
+			delete inputState.recovered;
+			inputState.pending = inputState.pending.filter((p) => !view.messages.some((m) => m.id === p.id));
+			inputState.paused = inputState.pending.length > 0;
 			anchorLegacyTools(view.messages, view.tools);
 			this.sessions.set(view.id, {
+				inputState,
 				id: view.id,
 				title: view.title || "Restored session",
 				mode: view.mode === "once" ? "once" : "persistent",
@@ -160,6 +188,7 @@ export abstract class WebAgentServiceBase {
 	 * 读取失败（例如配置正在被写入）时保留上一次可用的列表，不打断正在进行的会话。
 	 */
 	protected async reloadConfiguredModels(): Promise<void> {
+		if (this.piModels) return this.reloadPiModels();
 		let models: PaperAgentModelConfig[];
 		let active: PaperAgentModelConfig | undefined;
 		try {
@@ -185,6 +214,33 @@ export abstract class WebAgentServiceBase {
 		this.environmentCredentialScope = next.apiKeyEnvironmentVariable ? this.credentialScope(next) : undefined;
 	}
 
+	private async reloadPiModels(): Promise<void> {
+		if (!this.piModels) return;
+		const view = await this.piModels.view();
+		const stamp = await this.piModels.stamp();
+		const runtime = await this.piModels.runtime();
+		const selected = view.models.find((m) => m.key === view.activeKey);
+		const model = selected ? runtime.getModel(selected.providerId, selected.modelId) : undefined;
+		if (stamp !== this.piStamp) {
+			this.configRevision += 1;
+			this.piStamp = stamp;
+			this.piSecrets = await this.piModels.secrets();
+		}
+		this.piView = view;
+		this.endpoint = model
+			? {
+					providerId: model.provider,
+					modelId: model.id,
+					baseUrl: model.baseUrl,
+					api: model.api as WebAgentEndpointConfig["api"],
+					input: model.input,
+					reasoning: model.reasoning,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+				}
+			: emptyEndpointConfig();
+	}
+
 	protected credentialScope(endpoint: WebAgentEndpointConfig): string {
 		return `${endpoint.providerId}\n${endpoint.baseUrl}\n${endpoint.api}`;
 	}
@@ -199,12 +255,16 @@ export abstract class WebAgentServiceBase {
 		return process.env[this.endpoint.apiKeyEnvironmentVariable];
 	}
 
+	protected rememberRuntimeSecrets(...values: (string | undefined)[]): void {
+		this.piSecrets.push(...values.filter((v): v is string => Boolean(v)));
+	}
+
 	protected secretValues(): string[] {
 		const environmentKey = this.environmentKey();
 		return [
 			...new Set(
-				[this.memoryApiKey, this.configuredModelKey(), environmentKey].filter((value): value is string =>
-					Boolean(value),
+				[this.memoryApiKey, this.configuredModelKey(), environmentKey, ...this.piSecrets].filter(
+					(value): value is string => Boolean(value),
 				),
 			),
 		];
@@ -286,6 +346,16 @@ export abstract class WebAgentServiceBase {
 		// 设置页可能刚改过 models.json，读取前先对齐，否则新增或删除的供应商不会出现。
 		this.assertOpen();
 		await this.reloadConfiguredModels();
+		if (this.piView)
+			return {
+				...this.endpoint,
+				configured: Boolean(this.endpoint.providerId && this.endpoint.modelId),
+				credentialsAvailable: Boolean(
+					this.piView.models.some((m) => m.key === `${this.endpoint.providerId}/${this.endpoint.modelId}`),
+				),
+				credentialSource: this.endpoint.providerId ? "pi" : "none",
+				configuredModels: this.piView.models.map((m) => ({ ...m, api: m.api as WebAgentEndpointConfig["api"] })),
+			};
 		const credential = this.credential();
 		const configured = Boolean(
 			this.endpoint.providerId && this.endpoint.modelId && this.endpoint.baseUrl && this.endpoint.api,
@@ -321,6 +391,8 @@ export abstract class WebAgentServiceBase {
 
 	async updateConfig(input: WebAgentConfigUpdate): Promise<WebAgentConfigView> {
 		this.assertOpen();
+		if (this.piModels)
+			throw new WebAgentServiceError(400, "请在模型设置中选择 Pi 提供商；中转站通过 models.json 配置。");
 		await this.reloadConfiguredModels();
 		const providerId = input.providerId?.trim();
 		const modelId = input.modelId?.trim();
@@ -369,6 +441,10 @@ export abstract class WebAgentServiceBase {
 
 	async applyConfiguredModel(key: string): Promise<WebAgentConfigView> {
 		this.assertOpen();
+		if (this.piModels) {
+			await this.piModels.select(key);
+			return this.getConfig();
+		}
 		// 设置页可能刚新增了供应商，先对齐磁盘再查找，否则新模型会被判为"未配置"。
 		await this.reloadConfiguredModels();
 		const model = this.configuredModels.find((entry) => configuredModelKey(entry) === key);

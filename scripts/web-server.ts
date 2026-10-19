@@ -81,6 +81,7 @@ const personalStore = application.personalStore();
 await personalStore.initialize();
 const agentService: WebAgentServiceApi = await createWebAgentService({
 	projectRoot,
+	piModels: application.piModels,
 	extensionFactory: paperAgentExtension,
 	systemPrompt: paperSystemPrompt,
 	paperSessionDatabasePath: personalStore.databasePath,
