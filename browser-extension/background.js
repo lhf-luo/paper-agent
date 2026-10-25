@@ -94,9 +94,9 @@ async function importCompletedPdf(item) {
 	processing.add(item.id);
 	try {
 		await saveLatest(item, "importing", { title: titleFromFilename(item.filename) });
-		let status;
+		let _status;
 		try {
-			status = await connectorStatus();
+			_status = await connectorStatus();
 		} catch {
 			await saveLatest(item, "ignored", { error: "Paper Agent 未运行，已忽略这次 PDF 下载" });
 			return;
@@ -108,7 +108,6 @@ async function importCompletedPdf(item) {
 				body: JSON.stringify({
 					localPath: item.filename,
 					metadata: captureMetadata(item),
-					namespace: status.defaultNamespace,
 				}),
 			}),
 		);

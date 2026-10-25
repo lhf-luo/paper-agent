@@ -29,17 +29,13 @@ export class PaperAgentSessionRepository {
 	}
 
 	hasPaper(context: Extract<WebAgentSessionContext, { kind: "paper" }>): boolean {
-		return Boolean(
-			this.database
-				.prepare("SELECT 1 FROM papers WHERE namespace_id = ? AND paper_id = ?")
-				.get(context.namespace, context.paperId),
-		);
+		return Boolean(this.database.prepare("SELECT 1 FROM papers WHERE paper_id = ?").get(context.paperId));
 	}
 
 	restore(): PaperAgentSessionRecord[] {
 		const sessions = this.database
 			.prepare(`SELECT s.id, s.title, s.mode, s.created_at, s.updated_at,
-				s.namespace_id, p.paper_id
+				p.paper_id
 			FROM paper_agent_sessions s
 			JOIN papers p ON p.row_id = s.paper_row_id
 			ORDER BY s.updated_at DESC`)
@@ -48,7 +44,7 @@ export class PaperAgentSessionRepository {
 			id: row.id,
 			title: row.title,
 			mode: row.mode === "once" ? "once" : "persistent",
-			context: { kind: "paper", namespace: row.namespace_id, paperId: row.paper_id },
+			context: { kind: "paper", paperId: row.paper_id },
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			messages: this.messages(row.id),
@@ -98,21 +94,21 @@ export class PaperAgentSessionRepository {
 	}
 
 	save(view: PaperAgentSessionRecord): void {
-		const paper = this.database
-			.prepare("SELECT row_id FROM papers WHERE namespace_id = ? AND paper_id = ?")
-			.get(view.context.namespace, view.context.paperId) as { row_id: number } | undefined;
-		if (!paper) throw new Error(`Personal paper not found: ${view.context.namespace}/${view.context.paperId}`);
+		const paper = this.database.prepare("SELECT row_id FROM papers WHERE paper_id = ?").get(view.context.paperId) as
+			| { row_id: number }
+			| undefined;
+		if (!paper) throw new Error(`Personal paper not found: ${view.context.paperId}`);
 		this.database.exec("BEGIN IMMEDIATE");
 		try {
 			this.database
 				.prepare(`INSERT INTO paper_agent_sessions(
-					id, namespace_id, paper_row_id, title, mode, created_at, updated_at, last_opened_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					id, paper_row_id, title, mode, created_at, updated_at, last_opened_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(id) DO UPDATE SET title=excluded.title, mode=excluded.mode,
 					updated_at=excluded.updated_at, last_opened_at=excluded.last_opened_at`)
 				.run(
 					view.id,
-					view.context.namespace,
+
 					paper.row_id,
 					view.title,
 					view.mode,

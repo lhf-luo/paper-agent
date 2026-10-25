@@ -1,8 +1,8 @@
 import type { CanvasResearchAnalysis, CanvasResearchContext, CanvasResearchRecord } from "../domain/canvas-research.ts";
 import { checkEvidence, type paperSource, researchHash } from "./canvas-research-materials.ts";
-import type { CanvasResearchService } from "./canvas-research-service.ts";
+import type { CanvasResearchHost } from "./canvas-research-host.ts";
 
-type Inventory = Awaited<ReturnType<CanvasResearchService["inventory"]>>;
+type Inventory = Awaited<ReturnType<CanvasResearchHost["inventory"]>>;
 interface ProjectionContext {
 	inventories: Map<string, Promise<Inventory>>;
 	sources: Map<string, ReturnType<typeof paperSource>>;
@@ -20,7 +20,7 @@ function settingsKey(a: CanvasResearchAnalysis["settings"]) {
 		a.readingDepth,
 	]);
 }
-async function inventory(service: CanvasResearchService, scope: CanvasResearchContext, ctx: ProjectionContext) {
+async function inventory(service: CanvasResearchHost, scope: CanvasResearchContext, ctx: ProjectionContext) {
 	const key = JSON.stringify(scope);
 	let pending = ctx.inventories.get(key);
 	if (!pending) {
@@ -34,7 +34,7 @@ async function inventory(service: CanvasResearchService, scope: CanvasResearchCo
 	}
 }
 async function projectRelations(
-	service: CanvasResearchService,
+	service: CanvasResearchHost,
 	record: CanvasResearchRecord<CanvasResearchAnalysis>,
 	live: Inventory | undefined,
 	ctx: ProjectionContext,
@@ -78,7 +78,7 @@ async function projectRelations(
 	return result;
 }
 export async function readResearchAnalysis(
-	service: CanvasResearchService,
+	service: CanvasResearchHost,
 	id: string,
 	offset = 0,
 	limit = 50,
@@ -118,7 +118,7 @@ export async function readResearchAnalysis(
 		value: { ...record.value, cards: record.value.cards.slice(offset, offset + limit), relations },
 	};
 }
-export async function latestResearchAnalysis(service: CanvasResearchService) {
+export async function latestResearchAnalysis(service: CanvasResearchHost) {
 	const records = service.records.list<CanvasResearchAnalysis>("analysis"),
 		ctx = projectionContext();
 	if (!records.length) return undefined;

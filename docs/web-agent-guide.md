@@ -207,7 +207,7 @@ This policy covers Paper Agent's operation tools. Optional high-trust Pi built-i
 - **Stop generation (`停止生成`)** aborts the current model turn without approving a pending operation.
 - Select another session to switch conversations.
 - Deleting a session removes its stored conversation and associated Pi session data.
-- General Web conversations are saved under `.paper-agent/web-agent-memory/session-views/`; Pi context files are under `pi-sessions/`. Paper-reader conversations are stored in the personal SQLite database and are isolated by namespace and paper.
+- General Web conversations are saved under `.paper-agent/web-agent-memory/session-views/`; Pi context files are under `pi-sessions/`. Paper-reader conversations are stored in the personal SQLite database and are associated with their paper.
 - Restarting the service restores saved conversations. It does not resume an interrupted model turn or approve a pending confirmation. Web-entered keys must be supplied again.
 
 Use separate sessions for unrelated research questions so model context and pending confirmations do not mix.

@@ -23,9 +23,7 @@ async function fixture() {
 			tools.set(tool.name, tool);
 		},
 	} as unknown as ExtensionAPI);
-	const notebook = new ResearchNotebook(
-		new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default"),
-	);
+	const notebook = new ResearchNotebook(new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal"));
 	const ctx = { cwd: root, hasUI: true, ui: { confirm: vi.fn(async () => true) } };
 	return { root, tools, notebook, ctx };
 }

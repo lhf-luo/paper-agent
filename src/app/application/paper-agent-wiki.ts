@@ -81,24 +81,24 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 		await super.initialize();
 	}
 
-	wikiWorkspace(namespace = this.defaultNamespace): WikiWorkspace {
-		return this.wikiWorkspaceFor(namespace);
+	wikiWorkspace(): WikiWorkspace {
+		return this.wikiWorkspaceFor();
 	}
 
-	async listWikiPages(namespace = this.defaultNamespace, options: WikiSearchOptions = {}) {
-		return this.wikiWorkspace(namespace).search(options);
+	async listWikiPages(options: WikiSearchOptions = {}) {
+		return this.wikiWorkspace().search(options);
 	}
 
-	async getWikiPage(id: string, namespace = this.defaultNamespace) {
-		return this.wikiWorkspace(namespace).get(id);
+	async getWikiPage(id: string) {
+		return this.wikiWorkspace().get(id);
 	}
 
-	async getWikiManagementFile(path: string, namespace = this.defaultNamespace) {
-		return this.wikiWorkspace(namespace).getManagementFile(path);
+	async getWikiManagementFile(path: string) {
+		return this.wikiWorkspace().getManagementFile(path);
 	}
 
-	async lintWiki(namespace = this.defaultNamespace) {
-		return this.wikiWorkspace(namespace).lint();
+	async lintWiki() {
+		return this.wikiWorkspace().lint();
 	}
 
 	private wikiSourcePageDeletionPlan(preview: WikiSourcePageDeletionPreview): OperationPlan {
@@ -108,11 +108,10 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 			actor: "interactive-user",
 			targets: preview.targetPages.map((page) => ({
 				label: "Wiki 页面",
-				value: `${preview.namespace}/${page.title}`,
+				value: `${page.title}`,
 				risk: "high",
 			})),
 			details: {
-				namespace: preview.namespace,
 				paperId: preview.paperId,
 				previewFingerprint: preview.fingerprint,
 				pages: preview.targetPages.map((page) => ({
@@ -129,9 +128,8 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 	async prepareWikiSourcePageDeletion(
 		paperId: string,
 		includeMixedPageIds: string[] = [],
-		namespace = this.defaultNamespace,
 	): Promise<PreparedWikiSourcePageDeletion> {
-		const preview = await this.wikiWorkspace(namespace).previewSourcePageDeletion(paperId, includeMixedPageIds);
+		const preview = await this.wikiWorkspace().previewSourcePageDeletion(paperId, includeMixedPageIds);
 		if (!preview.targetPages.length) return { status: "no-op", preview };
 		if (preview.blocked) return { status: "blocked", preview };
 		return {
@@ -146,16 +144,15 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 		includeMixedPageIds: string[],
 		previewFingerprint: string,
 		grant: ConfirmationGrant,
-		namespace = this.defaultNamespace,
 	) {
-		const preview = await this.wikiWorkspace(namespace).previewSourcePageDeletion(paperId, includeMixedPageIds);
+		const preview = await this.wikiWorkspace().previewSourcePageDeletion(paperId, includeMixedPageIds);
 		if (preview.fingerprint !== previewFingerprint) {
 			throw new Error("Wiki 删除预览已经变化，请重新检查后再执行");
 		}
 		if (preview.blocked) throw new Error("仍有保留页面链接到待删除页面，无法执行删除");
 		if (!preview.targetPages.length) throw new Error("没有可删除的 Wiki 页面");
 		await this.consent.consume(grant, this.wikiSourcePageDeletionPlan(preview));
-		return this.wikiWorkspace(namespace).applySourcePageDeletion(preview);
+		return this.wikiWorkspace().applySourcePageDeletion(preview);
 	}
 
 	private wikiIngestPlan(preview: WikiIngestPreview): OperationPlan {
@@ -168,11 +165,10 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 			actor: "interactive-user",
 			targets: preview.changes.map((change) => ({
 				label: change.pageId ? "Wiki page" : "New Wiki page",
-				value: `${preview.namespace}/${change.title}`,
+				value: `${change.title}`,
 				risk: conflicts ? "high" : "medium",
 			})),
 			details: {
-				namespace: preview.namespace,
 				previewFingerprint: preview.fingerprint,
 				changes: preview.changes.map((change) => ({
 					action: change.action,
@@ -187,11 +183,9 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 		};
 	}
 
-	async prepareWikiIngest(request: WikiIngestRequest, namespace?: string): Promise<PreparedWikiIngest> {
-		const resolvedNamespace = namespace ?? request.namespace ?? this.defaultNamespace;
-		const preview = await this.wikiWorkspace(resolvedNamespace).previewIngest({
+	async prepareWikiIngest(request: WikiIngestRequest): Promise<PreparedWikiIngest> {
+		const preview = await this.wikiWorkspace().previewIngest({
 			...request,
-			namespace: resolvedNamespace,
 		});
 		return {
 			preview,
@@ -199,17 +193,17 @@ export abstract class PaperAgentWiki extends PaperAgentTeamCollaboration {
 		};
 	}
 
-	async ingestWikiPages(request: WikiIngestRequest, grant: ConfirmationGrant, namespace?: string) {
-		const prepared = await this.prepareWikiIngest(request, namespace);
+	async ingestWikiPages(request: WikiIngestRequest, grant: ConfirmationGrant) {
+		const prepared = await this.prepareWikiIngest(request);
 		if (prepared.preview.changes.some((change) => change.action === "conflict")) {
 			throw new Error(prepared.preview.issues.map((issue) => issue.message).join("; "));
 		}
 		await this.consent.consume(grant, this.wikiIngestPlan(prepared.preview));
-		return this.wikiWorkspace(prepared.preview.namespace).applyIngest(prepared.preview);
+		return this.wikiWorkspace().applyIngest(prepared.preview);
 	}
 
-	async openWiki(action: "folder" | "obsidian", namespace = this.defaultNamespace) {
-		const workspace = this.wikiWorkspace(namespace);
+	async openWiki(action: "folder" | "obsidian") {
+		const workspace = this.wikiWorkspace();
 		await workspace.initialize();
 		if (action === "folder") {
 			const command =

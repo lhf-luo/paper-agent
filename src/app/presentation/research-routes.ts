@@ -3,10 +3,6 @@ import type { CreateResearchNoteInput, UpdateResearchNoteInput } from "../../res
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import { ApiError, grantFromBody, json, readJson } from "./web-http.ts";
 
-function namespaceFrom(url: URL, body?: Record<string, unknown>): string | undefined {
-	return typeof body?.namespace === "string" ? body.namespace : (url.searchParams.get("namespace") ?? undefined);
-}
-
 function noteIdFromPath(pathname: string): string | undefined {
 	const match = /^\/api\/research\/notes\/([^/]+)(?:\/papers)?$/.exec(pathname);
 	return match ? decodeURIComponent(match[1]) : undefined;
@@ -44,18 +40,15 @@ export async function handleResearchRoutes(
 ): Promise<boolean> {
 	if (!url.pathname.startsWith("/api/research/")) return false;
 	if (request.method === "GET" && url.pathname === "/api/research/templates") {
-		json(response, 200, { templates: await application.listResearchNoteTemplates(namespaceFrom(url)) });
+		json(response, 200, { templates: await application.listResearchNoteTemplates() });
 		return true;
 	}
 	if (request.method === "GET" && url.pathname === "/api/research/folders") {
-		const namespace = namespaceFrom(url) ?? application.defaultNamespace;
-		json(response, 200, { namespace, folders: await application.listResearchNoteFolders(namespace) });
+		json(response, 200, { folders: await application.listResearchNoteFolders() });
 		return true;
 	}
 	if (request.method === "GET" && ["/api/research/notes", "/api/research/note-index"].includes(url.pathname)) {
-		const namespace = namespaceFrom(url) ?? application.defaultNamespace;
 		const notes = await application.listResearchNotes(
-			namespace,
 			url.searchParams.get("query") ?? undefined,
 			url.searchParams.get("paperId") ?? undefined,
 		);
@@ -67,13 +60,13 @@ export async function handleResearchRoutes(
 				byPaperId[paper.id] = linkedNotes;
 			}
 		}
-		json(response, 200, { namespace, notes, ...(url.pathname.endsWith("note-index") ? { byPaperId } : {}) });
+		json(response, 200, { notes, ...(url.pathname.endsWith("note-index") ? { byPaperId } : {}) });
 		return true;
 	}
 	if (request.method === "POST" && url.pathname === "/api/research/notes/sync") {
-		const body = await readJson(request);
-		const namespace = namespaceFrom(url, body) ?? application.defaultNamespace;
-		json(response, 200, { namespace, result: await application.syncResearchNotes(namespace) });
+		await readJson(request);
+
+		json(response, 200, { result: await application.syncResearchNotes() });
 		return true;
 	}
 	const noteId = noteIdFromPath(url.pathname);
@@ -82,19 +75,15 @@ export async function handleResearchRoutes(
 		const body = await readJson(request);
 		if (typeof body.name !== "string") throw new ApiError(400, "name is required");
 		json(response, 200, {
-			folder: await application.updateResearchNoteFolder(
-				folderId,
-				{
-					name: body.name,
-					...(body.parentId === null || typeof body.parentId === "string" ? { parentId: body.parentId } : {}),
-				},
-				namespaceFrom(url, body),
-			),
+			folder: await application.updateResearchNoteFolder(folderId, {
+				name: body.name,
+				...(body.parentId === null || typeof body.parentId === "string" ? { parentId: body.parentId } : {}),
+			}),
 		});
 		return true;
 	}
 	if (request.method === "GET" && noteId) {
-		const note = await application.getResearchNote(noteId, namespaceFrom(url));
+		const note = await application.getResearchNote(noteId);
 		if (!note) throw new ApiError(404, `Research note not found: ${noteId}`);
 		json(response, 200, { note });
 		return true;
@@ -110,7 +99,6 @@ export async function handleResearchRoutes(
 					noteId,
 					body.paperIds.filter((value): value is string => typeof value === "string"),
 					Number(body.expectedRevision),
-					namespaceFrom(url, body),
 				);
 				json(response, 200, { note });
 				return true;
@@ -133,7 +121,7 @@ export async function handleResearchRoutes(
 					: {}),
 				...(body.folderId === null || typeof body.folderId === "string" ? { folderId: body.folderId } : {}),
 			};
-			json(response, 200, { note: await application.updateResearchNote(noteId, input, namespaceFrom(url, body)) });
+			json(response, 200, { note: await application.updateResearchNote(noteId, input) });
 			return true;
 		} catch (error) {
 			conflictAware(error);
@@ -141,9 +129,9 @@ export async function handleResearchRoutes(
 	}
 	if (request.method !== "POST") return false;
 	const body = await readJson(request);
-	const namespace = namespaceFrom(url, body);
+
 	if (url.pathname === "/api/research/notes/create/prepare") {
-		json(response, 200, await application.prepareResearchNoteCreate(creationInput(body), namespace));
+		json(response, 200, await application.prepareResearchNoteCreate(creationInput(body)));
 		return true;
 	}
 	if (url.pathname === "/api/research/folders/create/prepare") {
@@ -151,10 +139,10 @@ export async function handleResearchRoutes(
 		json(
 			response,
 			200,
-			await application.prepareResearchNoteFolderCreate(
-				{ name: body.name, ...(typeof body.parentId === "string" ? { parentId: body.parentId } : {}) },
-				namespace,
-			),
+			await application.prepareResearchNoteFolderCreate({
+				name: body.name,
+				...(typeof body.parentId === "string" ? { parentId: body.parentId } : {}),
+			}),
 		);
 		return true;
 	}
@@ -164,26 +152,25 @@ export async function handleResearchRoutes(
 			folder: await application.createResearchNoteFolder(
 				{ name: body.name, ...(typeof body.parentId === "string" ? { parentId: body.parentId } : {}) },
 				grantFromBody(body),
-				namespace,
 			),
 		});
 		return true;
 	}
 	if (url.pathname === "/api/research/folders/delete/prepare") {
 		if (typeof body.folderId !== "string") throw new ApiError(400, "folderId is required");
-		json(response, 200, await application.prepareResearchNoteFolderDelete(body.folderId, namespace));
+		json(response, 200, await application.prepareResearchNoteFolderDelete(body.folderId));
 		return true;
 	}
 	if (url.pathname === "/api/research/folders/delete/execute") {
 		if (typeof body.folderId !== "string") throw new ApiError(400, "folderId is required");
 		json(response, 200, {
-			folder: await application.deleteResearchNoteFolder(body.folderId, grantFromBody(body), namespace),
+			folder: await application.deleteResearchNoteFolder(body.folderId, grantFromBody(body)),
 		});
 		return true;
 	}
 	if (url.pathname === "/api/research/notes/create/execute") {
 		json(response, 200, {
-			note: await application.createResearchNote(creationInput(body), grantFromBody(body), namespace),
+			note: await application.createResearchNote(creationInput(body), grantFromBody(body)),
 		});
 		return true;
 	}
@@ -195,7 +182,6 @@ export async function handleResearchRoutes(
 			await application.prepareResearchNoteDelete(
 				body.noteId,
 				typeof body.author === "string" ? body.author : undefined,
-				namespace,
 			),
 		);
 		return true;
@@ -207,13 +193,12 @@ export async function handleResearchRoutes(
 				body.noteId,
 				grantFromBody(body),
 				typeof body.author === "string" ? body.author : undefined,
-				namespace,
 			),
 		});
 		return true;
 	}
 	if (url.pathname === "/api/research/templates/open") {
-		json(response, 200, await application.openResearchTemplateDirectory(namespace));
+		json(response, 200, await application.openResearchTemplateDirectory());
 		return true;
 	}
 	return false;

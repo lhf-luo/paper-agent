@@ -114,16 +114,11 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 						"Optional field projection. Omit for the complete existing response. Paper ID and lookup status are always returned.",
 				}),
 			),
-			namespace: Type.Optional(Type.String({ description: "Personal-library namespace; default: default" })),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
-				"personal",
-				namespace,
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const result = await queryPersonalLibraryPaper(store, params.query);
 			if (result.status === "found") {
 				if (params.fields) {
@@ -146,7 +141,7 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 					heading,
 					candidates.length
 						? "Candidates (retry with paper_id after choosing the correct paper):"
-						: "No approximate candidates were found in this namespace.",
+						: "No approximate candidates were found in the personal workspace.",
 					...candidates.map((candidate) => `- ${candidate.title} | paper_id=${candidate.id}`),
 				].join("\n");
 				return { content: [{ type: "text", text }], details: { status: result.status, candidates } };
@@ -155,7 +150,7 @@ export function registerPersonalLibraryQueryTool(pi: ExtensionAPI): void {
 				heading,
 				result.candidates.length
 					? "Candidates (retry with paper_id after choosing the correct paper):"
-					: "No approximate candidates were found in this namespace.",
+					: "No approximate candidates were found in the personal workspace.",
 				...result.candidates.map(candidateLine),
 			].join("\n");
 			return { content: [{ type: "text", text }], details: result };

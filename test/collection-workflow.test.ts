@@ -44,43 +44,35 @@ function crossrefItem(index: number) {
 }
 
 describe("collection workflow", () => {
-	it("keeps dated arXiv results in newest-first provider order without old corpus hits", async () => {
-		const root = await mkdtemp(join(tmpdir(), "paper-agent-dated-arxiv-"));
+	it("keeps library reuse out of an external-only search cache", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-reuse-cache-"));
 		temporaryPaths.push(root);
-		const filters = { arxivSubmittedFrom: "2026-10-10", arxivSubmittedTo: "2026-10-12" };
-		const paper = (id: string): PaperRecord => ({
-			id,
-			title: id,
-			authors: ["Researcher"],
-			year: 2026,
-			identifiers: { arxivId: id },
-			links: [],
-			provenance: [{ provider: "arxiv", query: "kernel", retrievedAt: "2026-10-12T00:00:00Z" }],
-			mergedFrom: [],
-		});
-		const result = await collectLiterature({
-			queries: ["kernel"],
-			providers: ["arxiv"],
-			filters,
-			pagesPerProvider: 1,
-			maxResultsPerProvider: 2,
-			scope: "personal",
-			mode: "once",
-			namespace: "default",
-			cwd: root,
-			providerPageSearch: async (_provider, options) => {
-				expect(options.filters).toEqual(filters);
-				return {
-					provider: "arxiv",
-					query: "kernel",
-					requestUrl: "https://example.test/arxiv",
-					records: [paper("newest"), paper("older")],
-				};
-			},
-		});
-		expect(result.run.results.map((record) => record.id)).toEqual(["newest", "older"]);
-		expect(result.run.corpusHitCount).toBe(0);
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
+		await store.upsertPaper({ id: "saved", title: "Kernel static analysis", authors: ["Ada"], identifiers: {}, links: [], provenance: [], mergedFrom: [] });
+		const base: CollectLiteratureOptions = {
+			queries: ["Kernel static analysis"], providers: [], filters: {}, pagesPerProvider: 1,
+			maxResultsPerProvider: 5, scope: "personal", mode: "persistent", cwd: root,
+		};
+		const reused = await collectLiterature(await authorizedCollection({ ...base, reuseCorpus: true }));
+		expect(reused.run.results.map((paper) => paper.id)).toContain("saved");
+		const externalOnly = await collectLiterature(await authorizedCollection({ ...base, reuseCorpus: false }));
+		expect(externalOnly.cached).toBe(false);
+		expect(externalOnly.run.results).toEqual([]);
+		const reuseCached = await collectLiterature(await authorizedCollection({ ...base, reuseCorpus: true }));
+		expect(reuseCached.cached).toBe(true);
+		expect(reuseCached.run.results.map((paper) => paper.id)).toContain("saved");
 	});
+
+	it("rejects removed filters before any provider call", async () => {
+		const providerPageSearch = vi.fn();
+		await expect(collectLiterature({
+			queries: ["kernel"], providers: ["arxiv", "openalex"],
+			filters: { arxivSubmittedFrom: "2026-10-10", arxivSubmittedTo: "2026-10-12" } as unknown as CollectLiteratureOptions["filters"],
+			pagesPerProvider: 1, maxResultsPerProvider: 2, scope: "personal", mode: "once", cwd: ".", providerPageSearch,
+		})).rejects.toThrow("Unsupported search filter(s)");
+		expect(providerPageSearch).not.toHaveBeenCalled();
+	});
+
 	it("adds deterministic acronym and hyphenation query variants", () => {
 		expect(expandLiteratureQueries("LLM-based program analysis", ["code intelligence"])).toEqual([
 			"LLM-based program analysis",
@@ -197,7 +189,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 10,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			reuseCorpus: false,
 			providerPageSearch: (async () => ({
@@ -239,7 +231,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 3,
 			scope: "personal" as const,
 			mode: "persistent" as const,
-			namespace: "test",
+
 			cwd: root,
 			abstractDoiLookup: async () => undefined,
 		};
@@ -265,7 +257,7 @@ describe("collection workflow", () => {
 		expect(second.run.results).toHaveLength(3);
 		expect(second.run.candidateTable).toHaveLength(3);
 		expect(fetcher).toHaveBeenCalledTimes(2);
-		expect(second.corpusPath).toContain(join("personal", "test"));
+		expect(second.corpusPath).toContain("personal");
 
 		const refreshedOptions = { ...options, refreshCache: true };
 		const refreshed = await collectLiterature(await authorizedCollection(refreshedOptions));
@@ -291,7 +283,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 5,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 		});
 
@@ -340,9 +332,10 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 5,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			reuseCorpus: false,
+			abstractDoiLookup: async () => undefined,
 			providerPageSearch: async () => ({
 				provider: "crossref",
 				query: "metadata identity",
@@ -381,7 +374,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 5,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			providerPageSearch: async () => ({
 				provider: "usenix",
@@ -402,18 +395,16 @@ describe("collection workflow", () => {
 		expect(result.run.failures).toHaveLength(1);
 		expect(result.run.providerHealth?.usenix).toMatchObject({ status: "partial", failureCount: 1 });
 		expect(result.run.executions).toMatchObject([{ provider: "usenix", status: "partial", resultCount: 1 }]);
-		const stored = await new LiteratureStore(
-			resolveCorpusRoot(root, "personal", "default"),
-			"personal",
-			"default",
-		).getSearchRun(result.run.id);
+		const stored = await new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal").getSearchRun(
+			result.run.id,
+		);
 		expect(stored?.failures).toHaveLength(1);
 	});
 
 	it("keeps once-mode collection out of a clean persistent corpus", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-once-isolation-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		let calls = 0;
 		const result = await collectLiterature({
 			queries: ["ephemeral evidence collection"],
@@ -423,7 +414,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 5,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			reuseCorpus: true,
 			providerPageSearch: async (provider, options) => {
@@ -478,7 +469,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 5,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			providerPageSearch: async (provider, options) => ({
 				provider,
@@ -545,7 +536,7 @@ describe("collection workflow", () => {
 	it("applies publication type and open-access filters when reusing the corpus", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-corpus-filter-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "test"), "personal", "test");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const record = (id: string, publicationType: string, openAccess: boolean): PaperRecord => ({
 			id,
 			title: `Program analysis ${id}`,
@@ -567,7 +558,7 @@ describe("collection workflow", () => {
 			maxResultsPerProvider: 20,
 			scope: "personal",
 			mode: "once",
-			namespace: "test",
+
 			cwd: root,
 			corpusOnly: true,
 		});

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -10,6 +9,7 @@ import type { PaperRecord } from "../src/literature/domain/literature-types.ts";
 import type { CommandExecutor } from "../src/shared/infrastructure/command-executor.ts";
 import { saveTeamAccess } from "../src/team/infrastructure/team-access-file.ts";
 import { createTeamCorpusServer, hashTeamToken } from "../team-server/src/presentation/team-corpus-server.ts";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 
 const temporaryPaths: string[] = [];
 const servers: Server[] = [];
@@ -455,7 +455,7 @@ describe("PaperAgentApplication team overview", () => {
 		});
 		const application = new PaperAgentApplication({ projectRoot: root });
 
-		const noteDirectory = join(root, ".paper-agent", "notes", "default");
+		const noteDirectory = join(root, ".paper-agent", "notes");
 		await mkdir(noteDirectory, { recursive: true });
 		await writeFile(
 			join(noteDirectory, "uaf-detection.md"),

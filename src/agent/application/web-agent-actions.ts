@@ -50,8 +50,8 @@ export class WebAgentActions extends WebAgentInputs {
 		}
 	}
 
-	async deleteCanvasSessions(namespace: string, canvasId: string): Promise<void> {
-		for (const session of this.listSessions({ scope: "canvas", namespace, canvasId })) {
+	async deleteCanvasSessions(canvasId: string): Promise<void> {
+		for (const session of this.listSessions({ scope: "canvas", canvasId })) {
 			await this.deleteSession(session.id);
 		}
 	}
@@ -188,6 +188,7 @@ export class WebAgentActions extends WebAgentInputs {
 		this.closed = true;
 		this.configRevision += 1;
 		await this.destroyAllSessions();
+		await this.mcp.close();
 		this.sessionStore.close();
 		this.memoryApiKey = undefined;
 	}

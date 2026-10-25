@@ -123,7 +123,7 @@ export function corpusTeamReviewPlan(
 		targets: recordIds.map((id) => ({ label: "team-paper", value: id, risk: "high" })),
 		details: {
 			corpusPath: store.root,
-			namespace: store.namespace,
+
 			recordIds,
 			recordsFingerprint: sha256Text(
 				JSON.stringify([...records].sort((left, right) => left.id.localeCompare(right.id))),
@@ -149,8 +149,7 @@ export function corpusPromotionPlan(
 		details: {
 			sourcePath: source.root,
 			targetPath: target.root,
-			sourceNamespace: source.namespace,
-			targetNamespace: target.namespace,
+
 			recordIds: normalized.map((record) => record.id),
 			recordsFingerprint: sha256Text(JSON.stringify(normalized)),
 			privacy: "Personal notes and screening decisions are removed by the team proposal write path.",

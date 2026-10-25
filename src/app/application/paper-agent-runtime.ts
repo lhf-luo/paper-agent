@@ -1,11 +1,15 @@
+import {executeCanvasExpansion,type CanvasExpansionInput} from "../../canvas/application/canvas-expansion.ts";
+import { SearchRunGraphs } from "../../canvas/application/search-run-graphs.ts";
+import { enrichSearchGraph, type GraphEnrichmentInput } from "../../canvas/application/search-graph-enrichment.ts";
 import { join } from "node:path";
 import { acquireArtifacts } from "../../artifacts/application/artifact-acquisition.ts";
 import { sha256File } from "../../artifacts/application/artifact-discovery.ts";
 import { loadPaperAgentConfig } from "../../config/application/config-service.ts";
 import type { AuthorizedMineruJob } from "../../extensions/mineru/application/mineru-job.ts";
 import type { AuthorizedPdfTranslationJob } from "../../extensions/pdf-translation/application/pdf-translation-job.ts";
+import { pullArxivNews } from "../../literature/application/arxiv-news.ts";
+import type { ArxivNewsPullInput } from "../../literature/domain/arxiv-news.ts";
 import { collectLiterature } from "../../literature/application/literature-collection.ts";
-import { pullArxivNews, type ArxivNewsPullInput } from "../../literature/application/arxiv-news.ts";
 import { downloadLiteraturePdfs } from "../../literature/application/literature-download.ts";
 import { expandLiteratureQueries } from "../../literature/application/literature-query-planning.ts";
 import { persistPaperRecords } from "../../literature/application/literature-write.ts";
@@ -23,15 +27,15 @@ import { PaperAgentJobs } from "./paper-agent-jobs.ts";
 
 export class PaperAgentRuntime extends PaperAgentJobs {
 	protected registerJobHandlers(): void {
+ this.jobs.register<CanvasExpansionInput,unknown>("canvas-expansion",(input,context)=>executeCanvasExpansion(this.personalStore(),input,context));
+        this.jobs.register<GraphEnrichmentInput, unknown>("search-graph-enrich", (input,context) => enrichSearchGraph(new SearchRunGraphs(this.personalStore(),input.canvasId), input, context));
 		this.jobs.register<ArxivNewsPullInput, unknown>("arxiv-news-pull", async (input, context) =>
 			pullArxivNews(this.arxivNewsStore(), input, context),
 		);
 		this.jobs.register<LiteratureSearchJobInput, unknown>("literature-search", async (input, context) => {
 			const config = await loadPaperAgentConfig(this.projectRoot);
 			context.report(0.05, "preparing queries");
-			const queries = input.filters?.arxivSubmittedFrom
-				? [input.query.trim()]
-				: expandLiteratureQueries(input.query, input.queryExpansions ?? config.search.queryExpansions);
+			const queries = expandLiteratureQueries(input.query, input.queryExpansions ?? config.search.queryExpansions);
 			context.report(0.1, "searching providers and existing corpus");
 			const result = await collectLiterature({
 				queries,
@@ -41,7 +45,7 @@ export class PaperAgentRuntime extends PaperAgentJobs {
 				maxResultsPerProvider: input.maxResultsPerProvider ?? config.search.maxResultsPerProvider,
 				scope: "personal",
 				mode: "once",
-				namespace: input.namespace ?? this.defaultNamespace,
+
 				cwd: this.projectRoot,
 				corpusRoot: this.corpusRoot,
 				reuseCorpus: input.reuseCorpus ?? config.search.reuseCorpus,
@@ -80,7 +84,7 @@ export class PaperAgentRuntime extends PaperAgentJobs {
 		this.jobs.register<AuthorizedPdfDownloadJob, unknown>("pdf-download", async (input, context) => {
 			context.report(0.05, "validating the persisted confirmation permit");
 			const result = await downloadLiteraturePdfs(
-				this.personalStore(input.namespace),
+				this.personalStore(),
 				{ ...input.request, signal: context.signal },
 				input.prepared,
 				{ manager: this.consent, permit: input.executionPermit },
@@ -88,7 +92,7 @@ export class PaperAgentRuntime extends PaperAgentJobs {
 			// 给新下载的论文打上"待生成略读卡"标记(方案A: 提示用户可一键生成)
 			for (const version of result.downloaded) {
 				try {
-					await this.personalStore(input.namespace).annotatePaper(version.paperId, {
+					await this.personalStore().annotatePaper(version.paperId, {
 						author: "paper-agent",
 						tags: ["needs-skim-card"],
 					});
@@ -124,7 +128,7 @@ export class PaperAgentRuntime extends PaperAgentJobs {
 				authorization: { manager: this.consent, permit: input.executionPermit },
 			});
 			const persistedManifestId = input.paperId
-				? await this.personalStore(input.namespace).saveArtifactManifest(result.manifest, input.paperId)
+				? await this.personalStore().saveArtifactManifest(result.manifest, input.paperId)
 				: undefined;
 			const failures = result.attemptAcquisitions.filter((snapshot) => snapshot.status === "failed");
 			if (result.attemptAcquisitions.length > 0 && failures.length === result.attemptAcquisitions.length) {
@@ -139,7 +143,7 @@ export class PaperAgentRuntime extends PaperAgentJobs {
 		});
 		this.jobs.register<AuthorizedCorpusImportJob, unknown>("corpus-import", async (input, context) => {
 			context.report(0.1, "validating the persisted corpus-write confirmation permit");
-			const outcomes = await persistPaperRecords(this.personalStore(input.namespace), input.records, {
+			const outcomes = await persistPaperRecords(this.personalStore(), input.records, {
 				manager: this.consent,
 				permit: input.executionPermit,
 			});

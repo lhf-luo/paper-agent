@@ -4,12 +4,11 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiModelService } from "../src/agent/application/pi-model-service.ts";
 import { WebAgentService } from "../src/agent/application/web-agent-service.ts";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
-import { defaultPaperAgentConfig } from "../src/config/application/config-service.ts";
 
 const paths: string[] = [];
 afterEach(async () => {
@@ -19,40 +18,33 @@ async function fixture() {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-native-pi-"));
 	paths.push(root);
 	const service = new PiModelService(root);
-	await service.initialize(defaultPaperAgentConfig());
+	await service.initialize();
 	return { root, service };
 }
 
 describe("project Pi model configuration", () => {
-	it("imports official endpoint credentials without overriding Pi metadata with legacy defaults", async () => {
-		const root = await mkdtemp(join(tmpdir(), "paper-agent-pi-migration-"));
-		paths.push(root);
-		const native = builtinProviders()
-			.find((p) => p.id === "deepseek")!
-			.getModels()[0];
-		const config = defaultPaperAgentConfig();
-		config.model = {
-			providerId: "deepseek",
-			modelId: native.id,
-			api: "openai-completions",
-			baseUrl: `${native.baseUrl}/v1`,
-			apiKey: "synthetic-import-key",
-			reasoning: false,
-			input: ["text"],
-			contextWindow: 128000,
-			maxTokens: 16384,
-		};
-		const service = new PiModelService(root);
-		await service.initialize(config);
-		expect((await service.runtime()).getModel("deepseek", native.id)).toMatchObject({
-			name: native.name,
-			contextWindow: native.contextWindow,
-			maxTokens: native.maxTokens,
-			cost: native.cost,
-		});
-		expect((await service.view()).activeKey).toBe(`deepseek/${native.id}`);
-		expect(await readFile(join(service.directory, "models.json"), "utf8")).not.toContain("deepseek");
+	it("reuses the availability view until model configuration actually changes", async () => {
+		const { root, service } = await fixture();
+		const agent = await WebAgentService.create({ projectRoot: root, piModels: service });
+		const views = vi.spyOn(service, "view");
+		try {
+			await agent.getConfig();
+			const before = views.mock.calls.length;
+			await agent.getConfig();
+			await agent.getConfig();
+			expect(views).toHaveBeenCalledTimes(before);
+			await writeFile(join(service.directory, "auth.json"), JSON.stringify({
+				deepseek: { type: "api_key", key: "synthetic-config-change" },
+			}));
+			const config = await agent.getConfig();
+			expect(views.mock.calls.length).toBeGreaterThan(before);
+			expect(config.configuredModels.some((model) => model.providerId === "deepseek")).toBe(true);
+		} finally {
+			views.mockRestore();
+			await agent.close();
+		}
 	});
+
 	it("lists exactly the native providers without exposing keys and retains native model metadata", async () => {
 		const { service } = await fixture();
 		expect((await service.credential("deepseek", [])).type).toBe("secret");
@@ -115,25 +107,7 @@ describe("project Pi model configuration", () => {
 		expect((await service.runtime()).getModel("relay", "relay-model")?.contextWindow).toBe(765432);
 	});
 
-	it("does not overwrite native files or re-import removed legacy credentials", async () => {
-		const { root, service } = await fixture();
-		const before = await readFile(join(service.directory, "models.json"), "utf8");
-		const config = defaultPaperAgentConfig();
-		config.model = {
-			providerId: "relay",
-			modelId: "old",
-			baseUrl: "https://example.com/v1",
-			api: "openai-completions",
-			input: ["text"],
-			reasoning: false,
-			contextWindow: 10000,
-			maxTokens: 1000,
-			apiKey: "synthetic-old-key",
-		};
-		await new PiModelService(root).initialize(config);
-		expect(await readFile(join(service.directory, "models.json"), "utf8")).toBe(before);
-		expect(await readFile(join(service.directory, "auth.json"), "utf8")).not.toContain("synthetic-old-key");
-	});
+
 
 	it("requires exact confirmation, saves through Pi, and rejects web-created custom providers", async () => {
 		const { root } = await fixture();

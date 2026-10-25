@@ -18,7 +18,7 @@ export function registerAuthorPapersTool(pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			paper_id: Type.String({ minLength: 1, description: "Seed Paper ID already in the personal library" }),
 			author_name: Type.String({ minLength: 1, description: "One uniquely matching author from the seed paper" }),
-			namespace: Type.Optional(Type.String({ description: "Personal namespace; default: default" })),
+
 			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			max_results_per_provider: Type.Optional(
@@ -30,15 +30,13 @@ export function registerAuthorPapersTool(pi: ExtensionAPI): void {
 			),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", namespace), "personal", namespace);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal"), "personal");
 			const seed = await store.getPaper(params.paper_id);
-			if (!seed)
-				throw new Error(`Paper is not in the personal library for namespace ${namespace}: ${params.paper_id}`);
+			if (!seed) throw new Error(`Paper is not in the personal library : ${params.paper_id}`);
 			const run = await collectAuthorPapers({
 				seed,
 				authorName: params.author_name,
-				namespace,
+
 				yearFrom: params.year_from,
 				yearTo: params.year_to,
 				maxResultsPerProvider: params.max_results_per_provider,

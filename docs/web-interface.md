@@ -54,7 +54,7 @@ The curation panel can apply tags, append a private note, and set a screening de
 
 ### Browser Connector
 
-The unpacked Chromium extension under `browser-extension/` listens for completed Chrome or Edge PDF downloads. Keep the configured interface port at `43127` and load that directory from `chrome://extensions` or `edge://extensions`. Each completed PDF download is imported into the current default personal namespace while Paper Agent is running.
+The unpacked Chromium extension under `browser-extension/` listens for completed Chrome or Edge PDF downloads. Keep the configured interface port at `43127` and load that directory from `chrome://extensions` or `edge://extensions`. Each completed PDF download is imported into the personal library while Paper Agent is running.
 
 The extension imports the file Edge or Chrome has already saved, so it does not re-request a publisher URL. The PDF signature and 100 MB limit are enforced by the local import service. PDF title and authors are extracted locally; download URL and referrer are used only as identifier hints, and Provider enrichment remains non-blocking. After a successful import, the extension deletes the original downloaded file through the browser downloads API. If cleanup fails, the import remains successful and the extension reports a cleanup warning; an import failure leaves the original file in place. The extension has no offline queue and ignores downloads while the local process is stopped.
 
@@ -97,7 +97,7 @@ Create and revise Markdown research notes from blank, skim, close-reading, compa
 
 ### Settings & diagnostics
 
-Configure the default namespace, data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity, and namespace, then writes the connection to a Git-ignored local access file. The **Model providers** block manages the endpoints Agent chat can use: add a provider, load its model list, choose the current chat model, and remove models or providers. Added or removed models appear in the Agent chat selector immediately; switching the current model takes effect once the in-flight reply finishes. Unsaved changes on the rest of the page are marked by the save action.
+Configure the data paths, browser behavior, model endpoint metadata, and operation-confirmation policy. The Team access section accepts an encoded `pateam1.` string, validates its CA, service, identity,, then writes the connection to a Git-ignored local access file. The **Model providers** block manages the endpoints Agent chat can use: add a provider, load its model list, choose the current chat model, and remove models or providers. Added or removed models appear in the Agent chat selector immediately; switching the current model takes effect once the in-flight reply finishes. Unsaved changes on the rest of the page are marked by the save action.
 
 Automatic capability probing is available for `openai-completions` and `openai-responses` endpoints, from the **Probe** button in the **Model providers** block. It may consume a small amount of provider quota and therefore requires confirmation. `anthropic-messages` and `google-generative-ai` configurations are accepted by Pi, but Paper Agent clearly requires a real tool-using Pi session for their capability check instead of reporting an unimplemented automatic probe as a model failure.
 
@@ -132,4 +132,3 @@ The gate is implemented in the operation code rather than relying only on agent 
 - **Agent chat rejects an HTTP Base URL:** use HTTPS except for a local test endpoint on `localhost`, `127.0.0.1`, or `::1`.
 - **A newly added model is missing from Agent chat:** reopen the Agent chat page; the selector refetches the configuration when the page loads.
 - **Model probe is disabled:** probes need a saved `openai-completions` or `openai-responses` provider with a usable credential; confirm the API key or that the environment variable is visible to the current process. Anthropic Messages and Google Generative AI configurations require a real tool-using Pi session instead of the automatic probe.
-

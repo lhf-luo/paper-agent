@@ -9,7 +9,7 @@ import { PdfTranslationService } from "../application/pdf-translation-service.ts
 function translationService(
 	pi: ExtensionAPI,
 	ctx: Pick<ExtensionContext, "cwd">,
-	namespace: string,
+
 	corpusRoot?: string,
 ) {
 	const dataRoot = resolve(ctx.cwd, ".paper-agent");
@@ -21,15 +21,10 @@ function translationService(
 		manager,
 		service: new PdfTranslationService({
 			projectRoot: ctx.cwd,
-			defaultNamespace: namespace,
+
 			executor: pi,
 			consent: manager,
-			store: (targetNamespace) =>
-				new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", targetNamespace, corpusRoot),
-					"personal",
-					targetNamespace,
-				),
+			store: () => new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", corpusRoot), "personal"),
 		}),
 	};
 }
@@ -48,18 +43,17 @@ export function registerPdfTranslationTool(pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			paper_id: Type.String(),
 			source_sha256: Type.String({ pattern: "^[a-fA-F0-9]{64}$" }),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			source_language: Type.Optional(Type.String({ default: "en" })),
 			target_language: Type.Optional(Type.String({ default: "zh-CN" })),
 			output_mode: Type.Optional(Type.Union([Type.Literal("mono"), Type.Literal("dual")])),
 		}),
 		async execute(toolCallId, params, signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const integration = translationService(pi, ctx, namespace, params.corpus_root);
+			const integration = translationService(pi, ctx, params.corpus_root);
 			const prepared = await integration.service.prepare({
 				paperId: params.paper_id,
-				namespace,
+
 				sourceSha256: params.source_sha256,
 				sourceLanguage: params.source_language,
 				targetLanguage: params.target_language,

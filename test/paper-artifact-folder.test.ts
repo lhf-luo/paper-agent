@@ -42,7 +42,7 @@ describe("personal paper Artifact folder", () => {
 		});
 		await expect(application.openPaperArtifactFolder(paper.id)).rejects.toThrow("没有可用的本地 Artifact");
 
-		const artifactRoot = join(root, ".paper-agent", "files", "personal", "default", paper.id, "artifacts");
+		const artifactRoot = join(root, ".paper-agent", "files", "personal", paper.id, "artifacts");
 		const repository = join(artifactRoot, "fixture-repository");
 		await mkdir(repository, { recursive: true });
 		await writeFile(join(repository, "README.md"), "fixture");
@@ -80,7 +80,7 @@ describe("personal paper Artifact folder", () => {
 			staticRoot: root,
 		});
 		try {
-			const response = await fetch(`${server.url}/api/papers/${paper.id}/artifacts/open?namespace=default`, {
+			const response = await fetch(`${server.url}/api/papers/${paper.id}/artifacts/open`, {
 				method: "POST",
 			});
 			expect(response.status).toBe(200);
@@ -134,10 +134,9 @@ describe("personal paper Artifact folder", () => {
 		const [version] = await store.listPaperVersions(paper.id);
 		const server = await startLocalWebServer(application, { staticRoot: root });
 		try {
-			const response = await fetch(
-				`${server.url}/api/papers/${paper.id}/pdf/${sha256}/folder/open?namespace=default`,
-				{ method: "POST" },
-			);
+			const response = await fetch(`${server.url}/api/papers/${paper.id}/pdf/${sha256}/folder/open`, {
+				method: "POST",
+			});
 			expect(response.status).toBe(200);
 			expect(await response.json()).toEqual({ opened: true });
 		} finally {

@@ -25,11 +25,11 @@ function paper(id: string): PaperRecord {
 	};
 }
 
-async function workspace(namespace = "default") {
+async function workspace(_namespace = "default") {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-research-notes-"));
 	temporaryPaths.push(root);
-	const corpus = join(root, ".paper-agent", "corpus", "personal", namespace);
-	const store = new LiteratureStore(corpus, "personal", namespace);
+	const corpus = join(root, ".paper-agent", "corpus", "personal");
+	const store = new LiteratureStore(corpus, "personal");
 	await store.initialize();
 	return { root, store, notebook: new ResearchNotebook(store) };
 }
@@ -131,7 +131,7 @@ describe("Markdown research notebook", () => {
 		const { root, notebook, store } = await workspace();
 		await store.upsertPapers([paper("paper-local")]);
 		await expect(notebook.create({ title: "Wrong namespace", paperIds: ["paper-elsewhere"] })).rejects.toThrow(
-			"not in namespace",
+			"not in the personal workspace",
 		);
 		const note = await notebook.create({ title: "Disposable", paperIds: ["paper-local"] });
 		const path = resolve(root, ".paper-agent", note.relativePath);
@@ -187,7 +187,7 @@ describe("Markdown research notebook", () => {
 
 	it("indexes Markdown files created outside Paper Agent", async () => {
 		const { root, notebook } = await workspace();
-		const externalFolder = join(root, ".paper-agent", "notes", "default", "External", "Nested");
+		const externalFolder = join(root, ".paper-agent", "notes", "External", "Nested");
 		await mkdir(externalFolder, { recursive: true });
 		await writeFile(join(externalFolder, "New finding.md"), "# External note\n", "utf8");
 
@@ -214,7 +214,7 @@ describe("Markdown research notebook", () => {
 			markdown: "first",
 			paperIds: ["paper-linked"],
 		});
-		const destination = join(root, ".paper-agent", "notes", "default", "Moved");
+		const destination = join(root, ".paper-agent", "notes", "Moved");
 		await mkdir(destination, { recursive: true });
 		const movedPath = join(destination, basename(note.relativePath).replace("Original title", "Renamed outside"));
 		await rename(resolve(root, ".paper-agent", note.relativePath), movedPath);

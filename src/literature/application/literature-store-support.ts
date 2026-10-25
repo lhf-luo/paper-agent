@@ -14,9 +14,9 @@ export function safeSegment(value: string, label: string): string {
 	return value;
 }
 
-export function resolveCorpusRoot(cwd: string, scope: CorpusScope, namespace: string, configuredRoot?: string): string {
+export function resolveCorpusRoot(cwd: string, scope: CorpusScope, configuredRoot?: string): string {
 	const base = configuredRoot ? resolve(cwd, configuredRoot) : resolve(cwd, ".paper-agent", "corpus");
-	return join(base, scope, safeSegment(namespace, "namespace"));
+	return join(base, scope);
 }
 
 export interface LocalPaperImportInput {

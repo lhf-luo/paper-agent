@@ -75,7 +75,7 @@ npm run web:build
 paper-agent init
 ```
 
-向导配置 Web 行为、存储路径、默认个人 namespace、搜索设置、模型端点名称和团队连接信息。模型 API key 推荐单独使用 `models add` 配置。
+向导配置 Web 行为、存储路径、搜索设置、模型端点名称和团队连接信息。模型 API key 推荐单独使用 `models add` 配置。
 
 ## 4. Web 工作区
 
@@ -295,7 +295,7 @@ paper-agent --uninstall
 | 命令 | 用途 |
 | --- | --- |
 | `/paper <paper.pdf> [研究问题或要求]` | 使用 paper-research Skill 启动论文阅读流程 |
-| `/collect [--save] [--namespace name] [--max N] <查询>` | 收集文献；只有 `--save` 会持久化到个人库 |
+| `/collect [--save] [--max N] <查询>` | 收集文献；只有 `--save` 会持久化到个人库 |
 | `/library [请求]` | 搜索、审计、导出或整理个人/团队资料库 |
 | `/team [请求]` | 搜索、提案、审核、审计或备份团队库 |
 
@@ -304,7 +304,7 @@ paper-agent --uninstall
 ```text
 /paper @D:\papers\example.pdf 重点检查损失函数
 /collect --max 30 retrieval augmented generation evaluation
-/collect --save --namespace rag retrieval augmented generation evaluation
+/collect --save retrieval augmented generation evaluation
 /library 导出最近保存的论文为 BibTeX
 /team 查看待审核提案
 ```

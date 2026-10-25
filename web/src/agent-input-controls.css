@@ -14,8 +14,7 @@
 	min-width: 54px;
 	padding-inline: 9px;
 }
-.agent-input-actions .agent-delivery-toggle,
-.agent-input-actions .agent-input-stop {
+.agent-input-actions .agent-delivery-toggle {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -29,19 +28,17 @@
 	border-radius: 0 9px 9px 0;
 	border-left: 0;
 }
-.agent-input-stop {
-	width: 30px;
-	height: 34px;
-	border-radius: 8px;
-}
-.agent-delivery-toggle:hover,
-.agent-input-stop:hover {
+.agent-delivery-toggle:hover:not(:disabled) {
 	background: var(--surface-hover);
 }
 .agent-delivery-toggle:focus-visible,
-.agent-input-stop:focus-visible {
+.agent-input-actions .agent-send-button:focus-visible {
 	outline: 2px solid var(--brand-600);
 	outline-offset: 2px;
+}
+.agent-delivery-toggle:disabled {
+	cursor: not-allowed;
+	opacity: 0.4;
 }
 .agent-delivery-menu {
 	position: absolute;

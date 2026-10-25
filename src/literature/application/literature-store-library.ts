@@ -86,11 +86,6 @@ export abstract class LiteratureStoreLibrary extends LiteratureStoreWrite {
 		return records.filter((value): value is PaperRecord => value !== undefined);
 	}
 
-	async listNamespaces(): Promise<string[]> {
-		if (!this.personalDatabase) throw new Error("SQLite namespace listing is only available for personal corpora");
-		return this.personalDatabase.listNamespaces();
-	}
-
 	async getPaper(id: string): Promise<PaperRecord | undefined> {
 		if (this.personalDatabase) return this.personalDatabase.getPaper(id);
 		const direct = await readJson<PaperRecord>(this.recordPath(id));

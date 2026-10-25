@@ -26,7 +26,7 @@ function restored(from: Document, to: Document, previous: Document, next: Docume
 /** Keep durable batch history consistent when the normal canvas undo/redo restores its affected objects. */
 export function syncResearchHistory(
 	db: DatabaseSync,
-	namespace: string,
+
 	canvasId: string,
 	previous: Document,
 	next: Document,
@@ -34,10 +34,8 @@ export function syncResearchHistory(
 ) {
 	if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='canvas_research_records'").get()) return;
 	const records = db
-		.prepare(
-			"SELECT id,value_json FROM canvas_research_records WHERE namespace_id=? AND canvas_id=? AND kind='proposal'",
-		)
-		.all(namespace, canvasId) as unknown as Array<{ id: string; value_json: string }>;
+		.prepare("SELECT id,value_json FROM canvas_research_records WHERE canvas_id=? AND kind='proposal'")
+		.all(canvasId) as unknown as Array<{ id: string; value_json: string }>;
 	for (const row of records) {
 		const p = JSON.parse(row.value_json) as CanvasChangeProposal;
 		if (!p.before || !p.after || p.status === "pending") continue;
@@ -47,7 +45,7 @@ export function syncResearchHistory(
 		if (!restored(from, to, previous, next)) continue;
 		const value = { ...p, status: undo ? "undone" : "applied", appliedRevision: revision };
 		db.prepare(
-			"UPDATE canvas_research_records SET revision=revision+1,updated_at=?,value_json=? WHERE namespace_id=? AND canvas_id=? AND kind='proposal' AND id=?",
-		).run(new Date().toISOString(), JSON.stringify(value), namespace, canvasId, row.id);
+			"UPDATE canvas_research_records SET revision=revision+1,updated_at=?,value_json=? WHERE canvas_id=? AND kind='proposal' AND id=?",
+		).run(new Date().toISOString(), JSON.stringify(value), canvasId, row.id);
 	}
 }

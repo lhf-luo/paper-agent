@@ -59,11 +59,7 @@ describe("team corpus client", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-client-"));
 		temporaryPaths.push(root);
 		const personalNamespace = "alice";
-		const personal = new LiteratureStore(
-			resolveCorpusRoot(root, "personal", personalNamespace, join(root, "local-corpus")),
-			"personal",
-			personalNamespace,
-		);
+		const personal = new LiteratureStore(resolveCorpusRoot(root, "personal", join(root, "local-corpus")), "personal");
 		await personal.upsertPaper(paper());
 
 		const server = createTeamCorpusServer({

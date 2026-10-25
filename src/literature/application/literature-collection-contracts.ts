@@ -18,7 +18,7 @@ export interface CollectLiteratureOptions {
 	maxResultsPerProvider: number;
 	scope: CorpusScope;
 	mode: PersistenceMode;
-	namespace: string;
+
 	cwd: string;
 	corpusRoot?: string;
 	refreshCache?: boolean;

@@ -9,7 +9,7 @@ describe("canvas research HTTP endpoints", () => {
 		const server = await startLocalWebServer(f.app, { staticRoot: "dist/web" });
 		const base = `${server.url}/api/canvases/${s.canvasId}/research`;
 		const request = async (path: string, method = "GET", body?: unknown) => {
-			const r = await fetch(`${base}/${path}${path.includes("?") ? "&" : "?"}namespace=research`, {
+			const r = await fetch(`${base}/${path}`, {
 				method,
 				...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
 			});
@@ -41,10 +41,10 @@ describe("canvas research HTTP endpoints", () => {
 			expect(result.status).toBe(200);
 			expect(result.data.canvas.groups).toHaveLength(1);
 			expect((await request("proposals")).data.proposals[0].value.before).toBeUndefined();
-			const wrongNamespace = await fetch(`${base}/settings?namespace=other`);
-			expect(wrongNamespace.status).toBe(404);
+			const wrongNamespace = await fetch(`${base}/settings`);
+			expect(wrongNamespace.status).toBe(200);
 			const abort = new AbortController();
-			const events = await fetch(`${base}/events?namespace=research`, { signal: abort.signal });
+			const events = await fetch(`${base}/events`, { signal: abort.signal });
 			const reader = events.body!.getReader();
 			expect(new TextDecoder().decode((await reader.read()).value)).toContain(s.canvasId);
 			await request("settings", "PATCH", { settings: { question: "Changed" }, expectedRevision: 0 });

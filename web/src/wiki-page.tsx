@@ -27,7 +27,6 @@ import type {
 } from "./types";
 
 interface WikiListResponse {
-	namespace: string;
 	pages: WikiPageSummary[];
 	tree?: WikiTreeNode[];
 	sync: { pageCount: number; issues: WikiLintIssue[]; indexedAt: string };
@@ -138,8 +137,7 @@ function WikiTreeBranch({
 	);
 }
 
-export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
-	const [namespace, setNamespace] = useState(defaultNamespace);
+export function WikiPage() {
 	const [query, setQuery] = useState("");
 	const [pages, setPages] = useState<WikiPageSummary[]>([]);
 	const [tree, setTree] = useState<WikiTreeNode[]>([]);
@@ -189,9 +187,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 		setLoading(true);
 		setError("");
 		try {
-			const result = await api<WikiListResponse>(
-				`/api/wiki/pages?namespace=${encodeURIComponent(namespace)}&query=${encodeURIComponent(query)}`,
-			);
+			const result = await api<WikiListResponse>(`/api/wiki/pages?query=${encodeURIComponent(query)}`);
 			setPages(result.pages);
 			setTree(result.tree ?? []);
 			setExpanded((current) => {
@@ -208,7 +204,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 		} finally {
 			setLoading(false);
 		}
-	}, [namespace, query, selected]);
+	}, [query, selected]);
 
 	useEffect(() => {
 		void load();
@@ -217,7 +213,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 	const openPage = async (id: string) => {
 		setError("");
 		try {
-			setSelected(await api(`/api/wiki/pages/${encodeURIComponent(id)}?namespace=${encodeURIComponent(namespace)}`));
+			setSelected(await api(`/api/wiki/pages/${encodeURIComponent(id)}`));
 			setSelectedManagement(undefined);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -227,8 +223,8 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 	const openManagementFile = async (path: string) => {
 		setError("");
 		try {
-			const result = await api<{ namespace: string; file: WikiManagementFile }>(
-				`/api/wiki/management-file?namespace=${encodeURIComponent(namespace)}&path=${encodeURIComponent(path)}`,
+			const result = await api<{ file: WikiManagementFile }>(
+				`/api/wiki/management-file?path=${encodeURIComponent(path)}`,
 			);
 			setSelectedManagement(result.file);
 			setSelected(undefined);
@@ -240,7 +236,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 	const openExternal = async (action: "folder" | "obsidian") => {
 		setError("");
 		try {
-			await api("/api/wiki/open", jsonBody({ action, namespace }));
+			await api("/api/wiki/open", jsonBody({ action }));
 			if (action === "folder") {
 				setMessage("已打开知识库文件夹。");
 				window.setTimeout(() => setMessage(""), 4_000);
@@ -256,7 +252,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 		try {
 			const prepared = await api<PreparedWikiSourcePageDeletion>(
 				"/api/wiki/source-pages/delete/prepare",
-				jsonBody({ namespace, paperId, includeMixedPageIds }),
+				jsonBody({ paperId, includeMixedPageIds }),
 			);
 			setCleanup({ paperId, includeMixedPageIds: new Set(includeMixedPageIds), prepared, dirty: false });
 		} catch (reason) {
@@ -285,7 +281,6 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 			const result = await api<{ deletedPages: Array<{ id: string; title: string }>; deletedEvidenceCount: number }>(
 				"/api/wiki/source-pages/delete/execute",
 				jsonBody({
-					namespace,
 					paperId: cleanup.paperId,
 					includeMixedPageIds: [...cleanup.includeMixedPageIds],
 					previewFingerprint: cleanup.prepared.preview.fingerprint,
@@ -407,17 +402,7 @@ export function WikiPage({ defaultNamespace }: { defaultNamespace: string }) {
 					<span className="eyebrow">Research Wiki</span>
 					<h1>知识库</h1>
 				</div>
-				<label className="wiki-namespace">
-					<span>空间</span>
-					<input
-						value={namespace}
-						onChange={(event) => {
-							setNamespace(event.target.value);
-							setSelected(undefined);
-							setSelectedManagement(undefined);
-						}}
-					/>
-				</label>
+
 				<button className="button secondary" type="button" onClick={() => void load()}>
 					<RefreshCw size={15} /> 同步
 				</button>

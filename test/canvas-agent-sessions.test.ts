@@ -17,26 +17,24 @@ describe("canvas Agent conversations", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-canvas-orphan-"));
 		roots.push(root);
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, "data") });
-		const personal = application.personalStore("default");
+		const personal = application.personalStore();
 		await personal.initialize();
 		const databasePath = personal.databasePath;
-		const canvases = new ResearchCanvasStore(databasePath, "default");
+		const canvases = new ResearchCanvasStore(databasePath);
 		const board = canvases.create("短暂项目");
 		const first = await WebAgentService.create({ projectRoot: root, paperSessionDatabasePath: databasePath });
 		const session = first.createSession({
 			mode: "persistent",
-			context: { kind: "canvas", namespace: "default", canvasId: board.id },
+			context: { kind: "canvas", canvasId: board.id },
 		});
 		await first.close();
 		const restored = await WebAgentService.create({ projectRoot: root, paperSessionDatabasePath: databasePath });
-		expect(restored.listSessions({ scope: "canvas", namespace: "default", canvasId: board.id })).toMatchObject([
-			{ id: session.id },
-		]);
+		expect(restored.listSessions({ scope: "canvas", canvasId: board.id })).toMatchObject([{ id: session.id }]);
 		await restored.close();
 		canvases.delete(board.id, board.revision);
 		const second = await WebAgentService.create({ projectRoot: root, paperSessionDatabasePath: databasePath });
 		try {
-			expect(second.listSessions({ scope: "canvas", namespace: "default", canvasId: board.id })).toEqual([]);
+			expect(second.listSessions({ scope: "canvas", canvasId: board.id })).toEqual([]);
 			await expect(
 				access(join(root, ".paper-agent", "web-agent-memory", "session-views", `${session.id}.json`)),
 			).rejects.toThrow();
@@ -52,12 +50,12 @@ describe("canvas Agent conversations", () => {
 		await mkdir(join(root, "web"));
 		await writeFile(join(root, "web", "index.html"), "<!doctype html>");
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, "data") });
-		const personal = application.personalStore("default");
+		const personal = application.personalStore();
 		await personal.initialize();
 		const agentService = await WebAgentService.create({
 			projectRoot: root,
 			paperSessionDatabasePath: personal.databasePath,
-			canvasDatabasePath: (namespace) => application.personalStore(namespace).databasePath,
+			canvasDatabasePath: () => application.personalStore().databasePath,
 		});
 		const server = await startLocalWebServer(application, { staticRoot: join(root, "web"), agentService });
 		const request = async (path: string, method = "GET", body?: unknown) => {
@@ -68,23 +66,20 @@ describe("canvas Agent conversations", () => {
 			return { status: response.status, data: (await response.json()) as Record<string, any> };
 		};
 		try {
-			const board = (await request("/api/canvases", "POST", { namespace: "default", title: "项目" })).data.canvas;
-			const other = (await request("/api/canvases", "POST", { namespace: "default", title: "其他项目" })).data
-				.canvas;
-			const secondNamespaceBoard = (
-				await request("/api/canvases", "POST", { namespace: "alternate", title: "另一个库" })
-			).data.canvas;
+			const board = (await request("/api/canvases", "POST", { title: "项目" })).data.canvas;
+			const other = (await request("/api/canvases", "POST", { title: "其他项目" })).data.canvas;
+			const secondNamespaceBoard = (await request("/api/canvases", "POST", { title: "另一个库" })).data.canvas;
 			const secondNamespaceSession = await request("/api/agent/sessions", "POST", {
 				mode: "persistent",
 				title: "另一个助手",
-				context: { kind: "canvas", namespace: "alternate", canvasId: secondNamespaceBoard.id },
+				context: { kind: "canvas", canvasId: secondNamespaceBoard.id },
 			});
 			expect(secondNamespaceSession.status).toBe(201);
 			expect(
 				(
 					await request("/api/agent/sessions", "POST", {
 						mode: "once",
-						context: { kind: "canvas", namespace: "default", canvasId: board.id },
+						context: { kind: "canvas", canvasId: board.id },
 					})
 				).status,
 			).toBe(400);
@@ -92,29 +87,24 @@ describe("canvas Agent conversations", () => {
 				(
 					await request("/api/agent/sessions", "POST", {
 						mode: "persistent",
-						context: { kind: "canvas", namespace: "default", canvasId: secondNamespaceBoard.id },
+						context: { kind: "canvas", canvasId: "missing-canvas" },
 					})
 				).status,
 			).toBe(404);
 			const created = await request("/api/agent/sessions", "POST", {
 				mode: "persistent",
 				title: "研究助手",
-				context: { kind: "canvas", namespace: "default", canvasId: board.id },
+				context: { kind: "canvas", canvasId: board.id },
 			});
 			expect(created.status).toBe(201);
 			const session = created.data;
 			expect((await request("/api/agent/sessions")).data.sessions).toEqual([]);
-			expect((await request("/api/agent/sessions?scope=personal&namespace=default")).data.sessions).toEqual([]);
+			expect((await request("/api/agent/sessions?scope=personal")).data.sessions).toEqual([]);
+			expect((await request(`/api/agent/sessions?scope=canvas&canvasId=${other.id}`)).data.sessions).toEqual([]);
 			expect(
-				(await request(`/api/agent/sessions?scope=canvas&namespace=default&canvasId=${other.id}`)).data.sessions,
-			).toEqual([]);
-			expect(
-				(await request(`/api/agent/sessions?scope=canvas&namespace=alternate&canvasId=${secondNamespaceBoard.id}`))
-					.data.sessions,
+				(await request(`/api/agent/sessions?scope=canvas&canvasId=${secondNamespaceBoard.id}`)).data.sessions,
 			).toHaveLength(1);
-			expect(
-				(await request(`/api/agent/sessions?scope=canvas&namespace=default&canvasId=${board.id}`)).data.sessions,
-			).toHaveLength(1);
+			expect((await request(`/api/agent/sessions?scope=canvas&canvasId=${board.id}`)).data.sessions).toHaveLength(1);
 			const node = {
 				id: "agent-node",
 				kind: "agent",
@@ -126,16 +116,13 @@ describe("canvas Agent conversations", () => {
 				entityId: session.id,
 			};
 			const document = { title: board.title, nodes: [node], edges: [], viewport: board.viewport };
-			expect(
-				(await request(`/api/canvases/${board.id}`, "PUT", { namespace: "default", expectedRevision: 0, document }))
-					.status,
-			).toBe(200);
-			expect(
-				(await request(`/api/canvases/${other.id}`, "PUT", { namespace: "default", expectedRevision: 0, document }))
-					.status,
-			).toBe(400);
+			expect((await request(`/api/canvases/${board.id}`, "PUT", { expectedRevision: 0, document })).status).toBe(
+				200,
+			);
+			expect((await request(`/api/canvases/${other.id}`, "PUT", { expectedRevision: 0, document })).status).toBe(
+				400,
+			);
 			const copy = await request(`/api/canvases/${board.id}/copy`, "POST", {
-				namespace: "default",
 				expectedRevision: 1,
 			});
 			expect(copy.status).toBe(201);
@@ -149,7 +136,6 @@ describe("canvas Agent conversations", () => {
 			expect(
 				(
 					await request(`/api/canvases/${board.id}`, "PUT", {
-						namespace: "default",
 						expectedRevision: 1,
 						document: { ...document, nodes: [] },
 					})
@@ -165,7 +151,6 @@ describe("canvas Agent conversations", () => {
 			expect(
 				(
 					await request(`/api/canvases/${board.id}`, "PUT", {
-						namespace: "default",
 						expectedRevision: 2,
 						document: reattached,
 					})
@@ -180,15 +165,12 @@ describe("canvas Agent conversations", () => {
 			await mkdir(join(root, ".paper-agent", "web-agent-memory", "results"), { recursive: true });
 			await writeFile(resultFile, "result");
 			const removed = await request(`/api/canvases/${board.id}/agent-sessions/${session.id}`, "DELETE", {
-				namespace: "default",
 				expectedRevision: 3,
 			});
 			expect(removed.status).toBe(200);
 			expect(removed.data.canvas.nodes).toEqual([idea]);
 			expect(removed.data.canvas.edges).toEqual([]);
-			expect(
-				(await request(`/api/agent/sessions?scope=canvas&namespace=default&canvasId=${board.id}`)).data.sessions,
-			).toEqual([]);
+			expect((await request(`/api/agent/sessions?scope=canvas&canvasId=${board.id}`)).data.sessions).toEqual([]);
 			await expect(access(runtime)).rejects.toThrow();
 			await expect(access(upload)).rejects.toThrow();
 			await expect(access(resultFile)).rejects.toThrow();
@@ -203,15 +185,13 @@ describe("canvas Agent conversations", () => {
 			expect(
 				(
 					await request(`/api/canvases/${copy.data.canvas.id}`, "DELETE", {
-						namespace: "default",
 						expectedRevision: copy.data.canvas.revision,
 					})
 				).status,
 			).toBe(200);
 			await expect(access(copiedRuntime)).rejects.toThrow();
 			expect(
-				(await request(`/api/agent/sessions?scope=canvas&namespace=default&canvasId=${copy.data.canvas.id}`)).data
-					.sessions,
+				(await request(`/api/agent/sessions?scope=canvas&canvasId=${copy.data.canvas.id}`)).data.sessions,
 			).toEqual([]);
 		} finally {
 			await server.close();

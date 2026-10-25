@@ -28,7 +28,7 @@ export function validateCollectionParent(
 ): void {
 	if (!parentId) return;
 	if (!collections.some((collection) => collection.id === parentId)) {
-		throw new Error(`Collection parent was not found in this namespace: ${parentId}`);
+		throw new Error(`Collection parent was not found in the personal workspace: ${parentId}`);
 	}
 	if (collectionId === parentId || collectionDescendantIds(collections, collectionId).includes(parentId)) {
 		throw new Error("A collection cannot be moved into itself or one of its descendants");

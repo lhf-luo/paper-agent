@@ -94,10 +94,17 @@ function expansionPathDepth(path: PaperDiscoveryPath): string {
 	return /^depth=\d+$/.test(path.note ?? "") ? (path.note ?? "").slice("depth=".length) : "unknown";
 }
 
-export function buildCitationExpansionTable(records: PaperRecord[]): CitationExpansionTableRow[] {
+export function buildCitationExpansionTable(
+	records: PaperRecord[],
+	seedIds: string[] = [],
+): CitationExpansionTableRow[] {
 	const rows: CitationExpansionTableRow[] = [];
 	for (const record of records) {
 		const base = buildCandidatePaperTable([record])[0];
+		if (seedIds.includes(record.id)) {
+			rows.push({ ...base, seedPaperId: record.id, relationship: "seed", depth: "0" });
+			continue;
+		}
 		for (const path of record.discoveryPaths ?? []) {
 			const relationship = expansionPathRelationship(path);
 			if (!relationship || !path.seedPaperId) continue;
@@ -122,7 +129,7 @@ export function searchRunSelectionPlan(
 	const normalized = [...records].sort((left, right) => left.id.localeCompare(right.id));
 	return {
 		kind: "personal-corpus-write",
-		summary: `Save ${normalized.length} selected search result(s) into personal corpus ${target.namespace}`,
+		summary: `Save ${normalized.length} selected search result(s) into personal corpus`,
 		actor: contributor,
 		targets: [
 			{ label: "source-search-run", value: run.id, risk: "low" },
@@ -137,8 +144,7 @@ export function searchRunSelectionPlan(
 			sourcePath: source.root,
 			targetPath: target.root,
 			sourceScope: source.scope,
-			sourceNamespace: source.namespace,
-			targetNamespace: target.namespace,
+
 			searchRunId: run.id,
 			recordIds: normalized.map((record) => record.id),
 			recordsFingerprint: sha256Text(JSON.stringify(normalized)),

@@ -61,7 +61,7 @@ describe("Paper Agent browser connector", () => {
 		try {
 			const ping = await fetch(`${server.url}/api/connector/ping`);
 			expect(ping.status).toBe(200);
-			expect(await ping.json()).toMatchObject({ ok: true, defaultNamespace: "default" });
+			expect(await ping.json()).toMatchObject({ ok: true });
 
 			const localPath = join(root, "browser-download.pdf");
 			await writeFile(localPath, "%PDF-1.4\nbrowser fixture\n%%EOF\n");
@@ -74,7 +74,7 @@ describe("Paper Agent browser connector", () => {
 						pdfUrl: "https://dl.acm.org/doi/pdf/10.1145/3585386",
 						doi: "10.1145/3585386",
 					},
-					namespace: "acm",
+
 					collection: "浏览器捕捉",
 					localPath,
 				}),
@@ -83,10 +83,8 @@ describe("Paper Agent browser connector", () => {
 			expect(response.status, responseText).toBe(200);
 			const result = JSON.parse(responseText) as { record: { id: string; identifiers: { doi?: string } } };
 			expect(result.record.identifiers.doi).toBe("10.1145/3585386");
-			expect(await application.personalStore("acm").listPaperVersions(result.record.id)).toHaveLength(1);
-			expect((await application.personalStore("acm").listCollections()).map((item) => item.name)).toContain(
-				"浏览器捕捉",
-			);
+			expect(await application.personalStore().listPaperVersions(result.record.id)).toHaveLength(1);
+			expect((await application.personalStore().listCollections()).map((item) => item.name)).toContain("浏览器捕捉");
 		} finally {
 			await server.close();
 			await application.close();

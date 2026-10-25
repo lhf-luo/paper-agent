@@ -2,7 +2,6 @@ const CONNECTOR_URL = "http://127.0.0.1:43127";
 
 const elements = {
 	connection: document.querySelector("#connection"),
-	namespace: document.querySelector("#namespace"),
 	result: document.querySelector("#result"),
 };
 
@@ -45,14 +44,12 @@ function showLatest(value) {
 
 async function initialize() {
 	try {
-		const status = await responseJson(await fetch(`${CONNECTOR_URL}/api/connector/ping`));
+		const _status = await responseJson(await fetch(`${CONNECTOR_URL}/api/connector/ping`));
 		elements.connection.textContent = "Paper Agent 已连接";
 		elements.connection.className = "status online";
-		elements.namespace.textContent = status.defaultNamespace;
 	} catch {
 		elements.connection.textContent = "Paper Agent 未启动或连接端口不可用";
 		elements.connection.className = "status offline";
-		elements.namespace.textContent = "-";
 	}
 	try {
 		showLatest(await latestCapture());

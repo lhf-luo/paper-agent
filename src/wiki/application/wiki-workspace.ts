@@ -36,7 +36,6 @@ import {
 	MAX_WIKI_PAGE_BYTES,
 	markdownFiles,
 	newWikiRelativePath,
-	nextEvidenceId,
 	parseWikiPage,
 	previewPage,
 	renderWikiPage,
@@ -60,15 +59,15 @@ export class WikiWorkspace {
 	readonly root: string;
 	readonly directory: string;
 	readonly databasePath: string;
-	private readonly namespace: string;
+
 	private readonly index: WikiIndex;
 	private readonly sources?: WikiSourceResolver;
 
-	constructor(dataRoot: string, namespace: string, sources?: WikiSourceResolver) {
+	constructor(dataRoot: string, sources?: WikiSourceResolver) {
 		this.root = resolve(dataRoot, "wiki");
-		this.directory = resolve(this.root, namespace);
+		this.directory = resolve(this.root);
 		this.databasePath = resolve(this.root, "wiki.sqlite");
-		this.namespace = namespace;
+
 		this.sources = sources;
 		this.index = new WikiIndex(this.databasePath);
 	}
@@ -80,12 +79,12 @@ export class WikiWorkspace {
 	async sync(): Promise<WikiSyncResult> {
 		const scanned = await this.scanPages();
 		await writeWikiIndex(this.directory, scanned.pages);
-		await this.index.replaceNamespace(this.namespace, scanned.pages);
+		await this.index.replacePages(scanned.pages);
 		const issues = [
 			...scanned.issues,
 			...(await lintWikiPages(scanned.pages, (kind, id) => this.resolveSnapshot(kind, id))),
 		];
-		const indexedCount = await this.index.count(this.namespace);
+		const indexedCount = await this.index.count();
 		if (indexedCount !== scanned.pages.length) {
 			issues.push({
 				severity: "error",
@@ -99,7 +98,7 @@ export class WikiWorkspace {
 
 	async search(options: WikiSearchOptions = {}): Promise<WikiSearchResult> {
 		const sync = await this.sync();
-		const result = await this.index.search(this.namespace, options);
+		const result = await this.index.search(options);
 		return { ...result, tree: await buildWikiTree(this.directory), sync };
 	}
 
@@ -107,14 +106,14 @@ export class WikiWorkspace {
 		id: string,
 	): Promise<{ page: WikiPage; backlinks: Array<{ id: string; title: string }>; related: WikiPage[] } | undefined> {
 		await this.sync();
-		const relativePath = await this.index.pathFor(this.namespace, id);
+		const relativePath = await this.index.pathFor(id);
 		if (!relativePath) return undefined;
 		const path = safeWikiPath(this.directory, relativePath);
 		const page = parseWikiPage(await readFile(path, "utf8"), relativePath);
 		const related = (
 			await Promise.all(
 				(
-					await this.index.neighbors(this.namespace, page.id)
+					await this.index.neighbors(page.id)
 				).map(async (item) => {
 					try {
 						const path = safeWikiPath(this.directory, item.relativePath);
@@ -127,7 +126,7 @@ export class WikiWorkspace {
 		).filter((item): item is WikiPage => Boolean(item));
 		return {
 			page,
-			backlinks: await this.index.backlinks(this.namespace, [page.title, ...page.aliases]),
+			backlinks: await this.index.backlinks([page.title, ...page.aliases]),
 			related: related.filter((item): item is WikiPage => Boolean(item)),
 		};
 	}
@@ -152,7 +151,7 @@ export class WikiWorkspace {
 		includeMixedPageIdsInput: string[] = [],
 	): Promise<WikiSourcePageDeletionPreview> {
 		return previewWikiSourcePageDeletion(
-			{ namespace: this.namespace, scanPages: () => this.scanPages() },
+			{ scanPages: () => this.scanPages() },
 			paperIdInput,
 			includeMixedPageIdsInput,
 		);
@@ -193,7 +192,6 @@ export class WikiWorkspace {
 		const fingerprint = createHash("sha256")
 			.update(
 				JSON.stringify({
-					namespace: this.namespace,
 					paperIds,
 					pages: pages
 						.map((page) => ({ id: page.id, relativePath: page.relativePath, contentHash: page.contentHash }))
@@ -201,13 +199,12 @@ export class WikiWorkspace {
 				}),
 			)
 			.digest("hex");
-		return { namespace: this.namespace, paperIds, fingerprint, dependencies };
+		return { paperIds, fingerprint, dependencies };
 	}
 
 	async applySourcePageDeletion(preview: WikiSourcePageDeletionPreview): Promise<WikiSourcePageDeletionResult> {
 		return applyWikiSourcePageDeletion(
 			{
-				namespace: this.namespace,
 				directory: this.directory,
 				root: this.root,
 				scanPages: () => this.scanPages(),
@@ -290,9 +287,8 @@ export class WikiWorkspace {
 		}
 
 		const issues = changes.flatMap((change) => change.issues);
-		const fingerprint = changeSetFingerprint(this.namespace, request.summary, normalizedChanges);
+		const fingerprint = changeSetFingerprint(request.summary, normalizedChanges);
 		return {
-			namespace: this.namespace,
 			summary: request.summary,
 			fingerprint,
 			generatedAt: new Date().toISOString(),
@@ -302,13 +298,11 @@ export class WikiWorkspace {
 	}
 
 	async applyIngest(preview: WikiIngestPreview): Promise<WikiIngestResult> {
-		if (preview.namespace !== this.namespace) throw new Error("Wiki preview namespace does not match workspace");
 		if (preview.changes.some((change) => change.action === "conflict")) {
 			throw new Error("Wiki change set contains conflicts; resolve the preview before applying");
 		}
 		return withWikiWriteLock(this.root, async () => {
 			const current = await this.previewIngest({
-				namespace: this.namespace,
 				summary: preview.summary,
 				changes: preview.changes.map((change) => change.change),
 			});
@@ -412,7 +406,6 @@ export class WikiWorkspace {
 
 	async ingest(input: IngestWikiPageInput): Promise<WikiPage> {
 		const preview = await this.previewIngest({
-			namespace: this.namespace,
 			summary: input.pageId ? `Update ${input.title}` : `Create ${input.title}`,
 			changes: [input],
 		});
@@ -510,24 +503,6 @@ export class WikiWorkspace {
 		const snapshots: WikiSourceSnapshot[] = [];
 		const issues: WikiLintIssue[] = [];
 		const sourceEvidence = [...(input.evidence ?? [])];
-		const legacyPaperIds = uniqueStrings(input.paperIds ?? []);
-		const legacyNoteIds = uniqueStrings(input.sourceNoteIds ?? []);
-		for (const paperId of legacyPaperIds) {
-			sourceEvidence.push({
-				id: nextEvidenceId(sourceEvidence),
-				kind: "paper",
-				sourceId: paperId,
-				locator: {},
-			});
-		}
-		for (const noteId of legacyNoteIds) {
-			sourceEvidence.push({
-				id: nextEvidenceId(sourceEvidence),
-				kind: "note",
-				sourceId: noteId,
-				locator: {},
-			});
-		}
 		const seen = new Set<string>();
 		for (const raw of sourceEvidence) {
 			const evidence = {

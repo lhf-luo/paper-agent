@@ -58,7 +58,7 @@ describe("personal library title cleaning", () => {
 	it("cleans titles on save and repairs already-stored dirty titles", async () => {
 		const { application, server } = await fixture();
 		try {
-			const store = application.personalStore("default");
+			const store = application.personalStore();
 			// Seeded as if written before cleaning existed.
 			await store.upsertPaper(paperRecord("dirty-html", "<i>ECG</i>: Augmenting Embedded OS Fuzzing"));
 			const clean = "A Case Study of LLM for Automated Vulnerability Repair";
@@ -73,7 +73,7 @@ describe("personal library title cleaning", () => {
 			const preparedResponse = await fetch(`${server.url}/api/library/titles/prepare`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default" }),
+				body: JSON.stringify({}),
 			});
 			expect(preparedResponse.status, await preparedResponse.clone().text()).toBe(200);
 			const { prepared } = (await preparedResponse.json()) as { prepared: { operationId: string } | null };
@@ -88,7 +88,7 @@ describe("personal library title cleaning", () => {
 	it("exposes a consented repair for titles that are already dirty on disk", async () => {
 		const { application, server } = await fixture();
 		try {
-			const store = application.personalStore("default");
+			const store = application.personalStore();
 			// Bypass the store write path to plant legacy dirty rows exactly as an old version would have.
 			const database = (store as unknown as { personalDatabase?: { savePaper(record: PaperRecord): Promise<void> } })
 				.personalDatabase;
@@ -111,7 +111,7 @@ describe("personal library title cleaning", () => {
 			const preparedResponse = await fetch(`${server.url}/api/library/titles/prepare`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default" }),
+				body: JSON.stringify({}),
 			});
 			expect(preparedResponse.status, await preparedResponse.clone().text()).toBe(200);
 			const { prepared } = (await preparedResponse.json()) as {
@@ -124,7 +124,7 @@ describe("personal library title cleaning", () => {
 			const executed = await fetch(`${server.url}/api/library/titles/execute`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default", grant }),
+				body: JSON.stringify({ grant }),
 			});
 			expect(executed.status, await executed.clone().text()).toBe(200);
 			const result = (await executed.json()) as {
@@ -142,7 +142,7 @@ describe("personal library title cleaning", () => {
 			const second = await fetch(`${server.url}/api/library/titles/prepare`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default" }),
+				body: JSON.stringify({}),
 			});
 			expect(((await second.json()) as { prepared: unknown }).prepared).toBeNull();
 		} finally {
@@ -154,7 +154,7 @@ describe("personal library title cleaning", () => {
 	it("cleans LaTeX from both the title and the abstract", async () => {
 		const { application, server } = await fixture();
 		try {
-			const store = application.personalStore("default");
+			const store = application.personalStore();
 			await store.initialize();
 			// Bypass the write path to plant a record exactly as arXiv import used to store it.
 			await (
@@ -170,7 +170,7 @@ describe("personal library title cleaning", () => {
 			const preparedResponse = await fetch(`${server.url}/api/library/titles/prepare`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default" }),
+				body: JSON.stringify({}),
 			});
 			expect(preparedResponse.status, await preparedResponse.clone().text()).toBe(200);
 			const { prepared } = (await preparedResponse.json()) as {
@@ -182,7 +182,7 @@ describe("personal library title cleaning", () => {
 			const executed = await fetch(`${server.url}/api/library/titles/execute`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace: "default", grant }),
+				body: JSON.stringify({ grant }),
 			});
 			expect(executed.status, await executed.clone().text()).toBe(200);
 

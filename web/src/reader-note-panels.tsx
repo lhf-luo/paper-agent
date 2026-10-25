@@ -8,15 +8,7 @@ import type { ConfirmationGrant, PreparedOperation, ResearchNote, ResearchNoteTe
 
 type SaveState = "idle" | "saving" | "saved" | "error" | "conflict";
 
-export function ReaderNotePanel({
-	namespace,
-	noteId,
-	onSaved,
-}: {
-	namespace: string;
-	noteId: string;
-	onSaved: (note: ResearchNote) => void;
-}) {
+export function ReaderNotePanel({ noteId, onSaved }: { noteId: string; onSaved: (note: ResearchNote) => void }) {
 	const [note, setNote] = useState<ResearchNote>();
 	const [markdown, setMarkdown] = useState("");
 	const [mode, setMode] = useState<"edit" | "preview">("edit");
@@ -28,9 +20,7 @@ export function ReaderNotePanel({
 		let cancelled = false;
 		setNote(undefined);
 		setError("");
-		void api<{ note: ResearchNote }>(
-			`/api/research/notes/${encodeURIComponent(noteId)}?namespace=${encodeURIComponent(namespace)}`,
-		)
+		void api<{ note: ResearchNote }>(`/api/research/notes/${encodeURIComponent(noteId)}`)
 			.then(({ note: loaded }) => {
 				if (cancelled) return;
 				setNote(loaded);
@@ -40,7 +30,7 @@ export function ReaderNotePanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [namespace, noteId]);
+	}, [noteId]);
 
 	const save = useCallback(async () => {
 		if (!note || saving.current || markdown === note.markdown) return;
@@ -53,7 +43,6 @@ export function ReaderNotePanel({
 				`/api/research/notes/${encodeURIComponent(note.id)}`,
 				jsonBody(
 					{
-						namespace,
 						title: note.title,
 						markdown: capturedMarkdown,
 						expectedRevision: note.revision,
@@ -72,7 +61,7 @@ export function ReaderNotePanel({
 		} finally {
 			saving.current = false;
 		}
-	}, [markdown, namespace, note, onSaved]);
+	}, [markdown, note, onSaved]);
 
 	useEffect(() => {
 		if (!note || markdown === note.markdown) return;
@@ -140,12 +129,10 @@ export function ReaderNotePanel({
 }
 
 export function ReaderNoteCreatePanel({
-	namespace,
 	paperId,
 	onCreated,
 	onCancel,
 }: {
-	namespace: string;
 	paperId: string;
 	onCreated: (note: ResearchNote) => void;
 	onCancel: () => void;
@@ -159,12 +146,10 @@ export function ReaderNoteCreatePanel({
 	const [error, setError] = useState("");
 
 	useEffect(() => {
-		void api<{ templates: ResearchNoteTemplate[] }>(
-			`/api/research/templates?namespace=${encodeURIComponent(namespace)}`,
-		)
+		void api<{ templates: ResearchNoteTemplate[] }>(`/api/research/templates`)
 			.then((result) => setTemplates(result.templates))
 			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-	}, [namespace]);
+	}, []);
 
 	const execute = useCallback(async () => {
 		if (!pending || !payload) return;
@@ -193,7 +178,7 @@ export function ReaderNoteCreatePanel({
 		}
 		setBusy(true);
 		setError("");
-		const nextPayload = { namespace, title, templateId, paperIds: [paperId] };
+		const nextPayload = { title, templateId, paperIds: [paperId] };
 		try {
 			setPayload(nextPayload);
 			setPending(await api<PreparedOperation>("/api/research/notes/create/prepare", jsonBody(nextPayload)));

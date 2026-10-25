@@ -1,9 +1,10 @@
 import type { ConfirmationGrant, OperationPlan } from "../../shared/application/operation-consent.ts";
+import { TeamCorpusHttpError } from "../../team/application/team-corpus-client.ts";
 import {
 	executeTeamKnowledgePull,
 	previewTeamKnowledgePull,
-	teamSnapshotMarkdown,
 	type TeamKnowledgePullInput,
+	teamSnapshotMarkdown,
 } from "../../team/application/team-knowledge-pull.ts";
 import type {
 	TeamCollaborationChange,
@@ -11,13 +12,12 @@ import type {
 	TeamContentRef,
 	TeamTopicChange,
 } from "../../team/domain/team-corpus-types.ts";
-import { TeamCorpusHttpError } from "../../team/application/team-corpus-client.ts";
 import { PaperAgentTeamOperations } from "./paper-agent-team-operations.ts";
 
 export abstract class PaperAgentTeamCollaboration extends PaperAgentTeamOperations {
-	async listPersonalTeamArtifacts(personalNamespace = this.defaultNamespace, cursor?: string, limit = 50) {
+	async listPersonalTeamArtifacts(cursor?: string, limit = 50) {
 		await this.initialize();
-		const store = this.personalStore(personalNamespace);
+		const store = this.personalStore();
 		await store.initialize();
 		const entries = [];
 		for (const paper of await store.listPapers())
@@ -157,8 +157,8 @@ export abstract class PaperAgentTeamCollaboration extends PaperAgentTeamOperatio
 	private async teamKnowledgePullPlan(input: TeamKnowledgePullInput) {
 		await this.initialize();
 		const team = await this.configuredTeam();
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
-		const store = this.personalStore(personalNamespace);
+
+		const store = this.personalStore();
 		await store.initialize();
 		const previews = await previewTeamKnowledgePull({ ...team, store, entries: input.entries });
 		const plan: OperationPlan = {
@@ -166,7 +166,6 @@ export abstract class PaperAgentTeamCollaboration extends PaperAgentTeamOperatio
 			summary: `将 ${previews.length} 份团队知识快照保存为个人调研笔记`,
 			targets: previews.map((entry) => ({ label: entry.title, value: entry.id, risk: "low" })),
 			details: {
-				personalNamespace,
 				previews,
 				namespace: team.namespace,
 				serverUrl: team.serverUrl,

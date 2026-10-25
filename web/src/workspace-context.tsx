@@ -1,11 +1,4 @@
-import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useReducer,
-	type ReactNode,
-} from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useReducer } from "react";
 import { api } from "./api";
 import type { ApplicationStatus, BackgroundJob } from "./types";
 
@@ -18,8 +11,6 @@ export interface WorkspaceToast {
 }
 
 interface WorkspaceState {
-	namespace: string;
-	availableNamespaces: string[];
 	status?: ApplicationStatus;
 	lastTask?: BackgroundJob;
 	toasts: WorkspaceToast[];
@@ -28,8 +19,6 @@ interface WorkspaceState {
 }
 
 type WorkspaceAction =
-	| { type: "SET_NAMESPACE"; payload: string }
-	| { type: "SET_NAMESPACES"; payload: string[] }
 	| { type: "SET_STATUS"; payload: ApplicationStatus }
 	| { type: "SET_LAST_TASK"; payload: BackgroundJob }
 	| { type: "SET_REFRESHING"; payload: boolean }
@@ -39,16 +28,11 @@ type WorkspaceAction =
 
 function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
 	switch (action.type) {
-		case "SET_NAMESPACE":
-			return { ...state, namespace: action.payload };
-		case "SET_NAMESPACES":
-			return { ...state, availableNamespaces: action.payload };
 		case "SET_STATUS":
 			return {
 				...state,
 				status: action.payload,
-				namespace: state.namespace === "default" && action.payload.defaultNamespace ? action.payload.defaultNamespace : state.namespace,
-				availableNamespaces: action.payload.personalNamespaces?.length ? action.payload.personalNamespaces : state.availableNamespaces,
+
 				error: "",
 			};
 		case "SET_LAST_TASK":
@@ -67,14 +51,12 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
 }
 
 interface WorkspaceContextValue {
-	namespace: string;
-	availableNamespaces: string[];
 	status?: ApplicationStatus;
 	lastTask?: BackgroundJob;
 	toasts: WorkspaceToast[];
 	isRefreshing: boolean;
 	error: string;
-	setNamespace: (ns: string) => void;
+
 	refreshStatus: () => Promise<void>;
 	trackTask: (task: BackgroundJob) => void;
 	pushToast: (type: WorkspaceToast["type"], message: string, title?: string) => string;
@@ -85,8 +67,6 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
 	const [state, dispatch] = useReducer(workspaceReducer, {
-		namespace: "default",
-		availableNamespaces: ["default"],
 		toasts: [],
 		isRefreshing: false,
 		error: "",
@@ -117,10 +97,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 		return () => window.clearInterval(interval);
 	}, [refreshStatus]);
 
-	const setNamespace = useCallback((ns: string) => {
-		dispatch({ type: "SET_NAMESPACE", payload: ns });
-	}, []);
-
 	const trackTask = useCallback(
 		(task: BackgroundJob) => {
 			dispatch({ type: "SET_LAST_TASK", payload: task });
@@ -133,30 +109,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 		dispatch({ type: "REMOVE_TOAST", payload: id });
 	}, []);
 
-	const pushToast = useCallback(
-		(type: WorkspaceToast["type"], message: string, title?: string) => {
-			const id = Math.random().toString(36).slice(2, 9);
-			const toast: WorkspaceToast = { id, type, title, message, timestamp: Date.now() };
-			dispatch({ type: "ADD_TOAST", payload: toast });
-			window.setTimeout(() => {
-				dispatch({ type: "REMOVE_TOAST", payload: id });
-			}, 5000);
-			return id;
-		},
-		[],
-	);
+	const pushToast = useCallback((type: WorkspaceToast["type"], message: string, title?: string) => {
+		const id = Math.random().toString(36).slice(2, 9);
+		const toast: WorkspaceToast = { id, type, title, message, timestamp: Date.now() };
+		dispatch({ type: "ADD_TOAST", payload: toast });
+		window.setTimeout(() => {
+			dispatch({ type: "REMOVE_TOAST", payload: id });
+		}, 5000);
+		return id;
+	}, []);
 
 	return (
 		<WorkspaceContext.Provider
 			value={{
-				namespace: state.namespace,
-				availableNamespaces: state.availableNamespaces,
 				status: state.status,
 				lastTask: state.lastTask,
 				toasts: state.toasts,
 				isRefreshing: state.isRefreshing,
 				error: state.error,
-				setNamespace,
+
 				refreshStatus,
 				trackTask,
 				pushToast,

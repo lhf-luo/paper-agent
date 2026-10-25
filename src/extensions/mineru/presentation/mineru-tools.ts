@@ -10,7 +10,7 @@ import { MineruService } from "../application/mineru-service.ts";
 async function createMineruService(
 	pi: ExtensionAPI,
 	ctx: Pick<ExtensionContext, "cwd">,
-	namespace: string,
+
 	corpusRoot?: string,
 ) {
 	const config = await loadPaperAgentConfig(ctx.cwd);
@@ -24,15 +24,10 @@ async function createMineruService(
 		manager,
 		service: new MineruService({
 			projectRoot: ctx.cwd,
-			defaultNamespace: namespace,
+
 			executor: pi,
 			consent: manager,
-			store: (targetNamespace) =>
-				new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", targetNamespace, effectiveCorpusRoot),
-					"personal",
-					targetNamespace,
-				),
+			store: () => new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", effectiveCorpusRoot), "personal"),
 		}),
 	};
 }
@@ -45,22 +40,21 @@ export function registerMineruTools(pi: ExtensionAPI): void {
 			"Generate or rebuild a structured MinerU reading package for the preferred PDF of one personal-library paper. The package contains full Markdown, page-aware content blocks, figures, tables, and a manifest.",
 		promptSnippet: "Generate page-aware MinerU reading material for a saved paper",
 		promptGuidelines: [
-			"Use get_personal_library_paper first and pass its exact paper ID and namespace.",
+			"Use get_personal_library_paper first and pass its exact paper ID.",
 			"Reuse existing current material unless the user explicitly requests a rebuild.",
 			"Generation may take several minutes. Do not claim success until the package has been saved.",
 		],
 		parameters: Type.Object({
 			paper_id: Type.String(),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			force: Type.Optional(Type.Boolean()),
 		}),
 		async execute(toolCallId, params, signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const integration = await createMineruService(pi, ctx, namespace, params.corpus_root);
+			const integration = await createMineruService(pi, ctx, params.corpus_root);
 			const prepared = await integration.service.prepare({
 				paperId: params.paper_id,
-				namespace,
+
 				force: params.force,
 			});
 			if (prepared.reused) {
@@ -102,7 +96,7 @@ export function registerMineruTools(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			paper_id: Type.String(),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			mode: Type.Union([
 				Type.Literal("overview"),
@@ -146,9 +140,8 @@ export function registerMineruTools(pi: ExtensionAPI): void {
 			max_characters: Type.Optional(Type.Integer({ minimum: 1000, maximum: 80000 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const { service } = await createMineruService(pi, ctx, namespace, params.corpus_root);
-			const result = await service.read(params.paper_id, namespace, {
+			const { service } = await createMineruService(pi, ctx, params.corpus_root);
+			const result = await service.read(params.paper_id, {
 				mode: params.mode,
 				sectionIds: params.section_ids,
 				pages: params.pages,
@@ -164,7 +157,7 @@ export function registerMineruTools(pi: ExtensionAPI): void {
 			];
 			for (const item of result.assetResults) {
 				if (!item.path) continue;
-				const asset = await service.readAsset(params.paper_id, namespace, item.path);
+				const asset = await service.readAsset(params.paper_id, item.path);
 				const mimeType = (
 					{ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" } as Record<
 						string,

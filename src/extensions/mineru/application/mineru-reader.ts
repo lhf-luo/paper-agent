@@ -4,7 +4,6 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { PdfMaterialRecord } from "../../../pdf/domain/pdf-material-types.ts";
 import type { MineruAssetIndex, MineruPackageManifest } from "../domain/mineru-types.ts";
 import {
-	effectiveMineruIndex,
 	type MineruContentBlock,
 	mineruBlockMarkdown,
 	mineruBlockText,
@@ -139,7 +138,9 @@ export async function readMineruMaterial(material: PdfMaterialRecord, request: M
 	if (!Array.isArray(blocks)) throw new Error("MinerU content_list.json is invalid");
 	const mode = request.mode;
 	const maximum = Math.min(Math.max(request.maxCharacters ?? 30_000, 1_000), 80_000);
-	const index = effectiveMineruIndex(manifest, blocks, markdown);
+	if (manifest.schemaVersion !== 2 || !manifest.sections || !manifest.statistics || !Array.isArray(manifest.assets))
+		throw new Error("Invalid MinerU package manifest; regenerate the material");
+	const index = manifest;
 	const assetByBlock = new Map(index.assets.map((asset) => [asset.blockIndex, asset]));
 	let body = "";
 	let truncated = false;
@@ -166,7 +167,6 @@ export async function readMineruMaterial(material: PdfMaterialRecord, request: M
 			`pages: ${index.statistics.pages}`,
 			`blocks: ${Object.values(index.statistics.blockTypes).reduce((sum, count) => sum + count, 0)}`,
 			`text=${index.statistics.textBlocks}, tables=${index.statistics.tables}, figures=${index.statistics.figures}, charts=${index.statistics.charts}, code=${index.statistics.codeBlocks}`,
-			manifest.schemaVersion === 1 ? "warning: legacy schema-v1 package; navigation was indexed at read time" : "",
 			"Sections:",
 			...navigation,
 			"Assets:",

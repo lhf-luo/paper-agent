@@ -3,30 +3,27 @@ import type {
 	CanvasChangeProposal,
 	CanvasResearchAnalysis,
 	CanvasResearchRecord,
-	CanvasSearchPlan,
 } from "../../src/canvas/domain/canvas-research";
 import type { AnalysisView, ResearchClient } from "./canvas-research-api";
 
 interface ResearchRecords {
 	analyses: CanvasResearchRecord<CanvasResearchAnalysis>[];
 	proposals: CanvasResearchRecord<CanvasChangeProposal>[];
-	plans: CanvasResearchRecord<CanvasSearchPlan>[];
 	run?: AnalysisView;
 }
 async function fetchRecords(client: ResearchClient, runId: string, offset: number): Promise<ResearchRecords> {
-	const [a, p, s] = await Promise.all([
+	const [a, p] = await Promise.all([
 		client.get<{ analyses: ResearchRecords["analyses"] }>("analyses"),
 		client.get<{ proposals: ResearchRecords["proposals"] }>("proposals"),
-		client.get<{ plans: ResearchRecords["plans"] }>("searches"),
 	]);
 	let run: AnalysisView | undefined;
 	if (runId) run = await client.get<AnalysisView>("analyses", { id: runId, offset });
 	else if (a.analyses.length)
 		run = (await client.get<{ analysis?: AnalysisView }>("analyses", { latest: "matching" })).analysis;
-	return { analyses: a.analyses, proposals: p.proposals, plans: s.plans, run };
+	return { analyses: a.analyses, proposals: p.proposals, run };
 }
 export function useResearchRecords(client: ResearchClient) {
-	const [records, setRecords] = useState<ResearchRecords>({ analyses: [], proposals: [], plans: [] });
+	const [records, setRecords] = useState<ResearchRecords>({ analyses: [], proposals: [] });
 	const [runId, setRunId] = useState("");
 	const [offset, setOffset] = useState(0);
 	const refreshRef = useRef<() => void>(() => {});

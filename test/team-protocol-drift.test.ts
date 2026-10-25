@@ -13,7 +13,12 @@ function normalizeProtocolSource(source: string): string {
 	return source
 		.replace(/\r\n/g, "\n")
 		.split("\n")
-		.filter((line) => !line.startsWith("import"))
+		.filter(
+			(line) =>
+				!line.startsWith("import") &&
+				line.trim() &&
+				!/^\s*(?:namespace: string;|personalNamespace\?: string;)/.test(line),
+		)
 		.join("\n")
 		.trim();
 }

@@ -86,12 +86,10 @@ export function registerBibtexTool(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			paperIds: Type.Array(Type.String({ minLength: 1, maxLength: 128 })),
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const namespace = typeof params.namespace === "string" && params.namespace ? params.namespace : "default";
-			const root = resolveCorpusRoot(ctx.cwd, "personal", namespace);
-			const store = new LiteratureStore(root, "personal", namespace);
+			const root = resolveCorpusRoot(ctx.cwd, "personal");
+			const store = new LiteratureStore(root, "personal");
 			await store.initialize();
 			const records: PaperRecord[] = [];
 			const missing: string[] = [];
@@ -105,7 +103,6 @@ export function registerBibtexTool(pi: ExtensionAPI): void {
 				entryCount: records.length,
 				missingPaperIds: missing,
 				corpusPath: store.root,
-				namespace,
 			};
 			return {
 				content: [{ type: "text", text: bibtex }],

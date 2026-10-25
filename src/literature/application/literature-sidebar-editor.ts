@@ -96,7 +96,7 @@ function parseSidebarDocument(content: string): ParsedSidebarDocument {
 	}
 	const metadata = parseSidebarResultMetadata(trimmed);
 	if (!metadata.fields) {
-		throw new Error("This literature sidebar uses the unsupported legacy column format");
+		throw new Error("Literature sidebar fields schema is required");
 	}
 	const fields = validateSidebarFields(metadata.fields);
 	const bodyLines = trimmed.slice(0, metadataMatch.index).trimEnd().split(/\r?\n/);
@@ -137,12 +137,12 @@ async function searchRecord(
 	store: LiteratureStore,
 	searchRunId: string,
 	paperId: string,
-): Promise<{ record: PaperRecord; namespace: string }> {
+): Promise<{ record: PaperRecord }> {
 	const run = await store.getSearchRun(searchRunId);
 	if (!run) throw new Error(`Search run not found: ${searchRunId}`);
 	const record = run.results.find((candidate) => candidate.id === paperId);
 	if (!record) throw new Error(`Paper ${paperId} was not found in search run ${searchRunId}`);
-	return { record, namespace: run.namespace };
+	return { record };
 }
 
 function selectRow(rows: SidebarDocumentRow[], selector: SidebarRowSelector): number {
@@ -241,7 +241,7 @@ async function applyOperation(
 	if (operation.action === "add-from-search") {
 		const meta = sidebarMetadataFromRecord(found.record, {
 			searchRunId: operation.searchRunId,
-			namespace: found.namespace,
+
 			preserved: {
 				...(operation.focus?.trim() ? { focus: operation.focus.trim() } : {}),
 				...(operation.relevance?.trim() ? { relevance: operation.relevance.trim() } : {}),
@@ -264,7 +264,7 @@ async function applyOperation(
 	);
 	const meta = sidebarMetadataFromRecord(found.record, {
 		searchRunId: operation.searchRunId,
-		namespace: found.namespace,
+
 		preserved,
 	});
 	if (duplicateIndex(document.rows, meta, index) >= 0) {

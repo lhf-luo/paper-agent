@@ -10,7 +10,7 @@ import { PaperAgentLibraryMutations } from "./paper-agent-library-mutations.ts";
 
 export interface ConnectorCaptureInput {
 	metadata: CapturedPageMetadata;
-	namespace?: string;
+
 	collection?: string;
 	signal?: AbortSignal;
 }
@@ -60,9 +60,9 @@ export abstract class PaperAgentConnector extends PaperAgentLibraryMutations {
 		return this.zotero.cancelExport(operationId);
 	}
 
-	async createLocalPdfImportBatch(namespace = this.defaultNamespace, collectionId?: string) {
+	async createLocalPdfImportBatch(collectionId?: string) {
 		await this.initialize();
-		return this.localPdfImports.create(namespace, collectionId);
+		return this.localPdfImports.create(collectionId);
 	}
 
 	async addLocalPdfImportFile(batchId: string, filename: string, data: Uint8Array) {
@@ -87,11 +87,8 @@ export abstract class PaperAgentConnector extends PaperAgentLibraryMutations {
 
 	async connectorStatus() {
 		await this.initialize();
-		const personal = await this.listNamespaces("personal");
 		return {
 			ok: true,
-			defaultNamespace: this.defaultNamespace,
-			namespaces: [...new Set([this.defaultNamespace, ...personal])],
 		};
 	}
 
@@ -102,8 +99,8 @@ export abstract class PaperAgentConnector extends PaperAgentLibraryMutations {
 			if (details.size > CONNECTOR_MAX_PDF_BYTES) {
 				throw new CapturedPdfValidationError("PDF exceeds the 100 MB connector limit");
 			}
-			const namespace = input.namespace ?? this.defaultNamespace;
-			return await importCapturedPdf(this.personalStore(namespace), this.executor, this.projectRoot, {
+
+			return await importCapturedPdf(this.personalStore(), this.executor, this.projectRoot, {
 				metadata: input.metadata,
 				collection: input.collection,
 				body: await readFile(localPath),

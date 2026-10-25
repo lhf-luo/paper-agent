@@ -24,7 +24,7 @@ export function registerLiteratureCollectionsTool(pi: ExtensionAPI): void {
 				Type.Literal("assign"),
 				Type.Literal("unassign"),
 			]),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			collection_id: Type.Optional(Type.String()),
 			collection_name: Type.Optional(Type.String()),
@@ -33,17 +33,12 @@ export function registerLiteratureCollectionsTool(pi: ExtensionAPI): void {
 			paper_ids: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 500 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
-				"personal",
-				namespace,
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const collections = await store.listCollections();
 			if (params.action === "list") {
 				return {
 					content: [{ type: "text", text: JSON.stringify(collections, null, 2) }],
-					details: { namespace, collections, corpusPath: store.root },
+					details: { collections, corpusPath: store.root },
 				};
 			}
 			const requestedCollectionName = params.collection_name?.trim();
@@ -79,7 +74,7 @@ export function registerLiteratureCollectionsTool(pi: ExtensionAPI): void {
 				],
 				details: {
 					action: params.action,
-					namespace,
+
 					collectionId: collection?.id,
 					collectionName: params.collection_name?.trim() ?? collection?.name,
 					newName: params.new_name?.trim(),

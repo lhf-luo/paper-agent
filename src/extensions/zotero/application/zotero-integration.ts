@@ -36,8 +36,8 @@ import type {
 	ZoteroStatus,
 } from "../domain/zotero-types.ts";
 import { ZoteroLocalApiClient, ZoteroLocalApiError } from "../infrastructure/zotero-local-api-client.ts";
-import { clearZoteroCredentials, loadZoteroCredentials, saveZoteroCredentials } from "./zotero-credential-store.ts";
 import { newestPdfAttachments } from "./zotero-attachment-selection.ts";
+import { clearZoteroCredentials, loadZoteroCredentials, saveZoteroCredentials } from "./zotero-credential-store.ts";
 import {
 	executePreparedZoteroImportItem,
 	executePreparedZoteroImports,
@@ -48,8 +48,7 @@ import { collectionKeysWithAncestors, descendantKeys, matchPersonalPaper, validS
 interface ZoteroIntegrationOptions {
 	projectRoot: string;
 	consent: OperationConsentManager;
-	store: (namespace: string) => LiteratureStore;
-	defaultNamespace: string;
+	store: () => LiteratureStore;
 }
 
 interface PreparedExportState {
@@ -61,16 +60,15 @@ interface PreparedExportState {
 export class ZoteroIntegrationService {
 	private readonly projectRoot: string;
 	private readonly consent: OperationConsentManager;
-	private readonly storeForNamespace: (namespace: string) => LiteratureStore;
-	private readonly defaultNamespace: string;
+	private readonly getStore: () => LiteratureStore;
+
 	private readonly imports = new Map<string, PreparedZoteroImportState>();
 	private readonly exports = new Map<string, PreparedExportState>();
 
 	constructor(options: ZoteroIntegrationOptions) {
 		this.projectRoot = options.projectRoot;
 		this.consent = options.consent;
-		this.storeForNamespace = options.store;
-		this.defaultNamespace = options.defaultNamespace;
+		this.getStore = options.store;
 	}
 
 	private async client(): Promise<ZoteroLocalApiClient> {
@@ -150,7 +148,6 @@ export class ZoteroIntegrationService {
 	}
 
 	async prepareImport(input: Record<string, unknown>): Promise<ZoteroImportPreparation> {
-		const namespace = typeof input.namespace === "string" ? input.namespace : this.defaultNamespace;
 		const collectionKeys = validSelection(input.collectionKeys, "collectionKeys");
 		const itemKeys = validSelection(input.itemKeys, "itemKeys");
 		if (!collectionKeys.length && !itemKeys.length) throw new Error("请至少选择一个 Zotero 分类或论文");
@@ -184,7 +181,7 @@ export class ZoteroIntegrationService {
 				version: collection.version,
 				path: collection.path,
 			}));
-		const store = this.storeForNamespace(namespace);
+		const store = this.getStore();
 		const mappings = await store.listZoteroItemMappings(status.serverId);
 		const previews: ZoteroImportPreviewItem[] = [];
 		const preparedInputs: PreparedZoteroImportState["inputs"] = [];
@@ -257,7 +254,6 @@ export class ZoteroIntegrationService {
 				risk: "medium",
 			})),
 			details: {
-				namespace,
 				serverId: status.serverId,
 				items: previews.map((item) => ({
 					key: item.itemKey,
@@ -272,7 +268,6 @@ export class ZoteroIntegrationService {
 		if (operation.kind !== "personal-corpus-write") throw new Error("Zotero 导入确认类型无效");
 		const operationView = { ...operation, kind: "personal-corpus-write" as const };
 		const view = {
-			namespace,
 			serverId: status.serverId,
 			collections: specs,
 			items: previews,
@@ -299,7 +294,7 @@ export class ZoteroIntegrationService {
 			grant,
 			consent: this.consent,
 			client,
-			store: this.storeForNamespace(prepared.view.namespace),
+			store: this.getStore(),
 			readAttachment: async (key) => this.attachment(client, await client.getItem(key)),
 			onComplete: () => this.imports.delete(operationId),
 		});
@@ -313,7 +308,7 @@ export class ZoteroIntegrationService {
 			const status = await this.status();
 			if (status.serverId !== prepared.view.serverId) throw new Error("Zotero 数据库已变化，请重新准备导入");
 			const client = await this.client();
-			const store = this.storeForNamespace(prepared.view.namespace);
+			const store = this.getStore();
 			return executePreparedZoteroImports({
 				inputs: prepared.inputs,
 				collectionSpecs: prepared.view.collections,
@@ -376,14 +371,13 @@ export class ZoteroIntegrationService {
 	}
 
 	async prepareExport(input: Record<string, unknown>): Promise<ZoteroExportPreparation> {
-		const namespace = typeof input.namespace === "string" ? input.namespace : this.defaultNamespace;
 		const paperIds = validSelection(input.paperIds, "paperIds");
 		if (!paperIds.length) throw new Error("请至少选择一篇个人库论文");
 		const status = await this.status();
 		if (!status.localApiEnabled || !status.serverId) throw new Error(status.message);
 		const client = await this.client();
 		const [items, zoteroCollections] = await Promise.all([client.listItems(), client.listCollections()]);
-		const store = this.storeForNamespace(namespace);
+		const store = this.getStore();
 		const [collections, mappings] = await Promise.all([
 			store.listCollections(),
 			store.listZoteroItemMappings(status.serverId),
@@ -426,7 +420,6 @@ export class ZoteroIntegrationService {
 			summary: `将 ${records.length} 篇论文导入 Zotero`,
 			targets: previews.map((item) => ({ label: "Zotero 论文", value: item.title, risk: "medium" })),
 			details: {
-				namespace,
 				serverId: status.serverId,
 				items: previews.map((item) => ({
 					paperId: item.paperId,
@@ -440,7 +433,6 @@ export class ZoteroIntegrationService {
 		const operation = await this.consent.prepare(plan);
 		if (operation.kind !== "personal-corpus-write") throw new Error("Zotero 导出确认类型无效");
 		const view = {
-			namespace,
 			serverId: status.serverId,
 			items: previews,
 			operation: { ...operation, kind: "personal-corpus-write" as const },
@@ -494,7 +486,6 @@ export class ZoteroIntegrationService {
 			}
 			result.set(collection.id, target.key);
 			await store.saveZoteroCollectionMapping({
-				namespace: store.namespace,
 				collectionId: collection.id,
 				serverId,
 				libraryId: "0",
@@ -518,7 +509,7 @@ export class ZoteroIntegrationService {
 		if (!status.writeAuthorized || status.serverId !== prepared.view.serverId)
 			throw new Error("Zotero 写入授权不可用，请重新授权");
 		const client = await this.client();
-		const store = this.storeForNamespace(prepared.view.namespace);
+		const store = this.getStore();
 		const collectionKeys = await this.ensureCollections(client, store, prepared.view.serverId, prepared.records);
 		const result: ZoteroExportResult = { created: 0, updated: 0, unchanged: 0, failed: [] };
 		for (const entry of prepared.records) {
@@ -557,7 +548,6 @@ export class ZoteroIntegrationService {
 				}
 				if (entry.existing) changed ? result.updated++ : result.unchanged++;
 				await store.saveZoteroItemMapping({
-					namespace: prepared.view.namespace,
 					paperId: entry.record.id,
 					serverId: prepared.view.serverId,
 					libraryId: "0",

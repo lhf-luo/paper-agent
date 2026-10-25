@@ -58,26 +58,6 @@ export class PersistentJobQueue {
 					claimed_at TEXT NOT NULL
 				);
 			`);
-		const columns = this.database.prepare("PRAGMA table_info(background_jobs)").all() as unknown as Array<{
-			name: string;
-		}>;
-		if (!columns.some((column) => column.name === "checkpoint_json")) {
-			this.database.exec("ALTER TABLE background_jobs ADD COLUMN checkpoint_json TEXT");
-		}
-		const claim = this.database.prepare(
-			"INSERT OR IGNORE INTO background_job_operation_claims(operation_id, job_id, claimed_at) VALUES (?, ?, ?)",
-		);
-		const existingJobs = this.database
-			.prepare("SELECT id, input_json, created_at FROM background_jobs ORDER BY created_at ASC")
-			.all() as unknown as Array<{ id: string; input_json: string; created_at: string }>;
-		for (const row of existingJobs) {
-			try {
-				const operationId = executionPermitOperationId(JSON.parse(row.input_json));
-				if (operationId) claim.run(operationId, row.id, row.created_at);
-			} catch {
-				// Invalid input JSON is reported when the job is read or executed.
-			}
-		}
 		this.database
 			.prepare(
 				"UPDATE background_jobs SET status = 'queued', message = 'resumed after process restart' WHERE status = 'running'",

@@ -7,6 +7,7 @@ import {
 	FolderOpen,
 	Languages,
 	NotebookPen,
+	StickyNote,
 	Plus,
 	X,
 } from "lucide-react";
@@ -21,6 +22,9 @@ import type { ReaderTextSelection } from "./pdfjs-reader-selection";
 import { ReaderNoteCreatePanel, ReaderNotePanel } from "./reader-note-panels";
 import { readerTabsStorageKey, readerVersionName, readerVersionState, restoredReaderTabs } from "./reader-state";
 import { ReaderTranslationPanel } from "./reader-translation-panel";
+import { QuickNotesPanel } from "./quick-notes-panel";
+import { useReaderQuickNotes, ReaderQuickNoteNotice } from "./use-reader-quick-notes";
+import { useRouterContext } from "./router";
 import type {
 	PaperRecord,
 	PaperVersionView,
@@ -58,6 +62,8 @@ export function ReaderPage({
 	const restored = useRef(restoredReaderTabs(reader));
 	const focusAgent = Boolean(focusSessionId || initialPrompt);
 	const [activeReader, setActiveReader] = useState(reader);
+	const quickNotes = useReaderQuickNotes(activeReader);
+	const { navigate, updateParams } = useRouterContext();
 	const [versions, setVersions] = useState<PaperVersionView[]>([]);
 	const [paper, setPaper] = useState<PaperRecord>();
 	const [linkedNotes, setLinkedNotes] = useState<ResearchNoteSummary[]>([]);
@@ -186,16 +192,12 @@ export function ReaderPage({
 	useEffect(() => () => resizeCleanupRef.current?.(), []);
 
 	const loadReaderData = useCallback(async () => {
-		if (!reader.paperId || !reader.namespace) return;
+		if (!reader.paperId) return;
 		setError("");
 		try {
 			const [details, notes] = await Promise.all([
-				api<ReaderPaperDetails>(
-					`/api/papers/${encodeURIComponent(reader.paperId)}?namespace=${encodeURIComponent(reader.namespace)}`,
-				),
-				api<{ notes: ResearchNoteSummary[] }>(
-					`/api/research/notes?namespace=${encodeURIComponent(reader.namespace)}&paperId=${encodeURIComponent(reader.paperId)}`,
-				),
+				api<ReaderPaperDetails>(`/api/papers/${encodeURIComponent(reader.paperId)}`),
+				api<{ notes: ResearchNoteSummary[] }>(`/api/research/notes?paperId=${encodeURIComponent(reader.paperId)}`),
 			]);
 			setPaper(details.paper);
 			setVersions(details.versions);
@@ -211,7 +213,7 @@ export function ReaderPage({
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		}
-	}, [reader.namespace, reader.paperId]);
+	}, [reader.paperId]);
 
 	useEffect(() => {
 		setActiveReader(reader);
@@ -307,6 +309,19 @@ export function ReaderPage({
 		activateTab("new-note");
 	};
 
+	const openQuickNotes = () => {
+		setTabs((current) => current.some((tab) => tab.id === "quick-notes")
+			? current : [...current, { id: "quick-notes", kind: "quick-notes", title: "随手记" }]);
+		setRailMenu(undefined);
+		activateTab("quick-notes");
+	};
+	const openQuickNoteReader = (state: ReaderState) => {
+		setActiveReader(state);
+		setSelection(undefined);
+		setMobilePane("pdf");
+		updateParams({ version: state.sha256, pdfPage: new URLSearchParams(state.url.split("#")[1]).get("page") });
+	};
+
 	const closeTab = (id: string) => {
 		if (id === "agent") setRailMenu(undefined);
 		setTabs((current) => {
@@ -335,22 +350,21 @@ export function ReaderPage({
 	};
 
 	const selectVersion = (version: PaperVersionView) => {
-		if (paper && reader.namespace) {
-			setActiveReader(readerVersionState(paper, reader.namespace, version));
+		if (paper) {
+			setActiveReader(readerVersionState(paper, version));
 			setSelection(undefined);
 		}
 		setRailMenu(undefined);
 	};
 
 	const openPdfFolder = async () => {
-		if (!activeReader.paperId || !activeReader.sha256 || !activeReader.namespace || folderOpening) return;
+		if (!activeReader.paperId || !activeReader.sha256 || folderOpening) return;
 		setFolderOpening(true);
 		setError("");
 		try {
-			await api(
-				`/api/papers/${encodeURIComponent(activeReader.paperId)}/pdf/${activeReader.sha256}/folder/open?namespace=${encodeURIComponent(activeReader.namespace)}`,
-				{ method: "POST" },
-			);
+			await api(`/api/papers/${encodeURIComponent(activeReader.paperId)}/pdf/${activeReader.sha256}/folder/open`, {
+				method: "POST",
+			});
 			setMessage("已打开当前 PDF 文件夹");
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -360,10 +374,10 @@ export function ReaderPage({
 	};
 
 	const paperContext =
-		activeReader.paperId && activeReader.namespace && activeReader.pdfPath
+		activeReader.paperId && activeReader.pdfPath
 			? {
 					paperId: activeReader.paperId,
-					namespace: activeReader.namespace,
+
 					title: activeReader.title,
 					pdfPath: activeReader.pdfPath,
 					pdfSha256: activeReader.sha256,
@@ -437,16 +451,13 @@ export function ReaderPage({
 					</div>
 					<div className="paper-reader-toolbar-actions">
 						<PdfTranslationControl
-							key={`${activeReader.namespace ?? ""}:${activeReader.paperId ?? ""}:${activeReader.sha256 ?? ""}`}
+							key={`${activeReader.paperId ?? ""}:${activeReader.sha256 ?? ""}`}
 							source={
-								activeReader.paperId &&
-								activeReader.namespace &&
-								activeReader.sha256 &&
-								activeReader.versionKind !== "translation"
+								activeReader.paperId && activeReader.sha256 && activeReader.versionKind !== "translation"
 									? {
 											title: activeReader.title,
 											paperId: activeReader.paperId,
-											namespace: activeReader.namespace,
+
 											sha256: activeReader.sha256,
 										}
 									: undefined
@@ -454,7 +465,7 @@ export function ReaderPage({
 							onOpenResult={(result) => {
 								setActiveReader({
 									...activeReader,
-									url: `/api/papers/${encodeURIComponent(result.paperId)}/pdf/${result.version.sha256}?namespace=${encodeURIComponent(result.namespace)}`,
+									url: `/api/papers/${encodeURIComponent(result.paperId)}/pdf/${result.version.sha256}`,
 									pdfPath: result.version.blobPath,
 									sha256: result.version.sha256,
 									bytes: result.version.bytes,
@@ -467,13 +478,7 @@ export function ReaderPage({
 								void loadReaderData();
 							}}
 						/>
-						<MineruControl
-							source={
-								activeReader.paperId && activeReader.namespace
-									? { paperId: activeReader.paperId, namespace: activeReader.namespace }
-									: undefined
-							}
-						/>
+						<MineruControl source={activeReader.paperId ? { paperId: activeReader.paperId } : undefined} />
 						<a
 							className="paper-reader-open"
 							href={activeReader.url}
@@ -503,6 +508,7 @@ export function ReaderPage({
 					</button>
 				</div>
 			)}
+			<ReaderQuickNoteNotice state={quickNotes} onView={openQuickNotes} />
 			<div
 				className={`paper-reader-layout ${workspaceOpen ? "has-workspace" : "workspace-collapsed"} ${translationOpen ? "has-translation" : ""} show-${mobilePane} side-${visibleSide}`}
 				ref={readerLayoutRef}
@@ -515,6 +521,7 @@ export function ReaderPage({
 						enableBilingualSelection={activeReader.translationOutputMode === "dual"}
 						translationEnabled={translationActive}
 						translationActivation={translationActivation}
+						onCapture={activeReader.paperId ? quickNotes.capture : undefined}
 						onSelection={setSelection}
 						onExplain={(value) => {
 							setSelectionDraft(value);
@@ -563,7 +570,7 @@ export function ReaderPage({
 											title={tab.title}
 											onClick={() => activateTab(tab.id)}
 										>
-											{tab.kind === "agent" ? <Bot size={14} /> : <NotebookPen size={14} />}
+											{tab.kind === "agent" ? <Bot size={14} /> : tab.kind === "quick-notes" ? <StickyNote size={14} /> : <NotebookPen size={14} />}
 											<span>{tab.title}</span>
 										</button>
 										<button
@@ -578,6 +585,12 @@ export function ReaderPage({
 								))}
 							</div>
 							<div className="reader-tab-content">
+								{tabs.some((tab) => tab.kind === "quick-notes") && activeReader.paperId && (
+									<div className="reader-workspace-view" hidden={activeTabId !== "quick-notes"}>
+										<QuickNotesPanel paper={paper ?? { id: activeReader.paperId, title: activeReader.title, authors: [] }}
+											onOpenReader={openQuickNoteReader} onOpenPaper={(paperId) => navigate("library", { paper: paperId })} />
+									</div>
+								)}
 								{tabs.some((tab) => tab.kind === "agent") && (
 									<div className="reader-workspace-view" hidden={activeTabId !== "agent"}>
 										<AgentPage
@@ -600,17 +613,12 @@ export function ReaderPage({
 									.filter((tab): tab is Extract<ReaderWorkspaceTab, { kind: "note" }> => tab.kind === "note")
 									.map((tab) => (
 										<div className="reader-workspace-view" hidden={activeTabId !== tab.id} key={tab.id}>
-											<ReaderNotePanel
-												namespace={reader.namespace ?? "default"}
-												noteId={tab.noteId}
-												onSaved={updateNote}
-											/>
+											<ReaderNotePanel noteId={tab.noteId} onSaved={updateNote} />
 										</div>
 									))}
 								{tabs.some((tab) => tab.kind === "new-note") && reader.paperId && (
 									<div className="reader-workspace-view" hidden={activeTabId !== "new-note"}>
 										<ReaderNoteCreatePanel
-											namespace={reader.namespace ?? "default"}
 											paperId={reader.paperId}
 											onCreated={finishNoteCreation}
 											onCancel={() => closeTab("new-note")}
@@ -661,6 +669,11 @@ export function ReaderPage({
 					>
 						<NotebookPen size={19} />
 						{linkedNotes.length > 0 && <span className="reader-tool-count">{linkedNotes.length}</span>}
+					</button>
+					<button type="button" className={activeTabId === "quick-notes" ? "active" : ""}
+						onClick={() => activeReader.paperId ? openQuickNotes() : setError("请先将这份 PDF 加入个人库，再创建随手记。")}
+						title={activeReader.paperId ? "随手记" : "随手记：请先加入个人库"} aria-label="随手记">
+						<StickyNote size={19} />
 					</button>
 					<button
 						type="button"

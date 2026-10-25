@@ -8988,7 +8988,7 @@ body.paper-reader-resizing .browser-pdf-frame {
 .library-local-search {
 	flex: 0 0 auto;
 	flex-wrap: wrap;
-	justify-content: flex-end;
+	justify-content: flex-start;
 	gap: 8px;
 	min-height: 68px;
 	padding: 14px 18px;
@@ -9003,9 +9003,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 .library-local-search .library-search-control {
 	flex: 1 1 260px;
 	max-width: 500px;
-}
-.library-local-search .library-namespace-control {
-	flex: 0 1 190px;
 }
 .library-local-search .library-screening-control {
 	flex: 0 1 170px;
@@ -9151,11 +9148,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 }
 
 @media (max-width: 1180px) {
-	.main-area-library {
-		height: auto;
-		min-height: 100vh;
-		overflow: visible;
-	}
 	.topbar-library .topbar-breadcrumb {
 		flex: 1 1 auto;
 	}
@@ -9163,31 +9155,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 		order: 3;
 		flex: 1 1 100%;
 		width: 100%;
-	}
-	.page-content.page-content-library {
-		height: auto;
-		min-height: 0;
-		padding-bottom: 50px;
-		overflow: visible;
-	}
-	.library-page-layout {
-		grid-template-columns: 1fr;
-		height: auto;
-		overflow: visible;
-	}
-	.library-page-main {
-		display: block;
-		overflow: visible;
-	}
-	.library-layout {
-		grid-template-columns: minmax(0, 1fr);
-		overflow: visible;
-	}
-	.library-paper-pane,
-	.library-page-main .detail-panel {
-		height: auto;
-		max-height: none;
-		overflow: visible;
 	}
 	.collection-sidebar {
 		position: static;
@@ -10491,15 +10458,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-}
-.wiki-namespace {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font-size: 12px;
-}
-.wiki-namespace input {
-	width: 120px;
 }
 
 .wiki-workspace {
@@ -11890,12 +11848,6 @@ body.paper-reader-resizing .browser-pdf-frame {
 }
 .library-page-main .library-layout.detail-only-view .detail-panel.has-details {
 	border-left: 0;
-}
-@media (max-width: 1180px) {
-	.library-page-main .library-layout .detail-panel.has-details {
-		height: auto;
-		overflow: visible;
-	}
 }
 .library-page-main .detail-panel h2 { font-size: clamp(24px, 2.3vw, 32px); line-height: 1.2; }
 .library-page-main .detail-panel > p { font-size: 14px; }

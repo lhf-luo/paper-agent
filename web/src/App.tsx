@@ -11,6 +11,7 @@ import {
 	Moon,
 	Network,
 	Newspaper,
+	StickyNote,
 	Search,
 	Settings,
 	Sun,
@@ -39,6 +40,7 @@ const ResearchNotesPage = lazy(() => import("./research-notes-page").then((m) =>
 const WikiPage = lazy(() => import("./wiki-page").then((m) => ({ default: m.WikiPage })));
 const SettingsPage = lazy(() => import("./settings-page"));
 const CanvasPage = lazy(() => import("./canvas-page"));
+const QuickNotesPage = lazy(() => import("./quick-notes-page"));
 
 interface NavigationSection {
 	title: string;
@@ -64,6 +66,7 @@ const NAVIGATION_SECTIONS: NavigationSection[] = [
 		title: "研究与证据",
 		items: [
 			{ id: "research", label: "个人笔记", icon: FlaskConical },
+			{ id: "quick-notes", label: "随手记", icon: StickyNote },
 			{ id: "canvas", label: "关系画布", icon: Network },
 			{ id: "wiki", label: "研究 Wiki", icon: BookOpen },
 			{ id: "pdf", label: "PDF 与 Artifact", icon: FileStack },
@@ -86,6 +89,7 @@ const PAGE_TITLES: Record<Page, string> = {
 	news: "最新资讯",
 	agent: "Agent 对话",
 	research: "个人笔记",
+	"quick-notes": "随手记",
 	canvas: "关系画布",
 	wiki: "研究 Wiki",
 	pdf: "PDF 与 Artifact",
@@ -138,37 +142,45 @@ function AppShell() {
 		agentSessionListScrollTop.current = scrollTop;
 		window.sessionStorage.setItem("paper-agent-agent-session-list-scroll", String(scrollTop));
 	}, []);
-	const { namespace } = useWorkspace();
 
-	// Derived from the URL rather than held in state so `?page=research&namespace=<ns>&noteId=<id>`
+
+	// Derived from the URL rather than held in state so `?page=research&noteId=<id>`
 	// still opens the same note after a refresh, when in-memory navigation state is gone.
 	const researchTarget = useMemo<ResearchNoteNavigation | undefined>(
 		() =>
-			params.namespace
+			params.noteId || params.paperId
 				? {
-						namespace: params.namespace,
 						...(params.noteId ? { noteId: params.noteId } : {}),
 						...(params.paperId ? { paperId: params.paperId } : {}),
 					}
 				: undefined,
-		[params.namespace, params.noteId, params.paperId],
+		[params.noteId, params.paperId],
 	);
 
 	// Deep-link rebuild: `?page=reader&paper=<id>` must survive a refresh, where the in-memory reader state is gone.
 	const readerPaperId = router.params.paper;
-	const readerNamespace = router.params.namespace || namespace;
+
 	useEffect(() => {
-		if (page !== "reader" || reader || !readerPaperId) return;
+		if (page !== "reader" || !readerPaperId) return;
+		const currentPdfPage = new URLSearchParams(reader?.url.split("#")[1]).get("page") ?? "1";
+		if (reader?.paperId === readerPaperId && (!params.version || reader.sha256 === params.version)
+			&& currentPdfPage === (params.pdfPage ?? "1")) return;
 		let cancelled = false;
 		void (async () => {
 			try {
 				const details = await api<{ paper: PaperRecord; versions: PaperVersionView[] }>(
-					`/api/papers/${encodeURIComponent(readerPaperId)}?namespace=${encodeURIComponent(readerNamespace)}`,
+					`/api/papers/${encodeURIComponent(readerPaperId)}`,
 				);
 				if (cancelled) return;
-				const version = details.versions.find((item) => item.isPreferred) ?? details.versions[0];
-				if (version) setReader(readerVersionState(details.paper, readerNamespace, version));
-				else navigate("library", {}, true);
+				const version = params.version
+					? details.versions.find((item) => item.sha256 === params.version)
+					: details.versions.find((item) => item.isPreferred) ?? details.versions[0];
+				if (version) {
+					const state = readerVersionState(details.paper, version);
+					if (/^[1-9]\d*$/.test(params.pdfPage ?? "")) state.url += `#page=${params.pdfPage}`;
+					setReader(state);
+				}
+				else navigate("library", { paper: readerPaperId }, true);
 			} catch {
 				if (!cancelled) navigate("library", {}, true);
 			}
@@ -176,7 +188,7 @@ function AppShell() {
 		return () => {
 			cancelled = true;
 		};
-	}, [page, reader, readerPaperId, readerNamespace, navigate]);
+	}, [page, reader, readerPaperId, navigate, params.version, params.pdfPage]);
 
 	const go = useCallback(
 		(next: Page) => {
@@ -189,10 +201,12 @@ function AppShell() {
 	const openReader = useCallback(
 		(state: ReaderState) => {
 			setReader(state);
-			navigate(
-				"reader",
-				state.paperId ? { paper: state.paperId, ...(state.namespace ? { namespace: state.namespace } : {}) } : {},
-			);
+			const pdfPage = new URLSearchParams(state.url.split("#")[1]).get("page");
+			navigate("reader", state.paperId ? {
+				paper: state.paperId,
+				...(state.sha256 ? { version: state.sha256 } : {}),
+				...(pdfPage ? { pdfPage } : {}),
+			} : {});
 		},
 		[navigate],
 	);
@@ -200,7 +214,6 @@ function AppShell() {
 	const openResearchNote = useCallback(
 		(target: ResearchNoteNavigation) => {
 			navigate("research", {
-				namespace: target.namespace,
 				...(target.noteId ? { noteId: target.noteId } : {}),
 				...(target.paperId ? { paperId: target.paperId } : {}),
 			});
@@ -271,7 +284,7 @@ function AppShell() {
 								<span className="health-dot" />
 								<div className="sidebar-footer-copy">
 									<strong>本地服务已连接</strong>
-									<small>{status?.defaultRecordCount ?? 0} 篇个人论文</small>
+									<small>{status?.recordCount ?? 0} 篇个人论文</small>
 								</div>
 								<button
 									type="button"
@@ -336,6 +349,7 @@ function AppShell() {
 								)}
 								{page === "library" && (
 									<LibraryPage
+										focusPaperId={params.paper}
 										onOpenReader={openReader}
 										onTask={trackTask}
 										toolbarTarget={libraryToolbarTarget}
@@ -345,7 +359,7 @@ function AppShell() {
 											setReader(undefined);
 											navigate("reader", {
 												paper: target.paperId,
-												namespace: target.namespace,
+
 												session: sessionId,
 											});
 										}}
@@ -366,13 +380,9 @@ function AppShell() {
 								)}
 								{page === "team" && <TeamPage />}
 								{page === "research" && <ResearchNotesPage target={researchTarget} />}
-								{page === "canvas" && (
-									<CanvasPage
-										defaultNamespace={status?.defaultNamespace ?? "default"}
-										onOpenReader={openReader}
-									/>
-								)}
-								{page === "wiki" && <WikiPage defaultNamespace={status?.defaultNamespace ?? "default"} />}
+								{page === "quick-notes" && <QuickNotesPage onOpenReader={openReader} />}
+								{page === "canvas" && <CanvasPage onOpenReader={openReader} />}
+								{page === "wiki" && <WikiPage />}
 								{page === "settings" && <SettingsPage onConfigurationSaved={refreshStatus} />}
 							</Suspense>
 						</div>

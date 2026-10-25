@@ -20,9 +20,6 @@ export type TeamReviewStatus = "personal" | "team-proposed" | "team-approved" | 
 export interface SearchFilters {
 	yearFrom?: number;
 	yearTo?: number;
-	/** arXiv first-submission dates, inclusive, in UTC (YYYY-MM-DD). */
-	arxivSubmittedFrom?: string;
-	arxivSubmittedTo?: string;
 	venues?: string[];
 	authors?: string[];
 	openAccess?: boolean;
@@ -160,8 +157,6 @@ export type PaperMetadataConflicts = Partial<Record<PaperMetadataConflictField, 
 export interface PaperRecord {
 	id: string;
 	title: string;
-	/** First arXiv submission date when supplied by arXiv. */
-	firstSubmittedAt?: string;
 	abstract?: string;
 	authors: string[];
 	year?: number;
@@ -206,7 +201,7 @@ export interface CorpusSearchHit {
 }
 
 export interface PaperVersion {
-	/** Team attachment approval; absent on personal and pre-versioned legacy records. */
+	/** Team attachment approval; absent on personal records. */
 	teamReview?: PaperCuration["teamReview"];
 	paperId: string;
 	publicationVersionId?: string;
@@ -365,7 +360,7 @@ export interface CandidatePaperTableRow {
 
 export interface CitationExpansionTableRow extends CandidatePaperTableRow {
 	seedPaperId: string;
-	relationship: "reference" | "citation";
+	relationship: "reference" | "citation" | "seed";
 	depth: string;
 }
 
@@ -391,6 +386,7 @@ export interface PaperMaterialPackage {
 }
 
 export interface SearchRun {
+	namespace: string;
 	id: string;
 	startedAt: string;
 	completedAt: string;
@@ -413,12 +409,20 @@ export interface SearchRun {
 	resumedFromCheckpoint?: boolean;
 	searchPlan?: LiteratureSearchPlan;
 	runKind?: "keyword" | "citation-expansion" | "author-expansion";
+	citationExpansion?: {
+		direction: "references" | "citations" | "both";
+		depth: number;
+		maxNeighborsPerSeed: number;
+		maxTotalNeighbors: number;
+		pagesPerSeed: number;
+		limitReached: boolean;
+	};
 	authorExpansion?: {
-		seedPaperId: string;
+		seedPaperId?: string;
 		authorName: string;
 		sources: Partial<
 			Record<
-				"openalex" | "semanticscholar" | "dblp",
+				"openalex" | "semanticscholar" | "dblp" | "google-scholar",
 				{
 					status: "succeeded" | "partial" | "unresolved" | "failed";
 					authorId?: string;
@@ -431,12 +435,18 @@ export interface SearchRun {
 			>
 		>;
 	};
+    browserCollection?: {
+        sourceUrl: string; profileId?: string;
+        observed: Array<{id:string;year?:number}>;
+        excludedYearCount: number; unknownYearCount: number;
+    };
 	parentSearchRunId?: string;
 	seedPaperIds?: string[];
+	/** Metadata anchors retained by expansion runs; never imports these into a library. */
+	seedSnapshots?: PaperRecord[];
 	candidateTable?: CandidatePaperTableRow[];
 	scope: CorpusScope;
 	mode: PersistenceMode;
-	namespace: string;
 }
 
 export interface ArtifactCandidate {
@@ -532,9 +542,10 @@ export interface ArtifactManifest {
 }
 
 export interface CorpusManifest {
+	namespace: string;
 	schemaVersion: 1;
 	scope: CorpusScope;
-	namespace: string;
+
 	updatedAt: string;
 	recordCount: number;
 	searchRunCount: number;

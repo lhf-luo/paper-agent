@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { canvasExcludedSkills } from "../domain/session-skills.ts";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
 	type WebAgentAttachmentRef,
@@ -57,7 +58,7 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 				throw new WebAgentServiceError(409, "消息标识已用于其他内容，请重新发送");
 			return this.snapshot(session);
 		}
-		if (session.runPromise && session.pi?.isIdle) await session.runPromise;
+		if (session.runPromise && session.pi?.isIdle && !session.startingRun) await session.runPromise;
 		const continuing = Boolean(session.runPromise || session.inputState.paused);
 		const prompt = await this.prepareInput(session, input, continuing);
 		const pi = continuing ? session.pi : await this.readyPi(session);
@@ -69,7 +70,7 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 			attachmentNames: input.attachments?.map((a) => this.redact(a.name)),
 			createdAt: timestamp(),
 			status: session.inputState.paused ? "paused" : "queued",
-			phase: session.inputState.paused ? "paused" : "prepared",
+			phase: session.inputState.paused ? "paused" : session.runPromise ? "prepared" : "dispatching",
 		};
 		await this.queueFor(session).accept(record, fingerprint);
 		if (session.inputState.paused) return this.snapshot(session);
@@ -91,11 +92,16 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 				throw error;
 			}
 		}
-		await this.sessionStore.inputs.flush(session.id);
 		return this.snapshot(session);
 	}
 
 	private validateInput(session: ManagedWebAgentSession, input: WebAgentSendInput): void {
+		const skill = /^\/skill:([^\s]+)/.exec(input.message?.trim() ?? "")?.[1];
+		if (session.context?.kind === "canvas" && skill && canvasExcludedSkills.includes(skill))
+			throw new WebAgentServiceError(
+				400,
+				"画布检索请使用 canvas-research；此会话不加载 literature-corpus-manager。",
+			);
 		if (!input.message?.trim() || input.message.trim().length > 20_000)
 			throw new WebAgentServiceError(400, "消息必须包含 1-20000 个字符");
 		if (input.delivery !== undefined && input.delivery !== "steer" && input.delivery !== "followUp")
@@ -105,9 +111,7 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 		if ((input.attachments?.length ?? 0) > 10) throw new WebAgentServiceError(400, "单条消息最多发送 10 个附件");
 		if (
 			input.paperContext &&
-			(session.context?.kind !== "paper" ||
-				input.paperContext.namespace !== session.context.namespace ||
-				input.paperContext.paperId !== session.context.paperId)
+			(session.context?.kind !== "paper" || input.paperContext.paperId !== session.context.paperId)
 		)
 			throw new WebAgentServiceError(400, "当前阅读论文与 Agent 会话绑定的论文不一致");
 		if (input.canvasContext && session.context?.kind !== "canvas")
@@ -127,7 +131,6 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 			session.context?.kind === "paper"
 				? [
 						"[当前阅读论文]",
-						`namespace: ${JSON.stringify(session.context.namespace)}`,
 						`paper_id: ${JSON.stringify(session.context.paperId)}`,
 						...(reading
 							? [
@@ -159,21 +162,16 @@ export abstract class WebAgentInputs extends WebAgentRuntime {
 		session.error = undefined;
 		session.status = "running";
 		session.abortRequested = false;
-		this.queueFor(session).begin(input);
-		await this.sessionStore.inputs.flush(session.id);
+		await this.queueFor(session).begin(input);
 		this.emitSession(session);
-		let ready!: () => void;
-		const accepted = new Promise<void>((resolve) => {
-			ready = resolve;
-		});
+		session.startingRun = true;
 		session.runPromise = this.runPrompt(session, pi, input.prompt, {
 			preflightResult: (result) => {
+				session.startingRun = false;
 				if (result === "handled") this.queueFor(session).handled(input);
-				ready();
+				if (result === "started" && session.abortRequested) void pi.abort();
 			},
 		});
-		void session.runPromise.finally(ready);
-		await accepted;
 	}
 
 	async resumeQueue(id: string): Promise<WebAgentSessionSnapshot> {

@@ -5,7 +5,6 @@ import type {
 	CanvasResearchContext,
 	CanvasResearchRelation,
 	CanvasResearchSettings,
-	CanvasSearchPlan,
 } from "./canvas-research.ts";
 import { defaultResearchSettings } from "./canvas-research.ts";
 
@@ -184,47 +183,5 @@ export function parseAnalysisContent(
 				reason: text(c.reason, 4000),
 			};
 		}),
-	};
-}
-export function parseSearchPlan(input: unknown): CanvasSearchPlan {
-	const v = object(input);
-	const queries = strings(v.queries ?? [], 12);
-	if (!queries.length) throw new Error("补搜计划需要查询词");
-	const providers = strings(v.providers ?? ["arxiv", "openalex", "crossref", "semanticscholar"], 10);
-	if (
-		!providers.length ||
-		providers.some(
-			(p) =>
-				![
-					"arxiv",
-					"openalex",
-					"crossref",
-					"semanticscholar",
-					"dblp",
-					"core",
-					"exa",
-					"acl_anthology",
-					"usenix",
-				].includes(p),
-		)
-	)
-		throw new Error("请选择有效的文献提供商");
-	const dateFrom = date(v.dateFrom ?? ""),
-		dateTo = date(v.dateTo ?? "");
-	if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("起始日期不能晚于结束日期");
-	return {
-		analysisId: text(v.analysisId, 80),
-		gap: text(v.gap, 4000),
-		reason: text(v.reason, 4000),
-		queries,
-		providers,
-		strategy: oneOf(v.strategy ?? "keywords", ["keywords", "citations", "author"]),
-		dateFrom,
-		dateTo,
-		callBudget: integer(v.callBudget ?? 4, 1, 20),
-		resultsPerProvider: integer(v.resultsPerProvider ?? 100, 1, 100),
-		status: "pending",
-		callsUsed: 0,
-		searchRunIds: [],
 	};
 }

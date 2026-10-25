@@ -1,80 +1,8 @@
 import { parseCanvasGroups, parseNodeResearchFields } from "./canvas-groups.ts";
-import type { CanvasResearchRelation } from "./canvas-research.ts";
+import type { CanvasNode, CanvasNodeKind, CanvasEdge, ResearchCanvas } from "./canvas-document.ts";
+export type { CanvasNode, CanvasNodeKind, CanvasEdge, CanvasGroup, CanvasViewport, ResearchCanvas, ResearchCanvasSummary } from "./canvas-document.ts";
 import { parseRelation } from "./canvas-research-validation.ts";
-import { type CanvasRichContent, parseCanvasRichContent, validCanvasUrl } from "./canvas-rich-content.ts";
-
-export type CanvasNodeKind = "paper" | "note" | "text" | "author" | "team" | "agent";
-
-export interface CanvasNode {
-	id: string;
-	kind: CanvasNodeKind;
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	title: string;
-	alias?: string;
-	content?: string;
-	richContent?: CanvasRichContent;
-	authorDetails?: { researchArea: string; organization: string; profileUrl?: string };
-	teamDetails?: {
-		institution: string;
-		leaderName: string;
-		researchAreas: string;
-		homepageUrl?: string;
-		members?: string[];
-	};
-	entityId?: string;
-	groupId?: string;
-	pinned?: boolean;
-	generatedFrom?: { analysisId: string; snapshot?: boolean };
-}
-
-export interface CanvasGroup {
-	id: string;
-	title: string;
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-}
-
-export interface CanvasEdge {
-	id: string;
-	from: string;
-	to: string;
-	fromSide?: "left" | "right";
-	toSide?: "left" | "right";
-	label: string;
-	evidence?: string;
-	research?: CanvasResearchRelation;
-}
-
-export interface CanvasViewport {
-	x: number;
-	y: number;
-	scale: number;
-}
-
-export interface ResearchCanvas {
-	id: string;
-	title: string;
-	revision: number;
-	createdAt: string;
-	updatedAt: string;
-	nodes: CanvasNode[];
-	edges: CanvasEdge[];
-	viewport: CanvasViewport;
-	groups?: CanvasGroup[];
-}
-
-export interface ResearchCanvasSummary {
-	id: string;
-	title: string;
-	revision: number;
-	updatedAt: string;
-	nodeCount: number;
-}
+import { parseCanvasRichContent, validCanvasUrl } from "./canvas-rich-content.ts";
 
 export class CanvasDocumentError extends Error {}
 
@@ -98,7 +26,7 @@ function parseCanvasDocument(
 	if (!Array.isArray(input.nodes) || input.nodes.length > 500) throw new Error("Canvas supports at most 500 nodes");
 	if (!Array.isArray(input.edges) || input.edges.length > 1000)
 		throw new Error("Canvas supports at most 1000 connections");
-	const kinds: CanvasNodeKind[] = ["paper", "note", "text", "author", "team", "agent"];
+	const kinds: CanvasNodeKind[] = ["paper", "note", "text", "author", "team", "agent", "search_graph"];
 	const ids = new Set<string>();
 	const nodes: CanvasNode[] = input.nodes.map((raw) => {
 		if (!raw || typeof raw !== "object") throw new Error("Invalid canvas node");
@@ -118,6 +46,8 @@ function parseCanvasDocument(
 			(node.height as number) > 1000
 		)
 			throw new Error("Invalid node size");
+		const allowed = new Set(["id", "kind", "x", "y", "width", "height", "title", "alias", "content", "richContent", "authorDetails", "teamDetails", "entityId", "groupId", "pinned", "generatedFrom"]);
+		if (Object.keys(node).some((key) => !allowed.has(key))) throw new Error("Unsupported canvas node property");
 		if (typeof node.title !== "string" || node.title.length > 300) throw new Error("Invalid node title");
 		if (node.alias !== undefined && (typeof node.alias !== "string" || node.alias.length > 300))
 			throw new Error("Invalid node alias");
@@ -179,7 +109,12 @@ function parseCanvasDocument(
 				...(Array.isArray(details.members) ? { members: details.members as string[] } : {}),
 			};
 		}
-		if (node.kind === "paper" || node.kind === "note" || node.kind === "agent") {
+		if (
+			node.kind === "paper" ||
+			node.kind === "note" ||
+			node.kind === "agent" ||
+			node.kind === "search_graph"
+		) {
 			if (typeof node.entityId !== "string" || !node.entityId || node.entityId.length > 200)
 				throw new Error("Linked node requires an entity ID");
 		}

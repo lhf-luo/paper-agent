@@ -61,7 +61,6 @@ async function artifactAvailability(store: ReturnType<PaperAgentLibrary["persona
 }
 
 interface PreparedPaperRemovalSnapshot {
-	namespace: string;
 	mode: PersonalPaperRemovalInput["mode"];
 	collectionId?: string;
 	paperIds: string[];
@@ -82,7 +81,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	private readonly preparedPaperDetailFields = new Map<
 		string,
 		{
-			namespace: string;
 			paperId: string;
 			expectedRevision: number;
 			fields: PaperDetailFieldInput[];
@@ -97,8 +95,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
 			throw new Error("Research field revision is invalid");
 		const fields = validatePaperDetailFields(input.fields);
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const paper = await this.personalStore(namespace).getPaper(paperId);
+
+		const paper = await this.personalStore().getPaper(paperId);
 		if (!paper) throw new Error(`Personal corpus does not contain: ${paperId}`);
 		if ((paper.curation?.detailFields?.revision ?? 0) !== input.expectedRevision)
 			throw new Error("Research fields changed; reload the paper before saving");
@@ -113,9 +111,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			kind: "personal-corpus-write",
 			summary: `保存“${paper.title}”的 ${changedCount} 项研究字段修改`,
 			actor: "local-user",
-			targets: [{ label: "个人库论文研究字段", value: `${namespace}/${paperId}`, risk: "low" }],
+			targets: [{ label: "个人库论文研究字段", value: `${paperId}`, risk: "low" }],
 			details: {
-				namespace,
 				paperId,
 				expectedRevision: input.expectedRevision,
 				fieldCount: fields.length,
@@ -124,7 +121,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		};
 		const prepared = await this.consent.prepare(plan);
 		this.preparedPaperDetailFields.set(prepared.operationId, {
-			namespace,
 			paperId,
 			expectedRevision: input.expectedRevision,
 			fields,
@@ -135,22 +131,18 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	}
 
 	async savePersonalPaperDetailFields(
-		input: Pick<PersonalPaperDetailFieldsInput, "paperId" | "namespace">,
+		input: Pick<PersonalPaperDetailFieldsInput, "paperId">,
 		grant: ConfirmationGrant,
 	) {
 		const prepared = this.preparedPaperDetailFields.get(grant.operationId);
 		if (!prepared || Date.parse(prepared.expiresAt) <= Date.now())
 			throw new Error("Prepared research fields expired; save again");
-		const namespace = input.namespace ?? this.defaultNamespace;
-		if (namespace !== prepared.namespace || input.paperId.trim() !== prepared.paperId)
+
+		if (input.paperId.trim() !== prepared.paperId)
 			throw new Error("Prepared research fields do not match this paper");
 		try {
 			const paper = await runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, () =>
-				this.personalStore(namespace).savePaperDetailFields(
-					prepared.paperId,
-					prepared.expectedRevision,
-					prepared.fields,
-				),
+				this.personalStore().savePaperDetailFields(prepared.paperId, prepared.expectedRevision, prepared.fields),
 			);
 			return { paper, revision: paper.curation?.detailFields?.revision ?? 0 };
 		} finally {
@@ -161,7 +153,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	private readonly preparedMetadataEnrichments = new Map<
 		string,
 		{
-			namespace: string;
 			paperId: string;
 			originalFingerprint: string;
 			record: PaperRecord;
@@ -194,8 +185,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	async preparePersonalMetadataEnrichment(input: PersonalMetadataEnrichmentInput) {
 		const paperId = input.paperId.trim();
 		if (!paperId || paperId.length > 500) throw new Error("Personal paper id is invalid");
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const original = await store.getPaper(paperId);
 		if (!original) throw new Error(`Personal corpus does not contain: ${paperId}`);
 		const refreshed = await refreshPersonalPaperMetadata(original, this.projectRoot, {
@@ -233,9 +224,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			kind: "personal-corpus-write",
 			summary: `Refresh metadata for ${original.title}: ${labels.join("; ")}`,
 			actor: input.author?.trim() || "local-user",
-			targets: [{ label: "personal-paper", value: `${namespace}/${paperId}`, risk: "low" }],
+			targets: [{ label: "personal-paper", value: `${paperId}`, risk: "low" }],
 			details: {
-				namespace,
 				paperId,
 				originalFingerprint,
 				refreshedFingerprint: sha256Text(JSON.stringify(refreshed.record)),
@@ -247,7 +237,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		};
 		const prepared = await this.consent.prepare(plan);
 		this.preparedMetadataEnrichments.set(prepared.operationId, {
-			namespace,
 			paperId,
 			originalFingerprint,
 			record: refreshed.record,
@@ -268,11 +257,11 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		}
 		const prepared = this.preparedMetadataEnrichments.get(grant.operationId);
 		if (!prepared) throw new Error("Prepared metadata enrichment was not found or has expired; prepare again");
-		const namespace = input.namespace ?? this.defaultNamespace;
-		if (prepared.namespace !== namespace || prepared.paperId !== input.paperId.trim()) {
+
+		if (prepared.paperId !== input.paperId.trim()) {
 			throw new Error("Prepared metadata enrichment does not match the requested paper");
 		}
-		const store = this.personalStore(namespace);
+		const store = this.personalStore();
 		const current = await store.getPaper(prepared.paperId);
 		if (!current) throw new Error(`Personal corpus does not contain: ${prepared.paperId}`);
 		if (sha256Text(JSON.stringify(current)) !== prepared.originalFingerprint) {
@@ -316,8 +305,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		if (input.mode === "permanent-delete" && collectionId) {
 			throw new Error("collectionId is not accepted for permanent deletion");
 		}
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const loaded = await store.getPapers(paperIds);
 		const recordsById = new Map(loaded.map((paper) => [paper.id, paper]));
 		const missing = paperIds.filter((id) => !recordsById.has(id));
@@ -336,8 +325,9 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		}
 		const permanentTargets = input.mode === "permanent-delete" ? papers : [];
 		const cleanup = await store.paperDeletionImpact(permanentTargets.map((paper) => paper.id));
+		const retainedQuickNoteCount = await this.quickNotes().countForPapers(permanentTargets.map((paper) => paper.id));
 		const wikiPreview = permanentTargets.length
-			? await this.wikiWorkspace(namespace).previewPaperDependencies(paperIds)
+			? await this.wikiWorkspace().previewPaperDependencies(paperIds)
 			: undefined;
 		const wikiDependencies = (wikiPreview?.dependencies ?? [])
 			.map((dependency) => ({
@@ -351,7 +341,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		const wikiPageCount = wikiDependencies.reduce((sum, item) => sum + item.pageCount, 0);
 		const author = input.author?.trim() || "local-user";
 		return {
-			namespace,
 			store,
 			papers,
 			paperIds,
@@ -373,25 +362,29 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 						value:
 							input.mode === "remove-from-collection"
 								? `${collection!.name}/${paper.title}`
-								: `${namespace}/${paper.title}`,
+								: `${paper.title}`,
 						risk: input.mode === "remove-from-collection" ? ("medium" as const) : ("high" as const),
 					})),
 					...wikiDependencies.flatMap((dependency) =>
 						dependency.pages.map((page) => ({
 							label: "关联 Wiki（不会删除）",
-							value: `${namespace}/${page.title}`,
+							value: `${page.title}`,
 							risk: "high" as const,
 						})),
 					),
+					...(retainedQuickNoteCount ? [{
+						label: "随手记（保留）", value: `${retainedQuickNoteCount} 条记录将保留，来源标记为已删除`,
+						risk: "low" as const,
+					}] : []),
 				],
 				details: {
-					namespace,
 					mode: input.mode,
 					paperId: papers.length === 1 ? papers[0].id : undefined,
 					paperIds,
 					paperCount: papers.length,
 					collectionId,
 					...cleanup,
+					retainedQuickNoteCount,
 					noteAssociations: "Paper deletion removes note links but keeps Markdown notes.",
 					wikiDependencies,
 					wikiWarning: wikiPageCount
@@ -419,8 +412,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		}
 		const snapshot = this.preparedPaperRemovals.get(grant.operationId);
 		if (!snapshot) throw new Error("Prepared paper removal was not found or has expired; prepare again");
-		const namespace = input.namespace ?? this.defaultNamespace;
-		if (snapshot.namespace !== namespace) throw new Error("Prepared paper removal namespace changed; prepare again");
 		if (snapshot.mode !== input.mode) throw new Error("Prepared paper removal mode changed; prepare again");
 		if (snapshot.collectionId !== (input.collectionId?.trim() || undefined)) {
 			throw new Error("Prepared paper removal collection changed; prepare again");
@@ -442,7 +433,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 				throw new Error("Personal papers changed after preparation; prepare the removal again");
 			}
 			if (snapshot.wikiFingerprint) {
-				const wiki = await this.wikiWorkspace(snapshot.namespace).previewPaperDependencies(snapshot.paperIds);
+				const wiki = await this.wikiWorkspace().previewPaperDependencies(snapshot.paperIds);
 				if (wiki.fingerprint !== snapshot.wikiFingerprint) {
 					throw new Error("Wiki dependencies changed after preparation; prepare the removal again");
 				}
@@ -455,7 +446,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 						"unassign",
 					);
 					return {
-						namespace: snapshot.namespace,
 						mode: snapshot.mode,
 						paper: updated.length === 1 ? updated[0] : undefined,
 						removedFromCollection: updated.map((paper) => paper.id),
@@ -466,7 +456,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 				}
 				const result = await snapshot.store.deletePapers(snapshot.paperIds);
 				return {
-					namespace: snapshot.namespace,
 					mode: snapshot.mode,
 					removedFromCollection: [],
 					...result,
@@ -482,8 +471,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		const sha256 = input.sha256.trim().toLowerCase();
 		if (!paperId || paperId.length > 500) throw new Error("Personal paper id is invalid");
 		if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("PDF version SHA-256 is invalid");
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const paper = await store.getPaper(paperId);
 		if (!paper) throw new Error(`Personal corpus does not contain: ${paperId}`);
 		const version = (await store.listPaperVersions(paperId)).find(
@@ -496,9 +485,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			kind: "personal-paper-remove",
 			summary: `Delete ${version.versionKind ?? "unknown"} PDF version from ${paper.title}`,
 			actor: input.author?.trim() || "local-user",
-			targets: [{ label: "PDF version", value: `${namespace}/${paperId}/${sha256}`, risk: "high" }],
+			targets: [{ label: "PDF version", value: `${paperId}/${sha256}`, risk: "high" }],
 			details: {
-				namespace,
 				paperId,
 				title: paper.title,
 				sha256,
@@ -509,7 +497,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 				deletesMineruMaterial,
 			},
 		};
-		return { namespace, store, paper, version, plan };
+		return { store, paper, version, plan };
 	}
 
 	async preparePersonalPdfVersionRemoval(input: PersonalPdfVersionRemovalInput): Promise<PreparedOperation> {
@@ -519,14 +507,13 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 	async removePersonalPdfVersion(input: PersonalPdfVersionRemovalInput, grant: ConfirmationGrant) {
 		const prepared = await this.personalPdfVersionRemovalOperation(input);
 		return runAuthorizedMutation({ manager: this.consent, grant }, prepared.plan, async () => ({
-			namespace: prepared.namespace,
 			paperId: prepared.paper.id,
 			...(await prepared.store.deletePaperVersion(prepared.paper.id, prepared.version.sha256)),
 		}));
 	}
 
-	async paperDetails(id: string, namespace = this.defaultNamespace) {
-		const store = this.personalStore(namespace);
+	async paperDetails(id: string) {
+		const store = this.personalStore();
 		const paper = await store.getPaper(id);
 		if (!paper) return undefined;
 		const [versions, derived, artifact] = await Promise.all([
@@ -542,8 +529,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		};
 	}
 
-	async openPaperArtifactFolder(id: string, namespace = this.defaultNamespace) {
-		const store = this.personalStore(namespace);
+	async openPaperArtifactFolder(id: string) {
+		const store = this.personalStore();
 		if (!(await store.getPaper(id))) throw new Error(`Personal corpus does not contain: ${id}`);
 		const artifact = await artifactAvailability(store, id);
 		if (!artifact.available) throw new Error("该论文没有可用的本地 Artifact");
@@ -556,8 +543,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		return { opened: true, artifactCount: artifact.count };
 	}
 
-	async openPaperPdfFolder(id: string, sha256: string, namespace = this.defaultNamespace) {
-		const store = this.personalStore(namespace);
+	async openPaperPdfFolder(id: string, sha256: string) {
+		const store = this.personalStore();
 		if (!(await store.getPaper(id))) throw new Error(`Personal corpus does not contain: ${id}`);
 		const version = (await store.listPaperVersions(id)).find(
 			(candidate) => candidate.sha256.toLowerCase() === sha256.toLowerCase(),
@@ -565,7 +552,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		if (!version) throw new Error("PDF version was not found in the selected corpus");
 		const path = resolve(version.blobPath);
 		if (!isWithinDirectory(store.personalFilesRoot, path)) {
-			throw new Error("PDF file resolves outside the selected namespace");
+			throw new Error("PDF file resolves outside the personal workspace");
 		}
 		const file = await stat(path).catch(() => undefined);
 		if (!file?.isFile()) throw new Error("PDF file is missing from local storage");
@@ -603,8 +590,8 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		if (!tags.length && !note && !input.screeningStatus) {
 			throw new Error("Add at least one tag, note, or screening status");
 		}
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const requested = await Promise.all(paperIds.map(async (id) => ({ id, record: await store.getPaper(id) })));
 		const missing = requested.filter((item) => !item.record).map((item) => item.id);
 		if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
@@ -616,7 +603,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			screeningStatus: input.screeningStatus,
 			screeningReason,
 		};
-		return { namespace, store, records, annotation, plan: corpusAnnotationPlan(store, records, annotation) };
+		return { store, records, annotation, plan: corpusAnnotationPlan(store, records, annotation) };
 	}
 
 	async preparePersonalAnnotation(input: PersonalCorpusAnnotationInput): Promise<PreparedOperation> {
@@ -625,12 +612,11 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 
 	/** 收集待清洗的标题；没有脏标题时返回 undefined，无需用户确认。 */
 	protected async personalTitleRepairOperation(input: PersonalTitleRepairInput) {
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+		const store = this.personalStore();
 		const scope = input.paperIds?.length ? new Set(input.paperIds.map((id) => id.trim())) : undefined;
 		const candidates = (await store.listPapers()).filter((record) => !scope || scope.has(record.id));
 		const plan = corpusTitleRepairPlan(store, candidates, input.author?.trim() || "local-user");
-		return plan ? { namespace, store, plan } : undefined;
+		return plan ? { store, plan } : undefined;
 	}
 
 	async preparePersonalTitleRepair(input: PersonalTitleRepairInput): Promise<PreparedOperation | undefined> {
@@ -640,11 +626,11 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 
 	async repairPersonalPaperTitles(input: PersonalTitleRepairInput, grant: ConfirmationGrant) {
 		const operation = await this.personalTitleRepairOperation(input);
-		if (!operation) return { namespace: input.namespace ?? this.defaultNamespace, repaired: 0, repairs: [] };
+		if (!operation) return { repaired: 0, repairs: [] };
 		const repairs = await runAuthorizedMutation({ manager: this.consent, grant }, operation.plan, () =>
 			operation.store.repairPaperMetadata(input.paperIds),
 		);
-		return { namespace: operation.namespace, repaired: repairs.length, repairs };
+		return { repaired: repairs.length, repairs };
 	}
 
 	async annotatePersonalPapers(input: PersonalCorpusAnnotationInput, grant: ConfirmationGrant) {
@@ -656,15 +642,15 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			}
 			return values;
 		});
-		return { namespace: prepared.namespace, updated, count: updated.length };
+		return { updated, count: updated.length };
 	}
 
 	protected async personalExportOperation(input: PersonalCorpusExportInput) {
 		if (!["markdown", "csv", "bibtex", "json"].includes(input.format)) {
 			throw new Error("Export format must be markdown, csv, bibtex, or json");
 		}
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		let records: PaperRecord[];
 		if (input.paperIds?.length) {
 			if (input.paperIds.length > 1_000) throw new Error("Select at most 1000 papers for one export");
@@ -678,7 +664,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		}
 		if (!records.length) throw new Error("The selected personal corpus export is empty");
 		const filename = corpusExportFilename(input.format, input.filename, "literature-export");
-		return { namespace, store, records, filename, plan: corpusExportPlan(store, input.format, filename, records) };
+		return { store, records, filename, plan: corpusExportPlan(store, input.format, filename, records) };
 	}
 
 	async preparePersonalExport(input: PersonalCorpusExportInput): Promise<PreparedOperation> {
@@ -691,7 +677,6 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			prepared.store.export(input.format, prepared.filename, prepared.records),
 		);
 		return {
-			namespace: prepared.namespace,
 			format: input.format,
 			filename: prepared.filename,
 			path,
@@ -699,7 +684,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 		};
 	}
 
-	async readPersonalExport(filename: string, namespace = this.defaultNamespace): Promise<Buffer> {
+	async readPersonalExport(filename: string): Promise<Buffer> {
 		const safeFilename = corpusExportFilename(
 			filename.toLowerCase().endsWith(".bib")
 				? "bibtex"
@@ -711,7 +696,7 @@ export abstract class PaperAgentLibraryMutations extends PaperAgentLibrary {
 			filename,
 			"literature-export",
 		);
-		const store = this.personalStore(namespace);
+		const store = this.personalStore();
 		const root = resolve(store.root, "exports");
 		const path = resolve(root, safeFilename);
 		const relativePath = relative(root, path);

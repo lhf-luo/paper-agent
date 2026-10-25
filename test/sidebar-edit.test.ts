@@ -53,14 +53,13 @@ function run(id: string, results: PaperRecord[]): SearchRun {
 		deduplicatedCount: results.length,
 		scope: "personal",
 		mode: "once",
-		namespace: "default",
 	};
 }
 
 async function fixture() {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-edit-"));
 	tempDirs.push(root);
-	const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+	const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 	const resultsDir = join(root, ".paper-agent", "web-agent-memory", "results");
 	await mkdir(resultsDir, { recursive: true });
 	const filename = "session-1-list.md";
@@ -71,7 +70,7 @@ async function fixture() {
 		title: "Statically Discover Cross-Entry Use-After-Free Vulnerabilities in the Linux Kernel",
 		paper_id: "paper-old",
 		search_run_id: "run-old",
-		namespace: "default",
+
 		curated: "search",
 		authors: "First Author, Second Author",
 		year: "2025",
@@ -252,7 +251,7 @@ describe("editLiteratureSidebar", () => {
 		);
 		await expect(
 			editLiteratureSidebar(test.store, test.root, test.resultUrl, 1, [{ action: "set-fields", fields: ["title"] }]),
-		).rejects.toThrow("unsupported legacy column format");
+		).rejects.toThrow("fields schema is required");
 	});
 
 	it("leaves the original file untouched when any operation fails", async () => {

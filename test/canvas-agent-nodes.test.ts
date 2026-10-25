@@ -29,6 +29,22 @@ const team: CanvasAgentNode = {
 };
 
 describe("canvas Agent node material", () => {
+	it("passes graph nodes as Search Run references, never as personal paper IDs", () => {
+		const graph: CanvasAgentNode = { id: "g", kind: "search_graph", title: "My graph", entityId: "run-1" };
+		const candidates = connectedCanvasAgentNodes({
+			nodes: [agent, graph],
+			edges: [{ from: "g", to: "agent", label: "" }],
+			sessionId: "session-1",
+			papers: new Map(),
+			notes: new Map(),
+		});
+		expect(candidates).toHaveLength(1);
+		const message = composeCanvasNodeMessage("Summarize", candidates, new Map());
+		expect(message).toContain('search_run_id="run-1"');
+		expect(message).not.toContain("paper_id=");
+		expect(message).not.toContain("画布团队");
+	});
+
 	it("only offers unique direct neighbors in either edge direction and marks missing sources", () => {
 		const candidates = connectedCanvasAgentNodes({
 			nodes: [agent, paper, note, author, team, { id: "remote", kind: "text", title: "间接文本" }],
@@ -41,7 +57,7 @@ describe("canvas Agent node material", () => {
 				{ from: "team", to: "remote", label: "" },
 			],
 			sessionId: "session-1",
-			namespace: "lab",
+
 			papers: new Map([["paper-1", { title: "AnyPoC 论文" }]]),
 			notes: new Map(),
 		});
@@ -66,14 +82,14 @@ describe("canvas Agent node material", () => {
 				{ from: "author", to: "team", label: "负责人" },
 			],
 			sessionId: "session-1",
-			namespace: "lab",
+
 			papers: new Map([["paper-1", { title: "AnyPoC 论文" }]]),
 			notes: new Map([["note-1", { title: "阅读笔记" }]]),
 		});
 		const message = composeCanvasNodeMessage("比较这些材料", candidates, new Map());
 		expect(message).toContain('paper_id="paper-1"');
 		expect(message).toContain('note_id="note-1"');
-		expect(message).toContain('namespace="lab"');
+		expect(message).not.toContain("namespace=");
 		expect(message).toContain('姓名="Alice"');
 		expect(message).toContain('负责人／PI="Alice"');
 		expect(message).toContain('团队成员=["Alice","Bob"]');

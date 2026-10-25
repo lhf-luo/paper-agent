@@ -98,11 +98,11 @@ interface LaunchResponse {
 	plan: unknown;
 }
 
-async function launch(researchUrl: string, paperId: string, namespace: string) {
+async function launch(researchUrl: string, paperId: string, _namespace: string) {
 	const response = await fetch(`${researchUrl}/api/agent/research/start`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ paperId, namespace, depth: "quick" }),
+		body: JSON.stringify({ paperId, depth: "quick" }),
 	});
 	return { status: response.status, body: (await response.json()) as LaunchResponse };
 }
@@ -164,7 +164,7 @@ describe("one-click automated research launch", () => {
 			expect(b.body.reusedExistingSession).toBe(false);
 			expect(b.body.session.id).not.toBe(a.body.session.id);
 			expect(created).toHaveLength(2);
-			expect(created[1]?.context).toEqual({ kind: "paper", namespace: "lab", paperId: secondPaper.id });
+			expect(created[1]?.context).toEqual({ kind: "paper", paperId: secondPaper.id });
 
 			// paper-a still reuses its own associated session.
 			const again = await launch(server.url, firstPaper.id, "lab");
@@ -194,7 +194,7 @@ describe("one-click automated research launch", () => {
 					id,
 					title: id,
 					mode: "persistent",
-					context: { kind: "paper", namespace: "lab", paperId },
+					context: { kind: "paper", paperId },
 					status: "idle",
 					createdAt: updatedAt,
 					updatedAt,
@@ -220,36 +220,36 @@ describe("one-click automated research launch", () => {
 			const launchedC = await launch(server.url, paperC.id, "lab");
 			expect(launchedC.body.reusedExistingSession).toBe(false);
 			expect(["a-older", "a-newer", "b-newest"]).not.toContain(launchedC.body.session.id);
-			expect(created.at(-1)?.context).toEqual({ kind: "paper", namespace: "lab", paperId: paperC.id });
+			expect(created.at(-1)?.context).toEqual({ kind: "paper", paperId: paperC.id });
 		} finally {
 			await server.close();
 			await application.close();
 		}
 	});
 
-	it("does not reuse a session from a different personal namespace", async () => {
+	it("lists paper sessions in the single personal workspace", async () => {
 		const { application, server, created } = await fixture();
 		try {
 			const labPaper = await seedPaperWithPdf(application, "lab");
 			await launch(server.url, labPaper.id, "lab");
 			expect(created).toHaveLength(1);
 			// A different namespace has no sessions of its own yet.
-			const other = await fetch(`${server.url}/api/agent/sessions?scope=personal&namespace=other`);
+			const other = await fetch(`${server.url}/api/agent/sessions?scope=personal`);
 			expect(other.status).toBe(200);
-			expect(((await other.json()) as { sessions: unknown[] }).sessions).toHaveLength(0);
+			expect(((await other.json()) as { sessions: unknown[] }).sessions).toHaveLength(1);
 		} finally {
 			await server.close();
 			await application.close();
 		}
 	});
 
-	it("requires namespace for personal scope and accepts it for paper scope", async () => {
+	it("accepts personal scope without a workspace parameter", async () => {
 		const { application, server } = await fixture();
 		try {
 			await seedPaperWithPdf(application, "lab");
 			const missingNamespace = await fetch(`${server.url}/api/agent/sessions?scope=personal`);
-			expect(missingNamespace.status).toBe(400);
-			const listed = await fetch(`${server.url}/api/agent/sessions?scope=personal&namespace=lab`);
+			expect(missingNamespace.status).toBe(200);
+			const listed = await fetch(`${server.url}/api/agent/sessions?scope=personal`);
 			expect(listed.status).toBe(200);
 		} finally {
 			await server.close();
@@ -260,10 +260,10 @@ describe("one-click automated research launch", () => {
 
 async function seedPaperWithPdf(
 	application: PaperAgentApplication,
-	namespace: string,
+	_namespace: string,
 	paperId = "paper-1",
 ): Promise<{ id: string }> {
-	const store = application.personalStore(namespace);
+	const store = application.personalStore();
 	await store.initialize();
 	const body = Buffer.from(`%PDF-1.4\n${paperId}\n%%EOF\n`);
 	const blob = await store.putBlob(body);

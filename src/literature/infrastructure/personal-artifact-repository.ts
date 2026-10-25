@@ -14,16 +14,16 @@ export abstract class PersonalArtifactRepository extends PersonalDerivedReposito
 			database
 				.prepare(`
 					INSERT INTO artifact_manifests(
-						id, namespace_id, paper_id, pdf_sha256, manifest_json, discovered_at, updated_at
-					) VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(namespace_id, id) DO UPDATE SET
+						id, paper_id, pdf_sha256, manifest_json, discovered_at, updated_at
+					) VALUES (?, ?, ?, ?, ?, ?)
+					ON CONFLICT(id) DO UPDATE SET
 						paper_id = excluded.paper_id,
 						pdf_sha256 = excluded.pdf_sha256,
 						manifest_json = excluded.manifest_json,
 						discovered_at = excluded.discovered_at,
 						updated_at = excluded.updated_at
 				`)
-				.run(id, this.namespace, paperId ?? null, manifest.pdfSha256, json(manifest), manifest.discoveredAt, now);
+				.run(id, paperId ?? null, manifest.pdfSha256, json(manifest), manifest.discoveredAt, now);
 		});
 		return id;
 	}
@@ -33,15 +33,11 @@ export abstract class PersonalArtifactRepository extends PersonalDerivedReposito
 		return this.read((database) => {
 			const rows = (paperId
 				? database
-						.prepare(
-							"SELECT manifest_json FROM artifact_manifests WHERE namespace_id = ? AND paper_id = ? ORDER BY updated_at DESC",
-						)
-						.all(this.namespace, paperId)
+						.prepare("SELECT manifest_json FROM artifact_manifests WHERE paper_id = ? ORDER BY updated_at DESC")
+						.all(paperId)
 				: database
-						.prepare(
-							"SELECT manifest_json FROM artifact_manifests WHERE namespace_id = ? ORDER BY updated_at DESC",
-						)
-						.all(this.namespace)) as unknown as Array<{ manifest_json: string }>;
+						.prepare("SELECT manifest_json FROM artifact_manifests ORDER BY updated_at DESC")
+						.all()) as unknown as Array<{ manifest_json: string }>;
 			return rows.map((row) => parseJson<ArtifactManifest>(row.manifest_json));
 		});
 	}

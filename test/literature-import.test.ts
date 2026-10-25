@@ -10,7 +10,11 @@ import {
 	preparePdfImport,
 } from "../src/literature/application/literature-import-metadata.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
-import { parseBibtex, parseJsonExport, registerLiteratureImportTool } from "../src/literature/presentation/literature-import-tools.ts";
+import {
+	parseBibtex,
+	parseJsonExport,
+	registerLiteratureImportTool,
+} from "../src/literature/presentation/literature-import-tools.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -56,8 +60,7 @@ describe("literature corpus import", () => {
 		);
 
 		expect(metadata).toMatchObject({
-			title:
-				"F REE W ILL: Automatically Diagnosing Use-after-free Bugs via Reference Miscounting Detection on Binaries",
+			title: "F REE W ILL: Automatically Diagnosing Use-after-free Bugs via Reference Miscounting Detection on Binaries",
 			authors: ["Liang He", "Hong Hu", "Purui Su", "Yan Cai", "Zhenkai Liang"],
 			year: 2022,
 		});
@@ -170,7 +173,10 @@ describe("literature corpus import", () => {
 
 		const result = await preparePdfImport(path, pi, process.cwd(), undefined, { enrich: false });
 
-		expect(result.record).toMatchObject({ title: "A Reliable Paper Title", authors: ["Ada Researcher", "Bob Scientist"] });
+		expect(result.record).toMatchObject({
+			title: "A Reliable Paper Title",
+			authors: ["Ada Researcher", "Bob Scientist"],
+		});
 		expect(result.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ stage: "pdfinfo" })]));
 	});
 
@@ -199,7 +205,9 @@ describe("literature corpus import", () => {
 			identifiers: { doi: "10.5555/exact.paper" },
 			links: [{ url: "https://doi.org/10.5555/exact.paper", kind: "doi" as const, openAccess: true }],
 			citationCount: 1,
-			provenance: [{ provider: "crossref" as const, query: "10.5555/exact.paper", retrievedAt: "2026-01-01T00:00:00Z" }],
+			provenance: [
+				{ provider: "crossref" as const, query: "10.5555/exact.paper", retrievedAt: "2026-01-01T00:00:00Z" },
+			],
 			mergedFrom: [],
 		};
 		const doiLookup = vi.fn(async () => providerRecord);
@@ -301,7 +309,7 @@ describe("literature corpus import", () => {
 		const sha256 = createHash("sha256").update(body).digest("hex");
 		const sourcePath = join(root, "paper.pdf");
 		await writeFile(sourcePath, body);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const record = {
 			id: `material-${sha256.slice(0, 20)}`,
 			title: "Atomic Local Import",
@@ -310,7 +318,12 @@ describe("literature corpus import", () => {
 			links: [{ url: new URL(`file:///${sourcePath.replaceAll("\\", "/")}`).href, kind: "other" as const }],
 			materialHashes: [sha256],
 			provenance: [
-				{ provider: "local-pdf" as const, query: "local-pdf-import", retrievedAt: "2026-01-01T00:00:00Z", rawUrl: sourcePath },
+				{
+					provider: "local-pdf" as const,
+					query: "local-pdf-import",
+					retrievedAt: "2026-01-01T00:00:00Z",
+					rawUrl: sourcePath,
+				},
 			],
 			mergedFrom: [],
 		};
@@ -324,13 +337,15 @@ describe("literature corpus import", () => {
 		expect(result.collection?.name).toBe("Compiler Testing");
 		expect((await store.getPaper(record.id))?.collectionIds).toEqual([result.collection?.id]);
 		expect(await store.listPaperVersions(record.id)).toMatchObject([{ sha256, bytes: body.length }]);
-		expect(JSON.parse(await readFile(join(store.root, "imports", "import-atomic.json"), "utf8"))).toEqual({ imported: 1 });
+		expect(JSON.parse(await readFile(join(store.root, "imports", "import-atomic.json"), "utf8"))).toEqual({
+			imported: 1,
+		});
 	});
 
 	it("attaches a layout-spaced local PDF title to the existing clean catalog record", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-import-layout-spaced-title-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const cleanTitle =
 			"FreeWill: Automatically Diagnosing Use-after-free Bugs via Reference Miscounting Detection on Binaries";
 		await store.upsertPaper({
@@ -356,14 +371,15 @@ describe("literature corpus import", () => {
 		await writeFile(sourcePath, body);
 		const localRecord = {
 			id: `material-${sha256.slice(0, 20)}`,
-			title:
-				"F REE W ILL: Automatically Diagnosing Use-after-free Bugs via Reference Miscounting Detection on Binaries",
+			title: "F REE W ILL: Automatically Diagnosing Use-after-free Bugs via Reference Miscounting Detection on Binaries",
 			authors: ["Liang He", "Hong Hu", "Purui Su", "Yan Cai", "Zhenkai Liang"],
 			year: 2022,
 			identifiers: {},
 			links: [{ url: new URL(`file:///${sourcePath.replaceAll("\\", "/")}`).href, kind: "other" as const }],
 			materialHashes: [sha256],
-			provenance: [{ provider: "local-pdf" as const, query: "local-pdf-import", retrievedAt: "2026-01-02T00:00:00Z" }],
+			provenance: [
+				{ provider: "local-pdf" as const, query: "local-pdf-import", retrievedAt: "2026-01-02T00:00:00Z" },
+			],
 			mergedFrom: [],
 		};
 
@@ -382,7 +398,7 @@ describe("literature corpus import", () => {
 	it("rolls back an atomic import when confirmed PDF bytes do not match", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-import-rollback-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const record = {
 			id: "material-mismatch",
 			title: "Mismatched PDF",
@@ -408,7 +424,7 @@ describe("literature corpus import", () => {
 	it("does not merge similar titles without an exact identifier or PDF hash", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-import-no-fuzzy-merge-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const base = {
 			authors: ["Ada Researcher"],
 			identifiers: {},
@@ -416,10 +432,24 @@ describe("literature corpus import", () => {
 			provenance: [{ provider: "local-pdf" as const, query: "import", retrievedAt: "2026-01-01T00:00:00Z" }],
 			mergedFrom: [],
 		};
-		await store.upsertPaper({ ...base, id: "material-one", title: "Testing Compilers at Scale", materialHashes: ["1".repeat(64)] });
+		await store.upsertPaper({
+			...base,
+			id: "material-one",
+			title: "Testing Compilers at Scale",
+			materialHashes: ["1".repeat(64)],
+		});
 
 		await store.importLocalPapersAtomically(
-			[{ record: { ...base, id: "material-two", title: "Testing Compiler at Scale", materialHashes: ["2".repeat(64)] } }],
+			[
+				{
+					record: {
+						...base,
+						id: "material-two",
+						title: "Testing Compiler at Scale",
+						materialHashes: ["2".repeat(64)],
+					},
+				},
+			],
 			{ reportId: "no-fuzzy", report: { imported: 1 } },
 		);
 
@@ -537,7 +567,7 @@ describe("literature corpus import", () => {
 		} as unknown as ExtensionAPI);
 		const result = await importTool.execute(
 			"import-test",
-			{ input_path: inputPath, namespace: "alice", corpus_root: join(root, "corpus") },
+			{ input_path: inputPath, corpus_root: join(root, "corpus") },
 			undefined,
 			undefined,
 			{ cwd: root, hasUI: true, ui: { confirm: vi.fn(async () => true) } },
@@ -575,7 +605,7 @@ describe("literature corpus import", () => {
 
 		const result = await importTool.execute(
 			"import-automatic",
-			{ input_path: inputPath, namespace: "alice", corpus_root: corpusRoot },
+			{ input_path: inputPath, corpus_root: corpusRoot },
 			undefined,
 			undefined,
 			{ cwd: root, hasUI: false, ui: { confirm: vi.fn() } },

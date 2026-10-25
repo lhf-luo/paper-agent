@@ -1,3 +1,4 @@
+import { visibleSessionSkills } from "../../src/agent/domain/session-skills";
 import {
 	ArrowUpRight,
 	Bot,
@@ -21,11 +22,11 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import "katex/dist/katex.min.css";
+import { type AgentDelivery, AgentInputControls, AgentPendingInputs } from "./agent-input-controls";
 import { agentMarkdownRehypePlugins, agentMarkdownRemarkPlugins, normalizeAgentMath } from "./agent-markdown";
-import { AgentInputControls, AgentPendingInputs, type AgentDelivery } from "./agent-input-controls";
 import { type AgentResultDocument, collectAgentResultDocuments, parseAgentResultOutput } from "./agent-results";
 import { isAgentTranscriptNearBottom } from "./agent-scroll";
-import { isNewerAgentSessionState } from "./agent-session-state";
+import { applyAgentQueueEvent, isNewerAgentSessionState } from "./agent-session-state";
 import { api, apiEventStream, apiText, friendlyNetworkError, jsonBody } from "./api";
 import {
 	type CanvasAgentNodeCandidate,
@@ -189,7 +190,7 @@ function AgentResultSidebar({
 	const focusCol = headerLabels.indexOf("focus");
 
 	useEffect(() => {
-		void api<PaperCollection[]>("/api/library/collections?namespace=default")
+		void api<PaperCollection[]>("/api/library/collections")
 			.then(setCollections)
 			.catch(() => {
 				setCollections([]);
@@ -264,8 +265,7 @@ function AgentResultSidebar({
 			detailPaper && typeof detailPaper.meta.search_run_id === "string" ? detailPaper.meta.search_run_id : undefined;
 		const paperId =
 			detailPaper && typeof detailPaper.meta.paper_id === "string" ? detailPaper.meta.paper_id : undefined;
-		const namespace =
-			detailPaper && typeof detailPaper.meta.namespace === "string" ? detailPaper.meta.namespace : "default";
+
 		if (!detailPaper || detailPaper.abstract || !searchRunId || !paperId) {
 			setLoadedAbstract(undefined);
 			return;
@@ -278,7 +278,7 @@ function AgentResultSidebar({
 		const controller = new AbortController();
 		setLoadedAbstract({ key, loading: true });
 		void api<{ abstract: string | null }>(
-			`/api/search/runs/${encodeURIComponent(searchRunId)}/papers/${encodeURIComponent(paperId)}?namespace=${encodeURIComponent(namespace)}`,
+			`/api/search/runs/${encodeURIComponent(searchRunId)}/papers/${encodeURIComponent(paperId)}`,
 			{ signal: controller.signal },
 		)
 			.then((result) => {
@@ -317,7 +317,7 @@ function AgentResultSidebar({
 				jsonBody({
 					sidebarResultUrl: activeDocument.url,
 					paperIds,
-					namespace: "default",
+
 					collectionId: selectedCollection || undefined,
 				}),
 			);
@@ -842,7 +842,7 @@ const AgentToolGroup = memo(
 
 export interface PaperAgentContext {
 	paperId: string;
-	namespace: string;
+
 	title: string;
 	pdfPath: string;
 	pdfSha256?: string;
@@ -903,7 +903,7 @@ export function AgentPage({
 	onPromptConsumed?: () => void;
 	embedded?: boolean;
 	paperContext?: PaperAgentContext;
-	canvasContext?: { namespace: string; canvasId: string; agentNodeId?: string };
+	canvasContext?: { canvasId: string; agentNodeId?: string };
 	beforeCanvasMessage?: () => Promise<boolean>;
 	canvasNodes?: CanvasAgentNodeCandidate[];
 	focusSessionId?: string;
@@ -916,17 +916,17 @@ export function AgentPage({
 	confirmAction?: (message: string) => Promise<boolean>;
 	promptAction?: (title: string, value: string) => Promise<string | null>;
 }) {
-	const paperContextNamespace = paperContext?.namespace;
 	const paperContextPaperId = paperContext?.paperId;
-	const canvasContextNamespace = canvasContext?.namespace;
+
 	const canvasContextCanvasId = canvasContext?.canvasId;
 	const sessionListUrl = canvasContext
-		? `/api/agent/sessions?scope=canvas&namespace=${encodeURIComponent(canvasContext.namespace)}&canvasId=${encodeURIComponent(canvasContext.canvasId)}`
+		? `/api/agent/sessions?scope=canvas&canvasId=${encodeURIComponent(canvasContext.canvasId)}`
 		: paperContext
-			? `/api/agent/sessions?scope=paper&namespace=${encodeURIComponent(paperContext.namespace)}&paperId=${encodeURIComponent(paperContext.paperId)}`
+			? `/api/agent/sessions?scope=paper&paperId=${encodeURIComponent(paperContext.paperId)}`
 			: "/api/agent/sessions";
 	const [config, setConfig] = useState<AgentConfigView>();
 	const [delivery, setDelivery] = useState<AgentDelivery>("steer");
+	const [stoppingSessionId, setStoppingSessionId] = useState<string>();
 	const sendRequestRef = useRef<{ signature: string; id: string } | undefined>(undefined);
 	const sendingRef = useRef(false);
 	const [configuredKey, setConfiguredKey] = useState("");
@@ -1082,13 +1082,17 @@ export function AgentPage({
 			if (fileInputRef.current) fileInputRef.current.value = "";
 		}
 	};
-	useEffect(() => {
-		void api<{ skills: typeof loadedSkills }>("/api/agent/skills")
-			.then((value) => setLoadedSkills(value.skills))
-			.catch(() => setLoadedSkills([]));
-	}, []);
 	const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 	const [active, setActive] = useState<AgentSessionSnapshot>();
+	const canvasSkills = Boolean(canvasContext);
+	useEffect(() => {
+		let current = true;
+		const query = active?.id ? `?sessionId=${encodeURIComponent(active.id)}` : "";
+		void api<{ skills: typeof loadedSkills }>(`/api/agent/skills${query}`)
+			.then(value => { if (current) setLoadedSkills(visibleSessionSkills(value.skills, canvasSkills)); })
+			.catch(() => { if (current) setLoadedSkills([]); });
+		return () => { current = false; };
+	}, [active?.id, canvasSkills]);
 	const activeIdRef = useRef<string | undefined>(undefined);
 	activeIdRef.current = active?.id;
 	const sessionListRef = useRef<HTMLDivElement>(null);
@@ -1328,22 +1332,18 @@ export function AgentPage({
 			try {
 				// 论文作用域的会话（如一键研究）不在 general 会话列表里，按 ID 直接拉取并合并进侧栏。
 				const snapshot = await api<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
-				if (!paperContextNamespace && !canvasContextCanvasId && snapshot.context?.kind === "canvas") return false;
+				if (!paperContextPaperId && !canvasContextCanvasId && snapshot.context?.kind === "canvas") return false;
 				if (
-					paperContextNamespace &&
 					paperContextPaperId &&
-					(snapshot.context?.kind !== "paper" ||
-						snapshot.context.namespace !== paperContextNamespace ||
-						snapshot.context.paperId !== paperContextPaperId)
+					paperContextPaperId &&
+					(snapshot.context?.kind !== "paper" || snapshot.context.paperId !== paperContextPaperId)
 				) {
 					return false;
 				}
 				if (
-					canvasContextNamespace &&
 					canvasContextCanvasId &&
-					(snapshot.context?.kind !== "canvas" ||
-						snapshot.context.namespace !== canvasContextNamespace ||
-						snapshot.context.canvasId !== canvasContextCanvasId)
+					canvasContextCanvasId &&
+					(snapshot.context?.kind !== "canvas" || snapshot.context.canvasId !== canvasContextCanvasId)
 				)
 					return false;
 				setActive(snapshot);
@@ -1358,13 +1358,7 @@ export function AgentPage({
 				return false;
 			}
 		},
-		[
-			paperContextNamespace,
-			paperContextPaperId,
-			canvasContextNamespace,
-			canvasContextCanvasId,
-			restoreSidebarFromSession,
-		],
+		[paperContextPaperId, canvasContextCanvasId, restoreSidebarFromSession],
 	);
 
 	const refreshSessions = useCallback(
@@ -1508,16 +1502,7 @@ export function AgentPage({
 				return;
 			}
 			if (event.type === "queue") {
-				setActive((current) =>
-					current?.id === event.sessionId && current.updatedAt <= event.updatedAt
-						? {
-								...current,
-								pendingInputs: event.pendingInputs,
-								queuePaused: event.queuePaused,
-								updatedAt: event.updatedAt,
-							}
-						: current,
-				);
+				setActive((current) => applyAgentQueueEvent(current, event));
 				return;
 			}
 			if (event.type === "message_delta") {
@@ -1660,12 +1645,12 @@ export function AgentPage({
 					thinkingLevel,
 					permissionMode,
 					...(paperContext
-						? { context: { kind: "paper", namespace: paperContext.namespace, paperId: paperContext.paperId } }
+						? { context: { kind: "paper", paperId: paperContext.paperId } }
 						: canvasContext
 							? {
 									context: {
 										kind: "canvas",
-										namespace: canvasContext.namespace,
+
 										canvasId: canvasContext.canvasId,
 									},
 								}
@@ -1742,7 +1727,7 @@ export function AgentPage({
 	};
 
 	const send = async () => {
-		if ((!active && !paperContext) || !prompt.trim() || busy || uploading || sendingRef.current) return;
+		if ((!active && !paperContext) || !prompt.trim() || busy || uploading || stopping || sendingRef.current) return;
 		sendingRef.current = true;
 		setBusy(true);
 		setError("");
@@ -1836,18 +1821,26 @@ export function AgentPage({
 	};
 
 	const stop = async () => {
-		if (!active) return;
-		setBusy(true);
+		if (!active || stoppingSessionId === active.id || active.status === "stopping") return;
+		const sessionId = active.id;
+		setStoppingSessionId(sessionId);
+		setError("");
 		try {
 			const snapshot = await api<AgentSessionSnapshot>(
-				`/api/agent/sessions/${encodeURIComponent(active.id)}/abort`,
+				`/api/agent/sessions/${encodeURIComponent(sessionId)}/abort`,
 				{ method: "POST", body: "{}" },
 			);
-			setActive(snapshot);
+			setActive((current) =>
+				current?.id === snapshot.id && isNewerAgentSessionState(current, snapshot) ? snapshot : current,
+			);
+			setSessions((current) => {
+				const previous = current.find((session) => session.id === snapshot.id);
+				return isNewerAgentSessionState(previous, snapshot) ? upsert(current, summaryFromSnapshot(snapshot)) : current;
+			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
-			setBusy(false);
+			setStoppingSessionId((current) => (current === sessionId ? undefined : current));
 		}
 	};
 
@@ -1870,6 +1863,7 @@ export function AgentPage({
 	};
 
 	const running = active?.status === "running" || active?.status === "stopping";
+	const stopping = active?.status === "stopping" || Boolean(stoppingSessionId && stoppingSessionId === active?.id);
 	// SSE can remain open after a browser/network interruption without delivering the final event.
 	// Reconcile only active runs; a completed snapshot also restores any missed message/tool events.
 	useEffect(() => {
@@ -2199,7 +2193,7 @@ export function AgentPage({
 									<button
 										className="agent-stop-button"
 										type="button"
-										disabled={busy}
+										disabled={stopping}
 										onClick={() => void stop()}
 									>
 										停止生成
@@ -2509,7 +2503,7 @@ export function AgentPage({
 															role="toolbar"
 															aria-label="节点分类"
 														>
-															{(["all", "paper", "note", "text", "author", "team"] as const).map(
+															{(["all", "paper", "note", "text", "author", "team", "search_graph"] as const).map(
 																(kind) => (
 																	<button
 																		key={kind}
@@ -2663,12 +2657,13 @@ export function AgentPage({
 										</div>
 										<AgentInputControls
 											running={running}
+											hasDraft={Boolean(prompt.trim())}
 											paused={Boolean(active?.queuePaused)}
 											delivery={delivery}
 											onDelivery={setDelivery}
 											onSend={() => void send()}
 											onStop={() => void stop()}
-											stopping={busy || active?.status === "stopping"}
+											stopping={stopping}
 											disabled={
 												(!active && !paperContext) ||
 												!prompt.trim() ||

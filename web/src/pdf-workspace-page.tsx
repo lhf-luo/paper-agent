@@ -47,8 +47,7 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 	const [busy, setBusy] = useState(false);
 	const [teamPending, setTeamPending] = useState<PreparedOperation>();
 	const [teamPaperId, setTeamPaperId] = useState("");
-	const [personalNamespace, setPersonalNamespace] = useState("default");
-	const [personalNamespaces, setPersonalNamespaces] = useState<string[]>(["default"]);
+
 	const [personalPapers, setPersonalPapers] = useState<PaperRecord[]>([]);
 
 	useEffect(() => {
@@ -70,18 +69,7 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 	const job = useJob(jobId);
 
 	useEffect(() => {
-		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
-			.then((value) => {
-				setPersonalNamespace(value.defaultNamespace);
-				setPersonalNamespaces(value.personal);
-			})
-			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-	}, []);
-
-	useEffect(() => {
-		void api<{ hits: Array<{ record: PaperRecord }> }>(
-			`/api/library?namespace=${encodeURIComponent(personalNamespace)}&limit=300`,
-		)
+		void api<{ hits: Array<{ record: PaperRecord }> }>(`/api/library?limit=300`)
 			.then((value) => {
 				const records = value.hits.map((hit) => hit.record);
 				setPersonalPapers(records);
@@ -90,7 +78,7 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 				);
 			})
 			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-	}, [personalNamespace]);
+	}, []);
 
 	const resolvePdfValue = useCallback(
 		(value: string): { pdfPath: string; pdf?: (typeof availablePdfs)[number] } => {
@@ -204,7 +192,7 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 			setTeamPending(
 				await api<PreparedOperation>(
 					"/api/team/artifacts/prepare",
-					jsonBody({ artifactJobId: job.id, paperId: teamPaperId, personalNamespace }),
+					jsonBody({ artifactJobId: job.id, paperId: teamPaperId }),
 				),
 			);
 		} catch (reason) {
@@ -220,10 +208,7 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 		setError("");
 		try {
 			const grant = (await confirmOperation(teamPending)) as ConfirmationGrant;
-			await api(
-				"/api/team/artifacts/execute",
-				jsonBody({ artifactJobId: job.id, paperId: teamPaperId, personalNamespace, grant }),
-			);
+			await api("/api/team/artifacts/execute", jsonBody({ artifactJobId: job.id, paperId: teamPaperId, grant }));
 			setTeamPending(undefined);
 			setMessage("Artifact manifest 已提交到团队审核队列；团队服务不会自动接收本地文件。");
 		} catch (reason) {
@@ -569,13 +554,6 @@ export function PdfWorkspacePage({ onTask }: PdfWorkspacePageProps) {
 						<p>只提交来源链接、PDF hash、commit/hash、失败原因和获取记录；本地 artifact 文件不会自动上传。</p>
 					</div>
 					<div className="team-manifest-controls">
-						<select value={personalNamespace} onChange={(event) => setPersonalNamespace(event.target.value)}>
-							{personalNamespaces.map((namespace) => (
-								<option key={namespace} value={namespace}>
-									{namespace}
-								</option>
-							))}
-						</select>
 						<select value={teamPaperId} onChange={(event) => setTeamPaperId(event.target.value)}>
 							{personalPapers.map((paper) => (
 								<option key={paper.id} value={paper.id}>

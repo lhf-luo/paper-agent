@@ -116,16 +116,11 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 					{ maxItems: 100 },
 				),
 			),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
-				"personal",
-				namespace,
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const { run, decisionOutcomes, appliedDecisionCount, failedDecisionCount } = await reviewLiteratureDuplicates(
 				store,
 				params.search_run_id,
@@ -193,15 +188,11 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 						"Optional field projection. Omit for the complete existing response. Paper ID and query status are always returned.",
 				}),
 			),
-			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", params.namespace ?? "default", params.corpus_root),
-				"personal",
-				params.namespace ?? "default",
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const run = await store.getSearchRun(params.search_run_id);
 			if (!run) throw new Error(`Search run not found in source corpus: ${params.search_run_id}`);
 			const byId = new Map(
@@ -269,15 +260,15 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				Type.String({ description: "Previous filter result to narrow; mutually exclusive with search_run_id" }),
 			),
 			groups: Type.Array(filterGroupSchema, { minItems: 1, maxItems: 8 }),
-			namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (Boolean(params.search_run_id) === Boolean(params.source_filter_result_id)) {
 				throw new Error("Provide exactly one of search_run_id or source_filter_result_id");
 			}
-			let namespace = params.namespace ?? "default";
-			let corpusRoot = resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root);
+
+			let corpusRoot = resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root);
 			let rootSearchRunId = params.search_run_id;
 			let parentFilterResultId: string | undefined;
 			let sourceEntries: FilterResultEntry[] | undefined;
@@ -287,9 +278,6 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 					ctx.sessionManager?.getSessionId?.(),
 					params.source_filter_result_id,
 				);
-				if (params.namespace !== undefined && parent.namespace !== namespace) {
-					throw new Error("source_filter_result_id belongs to a different namespace");
-				}
 				if (params.corpus_root !== undefined && parent.corpusRoot !== corpusRoot) {
 					throw new Error("source_filter_result_id belongs to a different corpus root");
 				}
@@ -297,12 +285,10 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				parentFilterResultId = params.source_filter_result_id;
 				sourceEntries = parent.entries;
 				corpusRoot = parent.corpusRoot;
-				namespace = parent.namespace;
 			}
-			const store = new LiteratureStore(corpusRoot, "personal", namespace);
+			const store = new LiteratureStore(corpusRoot, "personal");
 			const run = await store.getSearchRun(rootSearchRunId!);
 			if (!run) throw new Error(`Search run not found in source corpus: ${rootSearchRunId}`);
-			if (run.namespace !== namespace) throw new Error("Search run belongs to a different namespace");
 			if (parentFilterResultId) {
 				const parent = await readFilterResult(ctx.cwd, ctx.sessionManager?.getSessionId?.(), parentFilterResultId);
 				if (fingerprintSearchRun(run) !== parent.runFingerprint) {
@@ -383,7 +369,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				searchRunId: run.id,
 				parentFilterResultId,
 				runFingerprint: fingerprintSearchRun(run),
-				namespace,
+
 				corpusRoot,
 				rules: groups,
 				sourceCount: sourceRecords.length,
@@ -424,9 +410,11 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 		name: "collect_literature",
 		label: "Collect literature",
 		description:
-			"Search the selected corpus first, then run a bounded collection across keyword-search providers with filters, pagination, deduplication, partial-failure reporting, optional persistent caching, and provenance. Missing abstracts with a DOI are then completed through configured Crossref, OpenAlex, and Semantic Scholar lookups before the Search Run is saved.",
+			"Run a bounded collection across external keyword-search providers with filters, pagination, deduplication, partial-failure reporting, optional persistent caching, and provenance. Existing corpus records are excluded by default; enable reuse_corpus only when library reuse is requested. Missing abstracts with a DOI are completed through configured Crossref, OpenAlex, and Semantic Scholar lookups before the Search Run is saved.",
 		promptSnippet: "Collect and deduplicate literature into a personal or team corpus",
 		promptGuidelines: [
+			"Provide a nonempty query and use year_from/year_to across providers. Submission-date and category retrieval belongs to Latest news, not this tool.",
+			"Search external sources by default with reuse_corpus=false. Do not search personal or team libraries first unless the user requests library search or reuse.",
 			"Review the deterministic acronym/hyphenation expansions, add explicit author/title or adjacent-term variants when useful, and preserve every executed query in the run manifest.",
 			"Provider credentials are read from split config automatically; CORE works when coreApiKey is set there (no environment variable needed). Prefer 2-4 focused query variants over many expansions to keep collection fast.",
 			"Use once mode for exploratory searches and persistent mode when the results should be reused.",
@@ -480,7 +468,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			"Search an existing personal or team corpus without external network requests or writes. Supports title/abstract/author/venue/note text, identifiers, tags, years, and screening status.",
 		promptSnippet: "Reuse papers and notes already present in a personal or team corpus",
 		promptGuidelines: [
-			"Search the corpus before starting a repeated collection or analysis task.",
+			"Use this when the user requests saved library records or library reuse; it is not a prerequisite for external literature search.",
 			"Corpus matches are reusable records, not proof that a technical claim is correct.",
 		],
 		parameters: Type.Object({
@@ -506,7 +494,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			),
 			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
 			scope: Type.Optional(scopeSchema),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -514,12 +502,8 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 				throw new Error("year_from cannot be later than year_to");
 			}
 			const scope = params.scope ?? "personal";
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, scope, namespace, params.corpus_root),
-				scope,
-				namespace,
-			);
+
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, scope, params.corpus_root), scope);
 			const hits = await store.searchPapers({
 				query: params.query,
 				yearFrom: params.year_from,
@@ -536,7 +520,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			});
 			const text = [
 				`Corpus: ${store.root}`,
-				`Scope: ${scope}/${namespace}`,
+				`Scope: ${scope}`,
 				`Matches: ${hits.length}`,
 				"",
 				...hits.map((hit, index) =>
@@ -548,7 +532,7 @@ export function registerCollectionQueryTools(pi: ExtensionAPI): void {
 			].join("\n");
 			return {
 				content: [{ type: "text", text }],
-				details: { corpusPath: store.root, scope, namespace, hitCount: hits.length, hits },
+				details: { corpusPath: store.root, scope, hitCount: hits.length, hits },
 			};
 		},
 	});

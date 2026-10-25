@@ -26,17 +26,16 @@ interface ToolContext {
 }
 
 async function discoveryContext(
-	params: { paper_id?: string; namespace?: string; corpus_root?: string },
+	params: { paper_id?: string; corpus_root?: string },
 	cwd: string,
-): Promise<{ namespace: string; store?: LiteratureStore; paper?: PaperRecord; githubToken?: string }> {
-	const namespace = params.namespace ?? "default";
+): Promise<{ store?: LiteratureStore; paper?: PaperRecord; githubToken?: string }> {
 	const store = params.paper_id
-		? new LiteratureStore(resolveCorpusRoot(cwd, "personal", namespace, params.corpus_root), "personal", namespace)
+		? new LiteratureStore(resolveCorpusRoot(cwd, "personal", params.corpus_root), "personal")
 		: undefined;
 	const paper = params.paper_id ? await store?.getPaper(params.paper_id) : undefined;
 	if (params.paper_id && !paper) throw new Error(`Paper not found in personal corpus: ${params.paper_id}`);
 	const config = await loadPaperAgentConfig(cwd);
-	return { namespace, store, paper, githubToken: config.credentials?.githubToken };
+	return { store, paper, githubToken: config.credentials?.githubToken };
 }
 
 function discoveryParameters() {
@@ -44,7 +43,7 @@ function discoveryParameters() {
 		pdf_path: Type.String({ description: "Paper PDF path" }),
 		source_directory: Type.Optional(Type.String({ description: "Extracted LaTeX source directory" })),
 		paper_id: Type.Optional(Type.String({ description: "Personal-library paper used for title, authors, and DOI" })),
-		namespace: Type.Optional(Type.String({ description: "Personal-library namespace; default: default" })),
+
 		corpus_root: Type.Optional(Type.String()),
 		additional_candidate_urls: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 	};
@@ -56,7 +55,7 @@ async function discoverForTool(
 		pdf_path: string;
 		source_directory?: string;
 		paper_id?: string;
-		namespace?: string;
+
 		corpus_root?: string;
 		additional_candidate_urls?: string[];
 	},
@@ -125,7 +124,7 @@ function registerDiscoveryTool(pi: ExtensionAPI): void {
 			"Discover repositories, datasets, supplements, and project pages from a PDF. If the PDF has no credible paper-owned artifact, bounded GitHub API searches prioritize tool or project names extracted from the paper, then DOI and title fallback. Explicit supported HTTPS URLs can be added as candidates.",
 		promptSnippet: "Discover paper artifacts with PDF-first GitHub fallback",
 		promptGuidelines: [
-			"Always pass paper_id and namespace when the paper is in the personal library so stored metadata overrides PDF headers and the completed manifest remains associated with that paper.",
+			"Always pass paper_id when the paper is in the personal library so stored metadata overrides PDF headers and the completed manifest remains associated with that paper.",
 			"Prefer tool names and project acronyms stated by the paper (for example MLTA, TypeDive, or RTT) over the full paper title when checking GitHub.",
 			"If deterministic discovery finds no credible candidate, model memory may suggest an untrusted lead only after the lead is verified on a public GitHub README, author organization page, paper title, DOI, or author evidence.",
 			"Use additional_candidate_urls for a URL found in public evidence; never pass a raw URL as candidate_ids.",
@@ -151,7 +150,7 @@ function registerAcquisitionTool(pi: ExtensionAPI): void {
 		promptSnippet: "Safely acquire verified paper artifacts with provenance",
 		promptGuidelines: [
 			"GitHub fallback runs automatically when the PDF has no credible paper-owned artifact. High-confidence matches are selected by default; medium and low GitHub matches require candidate_ids.",
-			"For saved papers, always pass paper_id and namespace; do not repeat discovery with only a PDF path.",
+			"For saved papers, always pass paper_id; do not repeat discovery with only a PDF path.",
 			"Use additional_candidate_urls for externally verified repository or artifact URLs, then review the exact confirmation manifest.",
 			"Always disclose failures, the exact commit, local path, and license uncertainty.",
 		],

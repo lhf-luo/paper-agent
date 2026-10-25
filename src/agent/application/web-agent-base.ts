@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { visibleSessionSkills } from "../domain/session-skills.ts";
 import { type ExtensionFactory, loadSkills } from "@earendil-works/pi-coding-agent";
 import {
 	loadPaperAgentConfig,
@@ -6,6 +7,7 @@ import {
 	type PiBuiltinToolName,
 	relayHeadersForModelApi,
 } from "../../config/application/config-service.ts";
+import { McpService } from "../../mcp/application/mcp-service.ts";
 import type { PiModelsView } from "../domain/pi-models.ts";
 import {
 	type WebAgentConfigUpdate,
@@ -54,6 +56,7 @@ import {
 } from "./web-agent-support.ts";
 export abstract class WebAgentServiceBase {
 	readonly projectRoot: string;
+	readonly mcp: McpService;
 	protected readonly piModels?: PiModelService;
 	private piView?: PiModelsView;
 	private piStamp?: string;
@@ -91,6 +94,7 @@ export abstract class WebAgentServiceBase {
 		configuredModels: PaperAgentModelConfig[],
 	) {
 		this.projectRoot = options.projectRoot;
+		this.mcp = new McpService(options.projectRoot);
 		this.piModels = options.piModels;
 		this.configuredModels = configuredModels;
 		this.sessionStore = new WebAgentSessionStore(
@@ -136,7 +140,6 @@ export abstract class WebAgentServiceBase {
 			delete inputState.recovered;
 			inputState.pending = inputState.pending.filter((p) => !view.messages.some((m) => m.id === p.id));
 			inputState.paused = inputState.pending.length > 0;
-			anchorLegacyTools(view.messages, view.tools);
 			this.sessions.set(view.id, {
 				inputState,
 				id: view.id,
@@ -216,14 +219,17 @@ export abstract class WebAgentServiceBase {
 
 	private async reloadPiModels(): Promise<void> {
 		if (!this.piModels) return;
-		const view = await this.piModels.view();
 		const stamp = await this.piModels.stamp();
+		if (this.piView && stamp === this.piStamp) return;
+		const view = await this.piModels.view();
 		const runtime = await this.piModels.runtime();
+		// Pi may create its settings/cache files while building the first view.
+		const loadedStamp = await this.piModels.stamp();
 		const selected = view.models.find((m) => m.key === view.activeKey);
 		const model = selected ? runtime.getModel(selected.providerId, selected.modelId) : undefined;
-		if (stamp !== this.piStamp) {
+		if (loadedStamp !== this.piStamp) {
 			this.configRevision += 1;
-			this.piStamp = stamp;
+			this.piStamp = loadedStamp;
 			this.piSecrets = await this.piModels.secrets();
 		}
 		this.piView = view;
@@ -328,14 +334,16 @@ export abstract class WebAgentServiceBase {
 		return model?.apiKey;
 	}
 
-	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }> {
+	listSkills(sessionId?: string): Array<{ name: string; description: string; disableModelInvocation: boolean }> {
+		const session = sessionId ? this.sessions.get(sessionId) : undefined;
+		if (sessionId && !session) throw new WebAgentServiceError(404, "会话不存在");
 		const result = loadSkills({
 			cwd: this.projectRoot,
 			agentDir: join(this.projectRoot, ".paper-agent", "web-agent-memory"),
 			skillPaths: [...new Set([this.projectSkillRoot, ...this.additionalSkillPaths])],
 			includeDefaults: true,
 		});
-		return result.skills.map((skill) => ({
+		return visibleSessionSkills(result.skills, session?.context?.kind === "canvas").map((skill) => ({
 			name: skill.name,
 			description: skill.description,
 			disableModelInvocation: skill.disableModelInvocation,
@@ -468,15 +476,5 @@ export abstract class WebAgentServiceBase {
 		this.configRevision += 1;
 		this.memoryApiKey = undefined;
 		return this.getConfig();
-	}
-}
-
-function anchorLegacyTools(messages: PersistedSessionView["messages"], tools: PersistedSessionView["tools"]): void {
-	const assistants = messages.filter((message) => message.role === "assistant");
-	for (const tool of tools) {
-		if (tool.assistantMessageId || !assistants.length) continue;
-		const started = Date.parse(tool.startedAt);
-		const preceding = assistants.filter((message) => Date.parse(message.createdAt) <= started).at(-1);
-		tool.assistantMessageId = (preceding ?? assistants[0]).id;
 	}
 }

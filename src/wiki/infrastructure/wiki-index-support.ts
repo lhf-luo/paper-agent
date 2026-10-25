@@ -43,9 +43,7 @@ export function parseStrings(value: string): string[] {
 export function parseLocator(value: string): WikiEvidence["locator"] {
 	try {
 		const parsed = JSON.parse(value) as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as WikiEvidence["locator"])
-			: {};
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as WikiEvidence["locator"]) : {};
 	} catch {
 		return {};
 	}
@@ -69,7 +67,7 @@ export function filtersSql(options: WikiSearchOptions): { sql: string; params: A
 	if (options.paperId) {
 		conditions.push(`EXISTS (
 			SELECT 1 FROM wiki_page_sources source
-			WHERE source.namespace_id = p.namespace_id AND source.page_id = p.id
+			WHERE source.page_id = p.id
 				AND (source.paper_id = ? OR (source.kind = 'paper' AND source.source_id = ?))
 		)`);
 		params.push(options.paperId, options.paperId);
@@ -77,7 +75,7 @@ export function filtersSql(options: WikiSearchOptions): { sql: string; params: A
 	if (options.noteId) {
 		conditions.push(`EXISTS (
 			SELECT 1 FROM wiki_page_sources source
-			WHERE source.namespace_id = p.namespace_id AND source.page_id = p.id
+			WHERE source.page_id = p.id
 				AND source.kind = 'note' AND source.source_id = ?
 		)`);
 		params.push(options.noteId);

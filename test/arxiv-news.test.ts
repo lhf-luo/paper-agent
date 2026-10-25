@@ -2,23 +2,19 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaperAgentApplication } from "../src/app/application/paper-agent-application.ts";
 import { startLocalWebServer } from "../src/app/presentation/local-web-server.ts";
-import {
-	pullArxivNews,
-	validateArxivNewsDate,
-	validateArxivNewsPull,
-} from "../src/literature/application/arxiv-news.ts";
+import { pullArxivNews } from "../src/literature/application/arxiv-news.ts";
+import { type ArxivNewsPaper, validateArxivNewsDate, validateArxivNewsPull } from "../src/literature/domain/arxiv-news.ts";
 import { screenNewsPapers, validateNewsFilterGroups } from "../src/literature/application/arxiv-news-screening.ts";
-import type { PaperRecord, ProviderPage } from "../src/literature/domain/literature-types.ts";
-import { ARXIV_NEWS_NAMESPACE, ArxivNewsStore } from "../src/literature/infrastructure/arxiv-news-store.ts";
-import { searchArxivPage } from "../src/literature/infrastructure/provider-arxiv.ts";
-import type { ProviderSearchOptions } from "../src/literature/infrastructure/provider-common.ts";
+import { ArxivNewsStore } from "../src/literature/infrastructure/arxiv-news-store.ts";
+import { fetchArxivNewsPage, type ArxivNewsFetchOptions, type ArxivNewsPage } from "../src/literature/infrastructure/arxiv-news-source.ts";
 import type { BackgroundJobContext } from "../src/shared/domain/background-job.ts";
 
 const paths: string[] = [];
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(paths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -29,7 +25,7 @@ async function temporaryStore(): Promise<{ store: ArxivNewsStore; path: string }
 	return { store: new ArxivNewsStore(path), path };
 }
 
-function paper(id: string, date: string): PaperRecord {
+function paper(id: string, date: string): ArxivNewsPaper {
 	return {
 		id: `arxiv:${id}`,
 		title: `Paper ${id}`,
@@ -51,14 +47,56 @@ const context: BackgroundJobContext = {
 const noWait = async () => {};
 
 describe("arXiv news", () => {
+	it("parses first submission times, filters UTC days and respects the Atom total for paging", async () => {
+		const timeout = vi.spyOn(AbortSignal, "timeout");
+		const entry = (id: string, date: string) => `<entry><id>https://arxiv.org/abs/${id}</id><title>News &amp; paper</title><summary>Abstract</summary><published>${date}T12:00:00Z</published><updated>2026-10-03T12:00:00Z</updated><author><name>Ada</name></author></entry>`;
+		const page = await fetchArxivNewsPage({ date: "2026-10-02", categories: ["cs.AI"], limit: 2, cursor: "2", fetcher: async () => new Response(`<feed><opensearch:totalResults>4</opensearch:totalResults>${entry("2610.00001v2", "2026-10-02")}${entry("2610.00002", "2026-10-01")}</feed>`) });
+		expect(timeout).toHaveBeenCalledWith(60_000);
+		expect(page.records).toMatchObject([{ title: "News & paper", identifiers: { arxivId: "2610.00001" }, firstSubmittedAt: "2026-10-02T12:00:00Z" }]);
+		expect(page.records).toHaveLength(1);
+		expect(page.nextCursor).toBeUndefined();
+		const url = new URL(page.requestUrl);
+		expect(url.searchParams.get("sortBy")).toBe("submittedDate");
+		expect(url.searchParams.get("sortOrder")).toBe("descending");
+	});
+
+	it("deduplicates versioned arXiv IDs across news pages", async () => {
+		const { store } = await temporaryStore();
+		const result = await pullArxivNews(store, { categories: ["cs.AI"], startDate: "2026-10-02", endDate: "2026-10-03" }, context, async (options) => ({
+			provider: "arxiv", query: "news", records: [paper(options.cursor ? "2610.00001v2" : "2610.00001v1", options.date)], nextCursor: options.cursor ? undefined : "100", requestUrl: "https://arxiv.org/test",
+		}), noWait);
+		expect(result.count).toBe(1);
+		expect((await store.batch(result.batches[0].id))?.papers[0].identifiers.arxivId).toBe("2610.00001");
+	});
+
+	it("preserves completed dates and discards the incomplete day on cancellation", async () => {
+		const { store } = await temporaryStore();
+		await store.saveSettings(["cs.AI"], "2026-10-02");
+		const controller = new AbortController();
+		const search = async (options: ArxivNewsFetchOptions): Promise<ArxivNewsPage> => {
+			if (options.date === "2026-10-03") controller.abort(new Error("Cancelled"));
+			return { provider: "arxiv", query: "news", records: [paper("2610.00001", options.date)], requestUrl: "https://arxiv.org/test" };
+		};
+		await expect(pullArxivNews(store, { categories: ["cs.AI"], startDate: "2026-10-02", endDate: "2026-10-04" }, { ...context, signal: controller.signal }, search, noWait)).rejects.toThrow("Cancelled");
+		expect(await store.state()).toMatchObject({ nextStartDate: "2026-10-03", batches: [{ name: "2026-10-02" }] });
+		expect((await store.state()).batches).toHaveLength(1);
+	});
+
+	it("does not save a day truncated by arXiv's result limit or a non-progressing cursor", async () => {
+		for (const nextCursor of ["30000", "0"]) {
+			const { store } = await temporaryStore();
+			await expect(pullArxivNews(store, { categories: ["cs.AI"], startDate: "2026-10-02", endDate: "2026-10-03" }, context, async () => ({ provider: "arxiv", query: "news", records: [paper("2610.00001", "2026-10-02")], nextCursor, requestUrl: "https://arxiv.org/test" }), noWait)).rejects.toThrow(nextCursor === "30000" ? "result limit" : "pagination");
+			expect((await store.state()).batches).toHaveLength(0);
+		}
+	});
+
 	it("queries subjects and submission dates, spacing a retry as well as the first attempt", async () => {
 		let attempts = 0;
 		const urls: URL[] = [];
-		const page = await searchArxivPage({
-			query: "*",
+		const page = await fetchArxivNewsPage({
 			limit: 10,
-			arxivCategories: ["cs.AI", "cs.LG"],
-			filters: { arxivSubmittedFrom: "2026-10-02", arxivSubmittedTo: "2026-10-02" },
+			categories: ["cs.AI", "cs.LG"],
+			date: "2026-10-02",
 			beforeAttempt: async () => {
 				attempts++;
 			},
@@ -76,8 +114,9 @@ describe("arXiv news", () => {
 
 	it("reports a stalled arXiv response body with the page offset", async () => {
 		await expect(
-			searchArxivPage({
-				query: "*",
+			fetchArxivNewsPage({
+				date: "2026-10-02",
+				categories: ["cs.AI"],
 				limit: 100,
 				cursor: "100",
 				fetcher: async () =>
@@ -99,7 +138,6 @@ describe("arXiv news", () => {
 		expect(() => validateArxivNewsDate("9999-99-99")).toThrow("valid UTC date");
 		expect(() =>
 			validateArxivNewsPull({
-				namespace: "default",
 				categories: ["cs.AI"],
 				startDate: "2026-10-02",
 				endDate: "2026-10-02",
@@ -109,13 +147,13 @@ describe("arXiv news", () => {
 
 	it("queries selected subjects together, saves each UTC day, and merges a repeated day", async () => {
 		const { store, path } = await temporaryStore();
-		await store.saveSettings("default", ["cs.AI", "cs.LG"], "2026-10-02");
+		await store.saveSettings(["cs.AI", "cs.LG"], "2026-10-02");
 		const calls: string[] = [];
 		let repeated = false;
-		const search = async (options: ProviderSearchOptions): Promise<ProviderPage> => {
+		const search = async (options: ArxivNewsFetchOptions): Promise<ArxivNewsPage> => {
 			expect(options.limit).toBe(100);
-			const date = options.filters?.arxivSubmittedFrom ?? "";
-			calls.push(`${date}:${options.arxivCategories?.join("|")}:${options.cursor ?? "0"}`);
+			const date = options.date;
+			calls.push(`${date}:${options.categories?.join("|")}:${options.cursor ?? "0"}`);
 			const records =
 				date === "2026-10-02" ? [paper(repeated ? "2610.00003" : "2610.00001", date)] : [paper("2610.00002", date)];
 			return {
@@ -129,7 +167,6 @@ describe("arXiv news", () => {
 		const first = await pullArxivNews(
 			store,
 			{
-				namespace: "default",
 				categories: ["cs.LG", "cs.AI"],
 				startDate: "2026-10-02",
 				endDate: "2026-10-04",
@@ -143,12 +180,11 @@ describe("arXiv news", () => {
 			{ name: "2026-10-03", count: 1 },
 		]);
 		expect(calls).toEqual(["2026-10-02:cs.AI|cs.LG:0", "2026-10-02:cs.AI|cs.LG:500", "2026-10-03:cs.AI|cs.LG:0"]);
-		expect((await store.state("default")).nextStartDate).toBe("2026-10-04");
+		expect((await store.state()).nextStartDate).toBe("2026-10-04");
 		repeated = true;
 		const second = await pullArxivNews(
 			store,
 			{
-				namespace: "default",
 				categories: ["cs.AI"],
 				startDate: "2026-10-02",
 				endDate: "2026-10-03",
@@ -160,15 +196,15 @@ describe("arXiv news", () => {
 		expect(second.batches[0]?.id).toBe(first.batches[0]?.id);
 		expect(second.batches[0]).toMatchObject({ count: 2, categories: ["cs.AI", "cs.LG"] });
 		expect(calls).toHaveLength(4);
-		expect((await store.state("default")).batches).toHaveLength(2);
+		expect((await store.state()).batches).toHaveLength(2);
 		const database = new DatabaseSync(path);
 		expect(
 			(database.prepare("SELECT COUNT(*) AS count FROM arxiv_news_items").get() as { count: number }).count,
 		).toBe(3);
 		database.close();
-		await store.deleteBatch("default", first.batches[0].id);
-		expect((await store.batch("default", first.batches[1].id))?.papers).toHaveLength(1);
-		await store.deleteBatch("default", first.batches[1].id);
+		await store.deleteBatch(first.batches[0].id);
+		expect((await store.batch(first.batches[1].id))?.papers).toHaveLength(1);
+		await store.deleteBatch(first.batches[1].id);
 		const after = new DatabaseSync(path);
 		expect((after.prepare("SELECT COUNT(*) AS count FROM arxiv_news_items").get() as { count: number }).count).toBe(
 			0,
@@ -178,20 +214,18 @@ describe("arXiv news", () => {
 
 	it("keeps successful folders and cursor unchanged when a later page fails", async () => {
 		const { store } = await temporaryStore();
-		await store.saveSettings("default", ["cs.AI"], "2026-10-02");
+		await store.saveSettings(["cs.AI"], "2026-10-02");
 		const existing = await store.savePull({
-			namespace: "default",
 			categories: ["cs.AI"],
 			date: "2026-10-02",
 			papers: [paper("2610.00001", "2026-10-02")],
 		});
-		const before = await store.state("default");
+		const before = await store.state();
 		let count = 0;
 		await expect(
 			pullArxivNews(
 				store,
 				{
-					namespace: "default",
 					categories: ["cs.AI"],
 					startDate: "2026-10-03",
 					endDate: "2026-10-04",
@@ -211,18 +245,18 @@ describe("arXiv news", () => {
 				noWait,
 			),
 		).rejects.toThrow("arXiv rate limited");
-		expect((await store.state("default")).lastSuccessAt).toBe(before.lastSuccessAt);
-		expect((await store.state("default")).nextStartDate).toBe("2026-10-03");
-		expect((await store.batch("default", existing.id))?.papers).toHaveLength(1);
-		expect((await store.state("other")).batches).toEqual([]);
+		expect((await store.state()).lastSuccessAt).toBe(before.lastSuccessAt);
+		expect((await store.state()).nextStartDate).toBe("2026-10-03");
+		expect((await store.batch(existing.id))?.papers).toHaveLength(1);
+		expect((await store.state()).batches).toHaveLength(1);
 	});
 
 	it("saves October 10 and 11 separately, then resumes at October 12 after a later day fails", async () => {
 		const { store } = await temporaryStore();
-		await store.saveSettings("default", ["cs.AI", "cs.LG"], "2026-10-10");
+		await store.saveSettings(["cs.AI", "cs.LG"], "2026-10-10");
 		const dates: string[] = [];
-		const search = async (options: ProviderSearchOptions): Promise<ProviderPage> => {
-			const date = options.filters?.arxivSubmittedFrom ?? "";
+		const search = async (options: ArxivNewsFetchOptions): Promise<ArxivNewsPage> => {
+			const date = options.date;
 			dates.push(date);
 			if (date === "2026-10-12") throw new Error("arXiv returned HTTP 429");
 			return {
@@ -235,36 +269,35 @@ describe("arXiv news", () => {
 		await expect(
 			pullArxivNews(
 				store,
-				{ namespace: "default", categories: ["cs.AI", "cs.LG"], startDate: "2026-10-10", endDate: "2026-10-13" },
+				{ categories: ["cs.AI", "cs.LG"], startDate: "2026-10-10", endDate: "2026-10-13" },
 				context,
 				search,
 				noWait,
 			),
 		).rejects.toThrow("HTTP 429");
 		expect(dates).toEqual(["2026-10-10", "2026-10-11", "2026-10-12"]);
-		expect(await store.state("default")).toMatchObject({
+		expect(await store.state()).toMatchObject({
 			nextStartDate: "2026-10-12",
 			batches: [{ name: "2026-10-11" }, { name: "2026-10-10" }],
 		});
 		const resumed = await pullArxivNews(
 			store,
-			{ namespace: "default", categories: ["cs.AI", "cs.LG"], startDate: "2026-10-10", endDate: "2026-10-12" },
+			{ categories: ["cs.AI", "cs.LG"], startDate: "2026-10-10", endDate: "2026-10-12" },
 			context,
 			search,
 			noWait,
 		);
 		expect(resumed.batches.map((batch) => batch.name)).toEqual(["2026-10-10", "2026-10-11"]);
-		expect((await store.state("default")).nextStartDate).toBe("2026-10-12");
-		expect((await store.state("default")).batches).toHaveLength(2);
+		expect((await store.state()).nextStartDate).toBe("2026-10-12");
+		expect((await store.state()).batches).toHaveLength(2);
 	});
 
 	it("creates an empty daily table and advances the next start date", async () => {
 		const { store } = await temporaryStore();
-		await store.saveSettings("default", ["cs.AI"]);
+		await store.saveSettings(["cs.AI"]);
 		const result = await pullArxivNews(
 			store,
 			{
-				namespace: "default",
 				categories: ["cs.AI"],
 				startDate: "2026-10-02",
 				endDate: "2026-10-03",
@@ -274,7 +307,7 @@ describe("arXiv news", () => {
 			noWait,
 		);
 		expect(result.batches).toMatchObject([{ name: "2026-10-02", count: 0 }]);
-		expect(await store.state("default")).toMatchObject({ nextStartDate: "2026-10-03" });
+		expect(await store.state()).toMatchObject({ nextStartDate: "2026-10-03" });
 	});
 
 	it("applies OR within concepts, AND across concepts, and keeps absent abstracts unresolved", async () => {
@@ -315,25 +348,24 @@ describe("arXiv news", () => {
 		expect(() => validateNewsFilterGroups([{ ...groups[0], without_abstract: {} }])).toThrow("positive include rule");
 	});
 
-	it("shares paper metadata by arXiv ID without exposing another namespace's folders", async () => {
+	it("shares paper metadata across category batches", async () => {
 		const { store, path } = await temporaryStore();
 		const input = {
 			categories: ["cs.AI"],
 			date: "2026-10-02",
 			papers: [paper("2610.00001", "2026-10-02")],
 		};
-		const first = await store.savePull({ ...input, namespace: "first" });
-		const second = await store.savePull({ ...input, namespace: "second" });
-		expect((await store.state("first")).batches).toHaveLength(1);
-		expect((await store.state("second")).batches).toHaveLength(1);
-		expect(await store.batch("first", second.id)).toBeUndefined();
+		const first = await store.savePull({ ...input });
+		const second = await store.savePull({ ...input, date: "2026-10-03" });
+		expect((await store.state()).batches).toHaveLength(2);
+		expect((await store.batch(second.id))?.papers).toHaveLength(1);
 		const database = new DatabaseSync(path);
 		expect(
 			(database.prepare("SELECT COUNT(*) AS count FROM arxiv_news_items").get() as { count: number }).count,
 		).toBe(1);
 		database.close();
-		await store.deleteBatch("first", first.id);
-		expect((await store.batch("second", second.id))?.papers).toHaveLength(1);
+		await store.deleteBatch(first.id);
+		expect((await store.batch(second.id))?.papers).toHaveLength(1);
 	});
 
 	it("serves a standalone news run and leaves personal libraries empty until explicit import", async () => {
@@ -344,9 +376,8 @@ describe("arXiv news", () => {
 		await mkdir(staticRoot, { recursive: true });
 		await writeFile(join(staticRoot, "index.html"), "<html>News test</html>");
 		const store = new ArxivNewsStore(join(dataRoot, "runtime", "arxiv-news.sqlite"));
-		await store.saveSettings(ARXIV_NEWS_NAMESPACE, ["cs.AI"], "2026-10-02");
+		await store.saveSettings(["cs.AI"], "2026-10-02");
 		const batch = await store.savePull({
-			namespace: ARXIV_NEWS_NAMESPACE,
 			categories: ["cs.AI"],
 			date: "2026-10-02",
 			papers: [
@@ -360,7 +391,7 @@ describe("arXiv news", () => {
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot });
 		const server = await startLocalWebServer(application, { staticRoot });
 		try {
-			const state = await fetch(`${server.url}/api/arxiv-news?namespace=some-personal-library`);
+			const state = await fetch(`${server.url}/api/arxiv-news`);
 			expect(state.status).toBe(200);
 			const stateBody = (await state.json()) as {
 				batches: Array<{ id: string; count: number }>;
@@ -368,20 +399,20 @@ describe("arXiv news", () => {
 			};
 			expect(stateBody.batches).toMatchObject([{ id: batch.id, count: 1 }]);
 			expect(stateBody.filterGroups[0]?.label).toBe("内核漏洞—静态/程序分析");
-			const detail = await fetch(`${server.url}/api/arxiv-news/batches/${batch.id}?namespace=another-library`);
+			const detail = await fetch(`${server.url}/api/arxiv-news/batches/${batch.id}`);
 			expect((await detail.json()) as unknown).toMatchObject({
 				papers: [{ id: "arxiv:2610.00001" }],
 				screening: { matchedIds: ["arxiv:2610.00001"] },
 			});
-			expect(await application.personalStore("personal").getPaper("arxiv:2610.00001")).toBeUndefined();
+			expect(await application.personalStore().getPaper("arxiv:2610.00001")).toBeUndefined();
 			const prepared = await fetch(`${server.url}/api/library/import/prepare`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ newsBatchId: batch.id, paperIds: ["arxiv:2610.00001"], namespace: "personal" }),
+				body: JSON.stringify({ newsBatchId: batch.id, paperIds: ["arxiv:2610.00001"] }),
 			});
 			expect(prepared.status, await prepared.clone().text()).toBe(200);
 			const preparedBody = (await prepared.json()) as { operationId: string; manifestFingerprint: string };
-			expect(await application.personalStore("personal").getPaper("arxiv:2610.00001")).toBeUndefined();
+			expect(await application.personalStore().getPaper("arxiv:2610.00001")).toBeUndefined();
 			const customGroups = validateNewsFilterGroups([
 				{
 					label: "LLM",
@@ -395,27 +426,22 @@ describe("arXiv news", () => {
 				body: JSON.stringify({ categories: ["cs.AI"], filterGroups: customGroups }),
 			});
 			expect(changed.status).toBe(200);
-			expect((await store.state(ARXIV_NEWS_NAMESPACE)).filterGroups).toEqual(customGroups);
+			expect((await store.state()).filterGroups).toEqual(customGroups);
 			const rescreened = await fetch(`${server.url}/api/arxiv-news/batches/${batch.id}`);
 			expect((await rescreened.json()) as unknown).toMatchObject({
 				screening: { matchedIds: [], filteredCount: 1 },
 			});
 			const grant = await application.confirmOperation(preparedBody.operationId, preparedBody.manifestFingerprint);
 			await expect(
-				application.enqueueAuthorizedCorpusImport(
-					{ newsBatchId: batch.id, paperIds: ["arxiv:2610.00001"], namespace: "personal" },
-					grant,
-				),
+				application.enqueueAuthorizedCorpusImport({ newsBatchId: batch.id, paperIds: ["arxiv:2610.00001"] }, grant),
 			).rejects.toThrow("News screening changed");
 			await expect(
 				application.prepareCorpusImport({
 					newsBatchId: batch.id,
 					paperIds: ["arxiv:2610.00001"],
-					namespace: "personal",
 				}),
 			).rejects.toThrow("Only papers retained");
 			await store.savePull({
-				namespace: ARXIV_NEWS_NAMESPACE,
 				categories: ["cs.AI"],
 				date: "2026-10-02",
 				papers: [{ ...paper("2610.00002", "2026-10-02"), title: "LLM study" }],
@@ -428,7 +454,6 @@ describe("arXiv news", () => {
 				application.prepareCorpusImport({
 					newsBatchId: batch.id,
 					paperIds: ["arxiv:2610.00002"],
-					namespace: "personal",
 				}),
 			).resolves.toMatchObject({ kind: "personal-corpus-write" });
 		} finally {

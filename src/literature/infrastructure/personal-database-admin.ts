@@ -17,10 +17,9 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 					.prepare(`SELECT p.paper_id, m.server_id, m.library_id, m.zotero_item_key,
 					m.item_version, m.last_direction, m.last_synced_at
 				FROM zotero_item_mappings m JOIN papers p ON p.row_id = m.paper_row_id
-				WHERE m.namespace_id = ? AND m.server_id = ?`)
-					.all(this.namespace, serverId) as unknown as Array<Record<string, string | number>>
+				WHERE m.server_id = ?`)
+					.all(serverId) as unknown as Array<Record<string, string | number>>
 			).map((row) => ({
-				namespace: this.namespace,
 				paperId: String(row.paper_id),
 				serverId: String(row.server_id),
 				libraryId: String(row.library_id),
@@ -39,10 +38,9 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 				database
 					.prepare(`SELECT collection_id, server_id, library_id, zotero_collection_key,
 					collection_version, path_json, last_synced_at
-				FROM zotero_collection_mappings WHERE namespace_id = ? AND server_id = ?`)
-					.all(this.namespace, serverId) as unknown as Array<Record<string, string | number>>
+				FROM zotero_collection_mappings WHERE server_id = ?`)
+					.all(serverId) as unknown as Array<Record<string, string | number>>
 			).map((row) => ({
-				namespace: this.namespace,
 				collectionId: String(row.collection_id),
 				serverId: String(row.server_id),
 				libraryId: String(row.library_id),
@@ -57,20 +55,18 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 	async saveZoteroItemMapping(mapping: ZoteroItemMapping): Promise<void> {
 		await this.initialize();
 		this.write((database) => {
-			const paper = database
-				.prepare("SELECT row_id FROM papers WHERE namespace_id = ? AND paper_id = ?")
-				.get(this.namespace, mapping.paperId) as { row_id: number } | undefined;
+			const paper = database.prepare("SELECT row_id FROM papers WHERE paper_id = ?").get(mapping.paperId) as
+				| { row_id: number }
+				| undefined;
 			if (!paper) throw new Error(`Personal paper not found: ${mapping.paperId}`);
 			database
-				.prepare(`INSERT INTO zotero_item_mappings(
-					namespace_id, paper_row_id, server_id, library_id, zotero_item_key,
+				.prepare(`INSERT INTO zotero_item_mappings( paper_row_id, server_id, library_id, zotero_item_key,
 					item_version, last_direction, last_synced_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(namespace_id, paper_row_id, server_id, library_id) DO UPDATE SET
+				) VALUES ( ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(paper_row_id, server_id, library_id) DO UPDATE SET
 					zotero_item_key=excluded.zotero_item_key, item_version=excluded.item_version,
 					last_direction=excluded.last_direction, last_synced_at=excluded.last_synced_at`)
 				.run(
-					this.namespace,
 					paper.row_id,
 					mapping.serverId,
 					mapping.libraryId,
@@ -86,16 +82,14 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 		await this.initialize();
 		this.write((database) => {
 			database
-				.prepare(`INSERT INTO zotero_collection_mappings(
-					namespace_id, collection_id, server_id, library_id, zotero_collection_key,
+				.prepare(`INSERT INTO zotero_collection_mappings( collection_id, server_id, library_id, zotero_collection_key,
 					collection_version, path_json, last_synced_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(namespace_id, collection_id, server_id, library_id) DO UPDATE SET
+				) VALUES ( ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(collection_id, server_id, library_id) DO UPDATE SET
 					zotero_collection_key=excluded.zotero_collection_key,
 					collection_version=excluded.collection_version,
 					path_json=excluded.path_json, last_synced_at=excluded.last_synced_at`)
 				.run(
-					this.namespace,
 					mapping.collectionId,
 					mapping.serverId,
 					mapping.libraryId,
@@ -111,20 +105,17 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 		return this.read((database) => {
 			const count = (table: string, currentOnly = "") =>
 				Number(
-					(
-						database
-							.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE namespace_id = ? ${currentOnly}`)
-							.get(this.namespace) as { count: number }
-					).count,
+					(database.prepare(`SELECT COUNT(*) AS count FROM ${table} ${currentOnly}`).get() as { count: number })
+						.count,
 				);
 			return {
 				schemaVersion: 1,
 				scope: "personal",
-				namespace: this.namespace,
+
 				updatedAt: new Date().toISOString(),
 				recordCount: count("papers"),
 				searchRunCount: count("search_runs"),
-				derivedRecordCount: count("derived_records", "AND is_current = 1"),
+				derivedRecordCount: count("derived_records", "WHERE is_current = 1"),
 			};
 		});
 	}
@@ -135,10 +126,7 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 			.toISOString()
 			.replace(/[^0-9]/g, "")
 			.slice(0, 14);
-		const destination = join(
-			resolve(destinationRoot),
-			`personal-${this.namespace}-${timestamp}-${randomUUID().slice(0, 8)}`,
-		);
+		const destination = join(resolve(destinationRoot), `personal-${timestamp}-${randomUUID().slice(0, 8)}`);
 		await mkdir(destination, { recursive: true });
 		const database = this.open();
 		try {
@@ -157,11 +145,11 @@ export class PersonalDatabaseAdmin extends PersonalLocalImportRepository {
 		this.write((database) => {
 			database
 				.prepare(
-					"INSERT INTO export_runs(id, namespace_id, format, filename, relative_path, paper_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO export_runs(id, format, filename, relative_path, paper_count, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 				)
 				.run(
 					`export-${randomUUID()}`,
-					this.namespace,
+
 					format,
 					filename,
 					relative(this.dataRoot, path),

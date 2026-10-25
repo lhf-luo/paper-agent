@@ -19,7 +19,7 @@ afterEach(async () => {
 async function store() {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-canvas-"));
 	temporaryPaths.push(root);
-	return new ResearchCanvasStore(join(root, "personal.sqlite"), "default");
+	return new ResearchCanvasStore(join(root, "personal.sqlite"));
 }
 
 describe("research canvas storage", () => {
@@ -231,8 +231,8 @@ describe("research canvas storage", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-canvas-settings-"));
 		temporaryPaths.push(root);
 		const databasePath = join(root, "personal.sqlite");
-		const repository = new ResearchCanvasStore(databasePath, "first");
-		const otherNamespace = new ResearchCanvasStore(databasePath, "second");
+		const repository = new ResearchCanvasStore(databasePath);
+		const otherNamespace = new ResearchCanvasStore(databasePath);
 		const source = repository.create("研究关系");
 		const node = {
 			id: "text-1",
@@ -288,8 +288,8 @@ describe("research canvas storage", () => {
 		expect(repository.rename(copy?.id ?? "", 0, "独立副本")?.revision).toBe(1);
 		expect(repository.get(source.id)?.title).toBe("新名称");
 		expect(() => repository.duplicate(source.id, 1)).toThrow(CanvasRevisionConflict);
-		expect(otherNamespace.get(source.id)).toBeUndefined();
-		expect(otherNamespace.get(copy?.id ?? "")).toBeUndefined();
+		expect(otherNamespace.get(source.id)?.id).toBe(source.id);
+		expect(otherNamespace.get(copy?.id ?? "")?.id).toBe(copy?.id);
 		expect(repository.delete(source.id, renamed?.revision ?? -1)).toBe(true);
 		expect(repository.get(source.id)).toBeUndefined();
 		expect(repository.get(copy?.id ?? "")?.nodes).toEqual(saved?.nodes);
@@ -340,15 +340,14 @@ describe("research canvas storage", () => {
 				provenance: [{ provider: "local-pdf", query: "test", retrievedAt: "2026-01-01T00:00:00.000Z" }],
 				mergedFrom: [],
 			};
-			await application.personalStore("first").upsertPaper(paper);
-			const created = await request("/api/canvases", "POST", { namespace: "first", title: "测试画布" });
+			await application.personalStore().upsertPaper(paper);
+			const created = await request("/api/canvases", "POST", { title: "测试画布" });
 			expect(created.status).toBe(201);
 			const { canvas } = (await created.json()) as {
 				canvas: { id: string; revision: number; title: string; viewport: { x: number; y: number; scale: number } };
 			};
-			expect((await (await request("/api/canvases?namespace=second")).json()).canvases).toEqual([]);
+			expect((await (await request("/api/canvases")).json()).canvases).toHaveLength(1);
 			const updated = await request(`/api/canvases/${canvas.id}`, "PUT", {
-				namespace: "first",
 				expectedRevision: 0,
 				document: {
 					title: "更新画布",
@@ -369,19 +368,17 @@ describe("research canvas storage", () => {
 				},
 			});
 			expect(updated.status).toBe(200);
-			const opened = await (await request(`/api/canvases/${canvas.id}?namespace=first`)).json();
+			const opened = await (await request(`/api/canvases/${canvas.id}`)).json();
 			expect(opened.canvas.title).toBe("更新画布");
 			expect(opened.references.papers).toMatchObject([{ id: paper.id, title: paper.title }]);
 			const copied = await request(`/api/canvases/${canvas.id}/copy`, "POST", {
-				namespace: "first",
 				expectedRevision: 1,
 			});
 			expect(copied.status).toBe(201);
 			const copy = (await copied.json()).canvas as { id: string; revision: number; title: string; nodes: unknown[] };
 			expect(copy).toMatchObject({ title: "更新画布 副本", revision: 0, nodes: opened.canvas.nodes });
-			expect((await request(`/api/canvases/${copy.id}?namespace=second`)).status).toBe(404);
+			expect((await request(`/api/canvases/${copy.id}`)).status).toBe(200);
 			const renamed = await request(`/api/canvases/${canvas.id}`, "PATCH", {
-				namespace: "first",
 				expectedRevision: 1,
 				title: "重新命名",
 			});
@@ -390,7 +387,6 @@ describe("research canvas storage", () => {
 			expect(
 				(
 					await request(`/api/canvases/${canvas.id}`, "PUT", {
-						namespace: "first",
 						expectedRevision: 0,
 						document: { title: "过期版本", nodes: [], edges: [], viewport: canvas.viewport },
 					})
@@ -399,7 +395,6 @@ describe("research canvas storage", () => {
 			expect(
 				(
 					await request(`/api/canvases/${canvas.id}`, "PUT", {
-						namespace: "first",
 						expectedRevision: 2,
 						document: {
 							title: "非法连线",
@@ -410,15 +405,11 @@ describe("research canvas storage", () => {
 					})
 				).status,
 			).toBe(400);
-			expect((await request(`/api/canvases/${canvas.id}?namespace=second`)).status).toBe(404);
-			expect(
-				(await request(`/api/canvases/${canvas.id}`, "DELETE", { namespace: "first", expectedRevision: 2 })).status,
-			).toBe(200);
-			expect((await request(`/api/canvases/${copy.id}?namespace=first`)).status).toBe(200);
-			expect(
-				(await request(`/api/canvases/${copy.id}`, "DELETE", { namespace: "first", expectedRevision: 0 })).status,
-			).toBe(200);
-			expect(await application.personalStore("first").getPaper(paper.id)).toMatchObject({ id: paper.id });
+			expect((await request(`/api/canvases/${canvas.id}`)).status).toBe(200);
+			expect((await request(`/api/canvases/${canvas.id}`, "DELETE", { expectedRevision: 2 })).status).toBe(200);
+			expect((await request(`/api/canvases/${copy.id}`)).status).toBe(200);
+			expect((await request(`/api/canvases/${copy.id}`, "DELETE", { expectedRevision: 0 })).status).toBe(200);
+			expect(await application.personalStore().getPaper(paper.id)).toMatchObject({ id: paper.id });
 		} finally {
 			await server.close();
 			await application.close();

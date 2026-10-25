@@ -146,20 +146,18 @@ describe("local Web Agent routes", () => {
 			expect(await configResponse.json()).toMatchObject({ providerId: "fake", credentialsAvailable: true });
 			const sessionsResponse = await authenticated("/api/agent/sessions");
 			expect(await sessionsResponse.json()).toMatchObject({ sessions: [{ id: "session-one" }] });
-			const paperSessionsResponse = await authenticated(
-				"/api/agent/sessions?scope=paper&namespace=alternate&paperId=paper-one",
-			);
+			const paperSessionsResponse = await authenticated("/api/agent/sessions?scope=paper&paperId=paper-one");
 			expect(paperSessionsResponse.status).toBe(200);
-			expect(listedFilter).toEqual({ scope: "paper", namespace: "alternate", paperId: "paper-one" });
+			expect(listedFilter).toEqual({ scope: "paper", paperId: "paper-one" });
 			const createdResponse = await authenticated("/api/agent/sessions", {
 				method: "POST",
 				body: JSON.stringify({
 					mode: "persistent",
-					context: { kind: "paper", namespace: "alternate", paperId: "paper-one" },
+					context: { kind: "paper", paperId: "paper-one" },
 				}),
 			});
 			expect(createdResponse.status).toBe(201);
-			expect(createdContext).toEqual({ kind: "paper", namespace: "alternate", paperId: "paper-one" });
+			expect(createdContext).toEqual({ kind: "paper", paperId: "paper-one" });
 			const settingsResponse = await authenticated("/api/agent/sessions/session-one/settings", {
 				method: "POST",
 				body: JSON.stringify({ thinkingLevel: "high", permissionMode: "auto" }),
@@ -181,7 +179,6 @@ describe("local Web Agent routes", () => {
 				messages: [{ content: "route hello" }],
 			});
 			const readingContext = {
-				namespace: "alternate",
 				paperId: "paper-one",
 				title: "Example paper",
 				pdfPath: "/tmp/example.pdf",

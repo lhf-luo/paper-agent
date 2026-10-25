@@ -17,7 +17,7 @@ export function registerLiteratureCorpusTool(pi: ExtensionAPI): void {
 			"Audit, export, annotate, delete, or review a persistent corpus, or explicitly propose selected personal records to a team corpus. Destructive deletion is personal-only and requires exact confirmation.",
 		promptSnippet: "Audit, curate, delete, review, export, or promote reusable literature records",
 		promptGuidelines: [
-			"Keep personal and team namespaces separate; use promote only after checking record relevance and provenance.",
+			"Keep personal and team libraries separate; use promote only after checking record relevance and provenance.",
 		],
 		parameters: Type.Object({
 			action: Type.Union([
@@ -29,14 +29,14 @@ export function registerLiteratureCorpusTool(pi: ExtensionAPI): void {
 				Type.Literal("review"),
 			]),
 			scope: Type.Optional(scopeSchema),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			format: Type.Optional(
 				Type.Union([Type.Literal("markdown"), Type.Literal("csv"), Type.Literal("bibtex"), Type.Literal("json")]),
 			),
 			filename: Type.Optional(Type.String()),
 			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
-			target_namespace: Type.Optional(Type.String()),
+
 			target_corpus_root: Type.Optional(Type.String()),
 			contributor: Type.Optional(Type.String({ description: "Required for annotate and promote" })),
 			tags: Type.Optional(Type.Array(Type.String(), { maxItems: 50 })),
@@ -56,12 +56,8 @@ export function registerLiteratureCorpusTool(pi: ExtensionAPI): void {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const scope = params.scope ?? "personal";
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, scope, namespace, params.corpus_root),
-				scope,
-				namespace,
-			);
+
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, scope, params.corpus_root), scope);
 			if (params.action === "audit") {
 				const audit = await store.audit({ readOnly: true });
 				return {
@@ -75,10 +71,9 @@ export function registerLiteratureCorpusTool(pi: ExtensionAPI): void {
 				const records = await Promise.all(params.paper_ids.map((id) => store.getPaper(id)));
 				const plan: OperationPlan = {
 					kind: "personal-paper-remove",
-					summary: `Delete ${params.paper_ids.length} personal literature record(s) from ${namespace}`,
+					summary: `Delete ${params.paper_ids.length} personal literature record(s) from the personal library`,
 					targets: [{ label: "personal-corpus", value: store.root, risk: "high" }],
 					details: {
-						namespace,
 						paperIds: [...params.paper_ids].sort(),
 						titles: records
 							.filter((record): record is PaperRecord => Boolean(record))
@@ -194,11 +189,10 @@ export function registerLiteratureCorpusTool(pi: ExtensionAPI): void {
 			}
 			if (scope !== "personal") throw new Error("Promotion source must be a personal corpus");
 			if (!params.contributor?.trim()) throw new Error("contributor is required when action=promote");
-			const targetNamespace = params.target_namespace ?? namespace;
+
 			const target = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "team", targetNamespace, params.target_corpus_root ?? params.corpus_root),
+				resolveCorpusRoot(ctx.cwd, "team", params.target_corpus_root ?? params.corpus_root),
 				"team",
-				targetNamespace,
 			);
 			const requested = params.paper_ids
 				? await Promise.all(params.paper_ids.map(async (id) => ({ id, record: await store.getPaper(id) })))

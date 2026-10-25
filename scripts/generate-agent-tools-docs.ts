@@ -1,6 +1,8 @@
+import { registerCanvasSearchTools } from "../src/canvas/presentation/canvas-search-tools.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { CanvasResearchService } from "../src/canvas/application/canvas-research-service.ts";
+import { registerCanvasEditingTools } from "../src/canvas/presentation/canvas-editing-tools.ts";
 import { registerCanvasResearchTools } from "../src/canvas/presentation/canvas-research-tools.ts";
 import paperAgentExtension from "../src/index.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
@@ -14,12 +16,15 @@ async function main(): Promise<void> {
 	const tools = collectRegisteredTools(paperAgentExtension);
 	// Registration only: no database or network is accessed by this documentation context.
 	const canvasService = new CanvasResearchService(
-		new LiteratureStore(resolveCorpusRoot(process.cwd(), "personal", "default"), "personal", "default"),
-		"default",
+		new LiteratureStore(resolveCorpusRoot(process.cwd(), "personal"), "personal"),
 		"documentation",
 		"documentation",
 	);
-	const canvasTools = collectRegisteredTools((pi) => registerCanvasResearchTools(pi, canvasService));
+	const canvasTools = collectRegisteredTools((pi) => {
+		registerCanvasResearchTools(pi, canvasService);
+		registerCanvasEditingTools(pi, canvasService);
+		registerCanvasSearchTools(pi, canvasService);
+	});
 	const lines = [
 		"# Agent 工具清单",
 		"",
@@ -38,11 +43,15 @@ async function main(): Promise<void> {
 		"",
 		"## 画布会话专属工具",
 		"",
-		"仅在绑定 namespace 和画布的 Agent 会话注册；通用和论文会话不提供这些工具。预览确认不能被自动权限模式跳过。",
+		"仅在绑定画布的 Agent 会话注册；通用和论文会话不提供这些工具。预览确认不能被自动权限模式跳过。",
 		"",
 		"| 工具 | 用途 |",
 		"| --- | --- |",
 		...canvasTools.map((tool) => `| \`${escapeCell(tool.name)}\` | ${escapeCell(tool.description)} |`),
+		"",
+		"## 网页会话 MCP 工具",
+		"",
+		"项目 MCP 配置中启用的服务，在通用、论文阅读和画布会话启动时动态注册。工具名为 mcp__服务名__工具名，实际参数通过 inspect_agent_tools 查询。工具调用沿用网页权限确认，连接与配置说明见 [浏览器 MCP](browser-mcp.md)。",
 		"",
 	];
 	const target = resolve(process.cwd(), "docs", "agent-tools.md");

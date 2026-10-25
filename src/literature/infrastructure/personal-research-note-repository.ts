@@ -55,15 +55,15 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 		return database
 			.prepare(`SELECT row_id, note_id, title, relative_path, template_id, revision,
 				content_hash, created_at, updated_at, folder_id
-				FROM research_notes WHERE namespace_id = ? AND note_id = ?`)
-			.get(this.namespace, noteId) as ResearchNoteRow | undefined;
+				FROM research_notes WHERE note_id = ?`)
+			.get(noteId) as ResearchNoteRow | undefined;
 	}
 
 	private folderRow(database: DatabaseSync, folderId: string): ResearchNoteFolderRow | undefined {
 		return database
 			.prepare(`SELECT folder_id, name, parent_id, relative_path, created_at, updated_at
-				FROM research_note_folders WHERE namespace_id = ? AND folder_id = ?`)
-			.get(this.namespace, folderId) as ResearchNoteFolderRow | undefined;
+				FROM research_note_folders WHERE folder_id = ?`)
+			.get(folderId) as ResearchNoteFolderRow | undefined;
 	}
 
 	private folderSummary(row: ResearchNoteFolderRow): ResearchNoteFolder {
@@ -130,7 +130,7 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 	}
 
 	private notePath(title: string, noteId: string, folderPath?: string): { absolute: string; relative: string } {
-		const directory = folderPath ? resolve(this.dataRoot, folderPath) : join(this.dataRoot, "notes", this.namespace);
+		const directory = folderPath ? resolve(this.dataRoot, folderPath) : join(this.dataRoot, "notes");
 		const safeTitle = safePathSegment(title, "note");
 		const suffix = noteId.replace(/[^a-z0-9]/gi, "").slice(-8) || randomUUID().slice(0, 8);
 		const absolute = join(directory, `${safeTitle}--${suffix}.md`);
@@ -140,13 +140,13 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 	private requestedFolder(database: DatabaseSync, folderId?: string | null): ResearchNoteFolderRow | undefined {
 		if (!folderId) return undefined;
 		const folder = this.folderRow(database, folderId);
-		if (!folder) throw new Error(`Research note folder is not in namespace ${this.namespace}: ${folderId}`);
+		if (!folder) throw new Error(`Research note folder is not in the personal workspace: ${folderId}`);
 		return folder;
 	}
 
 	async syncResearchNotes(): Promise<ResearchNoteSyncResult> {
 		await this.initialize();
-		const key = `${this.databasePath}:${this.namespace}`;
+		const key = `${this.databasePath}`;
 		const existing = researchNoteSyncs.get(key);
 		if (existing) return existing;
 		const sync = this.performResearchNoteSync();
@@ -159,10 +159,10 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 	}
 
 	private async performResearchNoteSync(): Promise<ResearchNoteSyncResult> {
-		const root = join(this.dataRoot, "notes", this.namespace);
+		const root = join(this.dataRoot, "notes");
 		await mkdir(root, { recursive: true });
-		const scan = await scanResearchNoteFiles(this.dataRoot, this.namespace);
-		return this.write((database) => reconcileResearchNoteFiles(database, this.namespace, scan));
+		const scan = await scanResearchNoteFiles(this.dataRoot);
+		return this.write((database) => reconcileResearchNoteFiles(database, scan));
 	}
 
 	async listResearchNoteFolders(): Promise<ResearchNoteFolder[]> {
@@ -171,8 +171,8 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 			(
 				database
 					.prepare(`SELECT folder_id, name, parent_id, relative_path, created_at, updated_at
-						FROM research_note_folders WHERE namespace_id = ? ORDER BY name COLLATE NOCASE`)
-					.all(this.namespace) as unknown as ResearchNoteFolderRow[]
+						FROM research_note_folders ORDER BY name COLLATE NOCASE`)
+					.all() as unknown as ResearchNoteFolderRow[]
 			).map((row) => this.folderSummary(row)),
 		);
 	}
@@ -180,10 +180,10 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 	private replacePaperLinks(database: DatabaseSync, noteRowId: number, paperIds: string[], now: string): void {
 		const ids = uniquePaperIds(paperIds);
 		const rows = ids.map((paperId) => {
-			const row = database
-				.prepare("SELECT row_id FROM papers WHERE namespace_id = ? AND paper_id = ?")
-				.get(this.namespace, paperId) as { row_id: number } | undefined;
-			if (!row) throw new Error(`Research note paper is not in namespace ${this.namespace}: ${paperId}`);
+			const row = database.prepare("SELECT row_id FROM papers WHERE paper_id = ?").get(paperId) as
+				| { row_id: number }
+				| undefined;
+			if (!row) throw new Error(`Research note paper is not in the personal workspace: ${paperId}`);
 			return row.row_id;
 		});
 		database.prepare("DELETE FROM research_note_papers WHERE note_row_id = ?").run(noteRowId);
@@ -203,12 +203,10 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 					FROM research_notes rn
 					LEFT JOIN research_note_papers rnp ON rnp.note_row_id = rn.row_id
 					LEFT JOIN papers p ON p.row_id = rnp.paper_row_id
-					WHERE rn.namespace_id = ?
-					AND (? IS NULL OR lower(rn.title) LIKE '%' || ? || '%')
+					WHERE (? IS NULL OR lower(rn.title) LIKE '%' || ? || '%')
 					AND (? IS NULL OR p.paper_id = ?)
 					ORDER BY rn.updated_at DESC, rn.row_id DESC`)
 				.all(
-					this.namespace,
 					normalizedQuery,
 					normalizedQuery,
 					paperId ?? null,
@@ -253,12 +251,10 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 		try {
 			this.write((database) => {
 				database
-					.prepare(`INSERT INTO research_notes(
-						namespace_id, note_id, title, relative_path, template_id, revision,
+					.prepare(`INSERT INTO research_notes( note_id, title, relative_path, template_id, revision,
 						content_hash, created_at, updated_at, folder_id
-					) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`)
+					) VALUES ( ?, ?, ?, ?, 1, ?, ?, ?, ?)`)
 					.run(
-						this.namespace,
 						noteId,
 						title,
 						path.relative,
@@ -336,7 +332,7 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 		const relativePath = relative(
 			this.dataRoot,
 			join(
-				parent ? resolve(this.dataRoot, parent.relative_path) : join(this.dataRoot, "notes", this.namespace),
+				parent ? resolve(this.dataRoot, parent.relative_path) : join(this.dataRoot, "notes"),
 				safePathSegment(name, "folder"),
 			),
 		);
@@ -349,11 +345,11 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 			this.write((database) =>
 				database
 					.prepare(`INSERT INTO research_note_folders(
-						folder_id, namespace_id, name, normalized_name, parent_id, relative_path, created_at, updated_at
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+						folder_id, name, normalized_name, parent_id, relative_path, created_at, updated_at
+					) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 					.run(
 						folderId,
-						this.namespace,
+
 						name,
 						name.normalize("NFKC").toLocaleLowerCase(),
 						parent?.folder_id ?? null,
@@ -387,9 +383,7 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 		const nextRelative = relative(
 			this.dataRoot,
 			join(
-				state.parent
-					? resolve(this.dataRoot, state.parent.relative_path)
-					: join(this.dataRoot, "notes", this.namespace),
+				state.parent ? resolve(this.dataRoot, state.parent.relative_path) : join(this.dataRoot, "notes"),
 				safePathSegment(name, "folder"),
 			),
 		);
@@ -403,8 +397,8 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 			const now = new Date().toISOString();
 			this.write((database) => {
 				const folderRows = database
-					.prepare("SELECT folder_id, relative_path FROM research_note_folders WHERE namespace_id = ?")
-					.all(this.namespace) as unknown as Array<{ folder_id: string; relative_path: string }>;
+					.prepare("SELECT folder_id, relative_path FROM research_note_folders")
+					.all() as unknown as Array<{ folder_id: string; relative_path: string }>;
 				for (const row of folderRows) {
 					if (
 						row.relative_path !== state.folder.relative_path &&
@@ -417,8 +411,8 @@ export abstract class PersonalResearchNoteRepository extends PersonalPaperReposi
 						.run(path, now, row.folder_id);
 				}
 				const noteRows = database
-					.prepare("SELECT row_id, relative_path FROM research_notes WHERE namespace_id = ?")
-					.all(this.namespace) as unknown as Array<{ row_id: number; relative_path: string }>;
+					.prepare("SELECT row_id, relative_path FROM research_notes")
+					.all() as unknown as Array<{ row_id: number; relative_path: string }>;
 				for (const row of noteRows) {
 					if (!row.relative_path.startsWith(`${state.folder.relative_path}${sep}`)) continue;
 					database

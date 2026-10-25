@@ -7,6 +7,12 @@ import {
 } from "../src/shared/presentation/agent-tool-catalog.ts";
 
 describe("agent tool catalog", () => {
+	it("rejects duplicate names instead of silently replacing an available tool", () => {
+		const catalog = new AgentToolCatalog();
+		const tool = collectRegisteredTools(paperAgentExtension)[0];
+		catalog.add(tool);
+		expect(() => catalog.add(tool)).toThrow("already registered");
+	});
 	it("lists the actual extension tools without executing them", () => {
 		const tools = collectRegisteredTools(paperAgentExtension);
 		const names = tools.map((tool) => tool.name);

@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { collectionDescendantIds, validateCollectionParent } from "../domain/collection-hierarchy.ts";
 import type { PaperCollection, PaperRecord, PaperVersion, SearchRun } from "../domain/literature-types.ts";
@@ -22,12 +21,12 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 					FROM paper_versions pv
 					JOIN papers p ON p.row_id = pv.paper_row_id
 					JOIN stored_files sf ON sf.id = pv.file_id
-					WHERE p.namespace_id = ? AND p.paper_id IN (${placeholders})`)
-				.get(this.namespace, ...uniqueIds) as { count: number; bytes: number };
+					WHERE p.paper_id IN (${placeholders})`)
+				.get(...uniqueIds) as { count: number; bytes: number };
 			const derived = database
 				.prepare(`SELECT COUNT(*) AS count FROM derived_records
-					WHERE namespace_id = ? AND is_current = 1 AND paper_id IN (${placeholders})`)
-				.get(this.namespace, ...uniqueIds) as { count: number };
+					WHERE is_current = 1 AND paper_id IN (${placeholders})`)
+				.get(...uniqueIds) as { count: number };
 			return {
 				pdfVersionCount: versions.count,
 				pdfBytes: versions.bytes,
@@ -44,26 +43,24 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 		await this.initialize();
 		return this.read((database) => {
 			const allPaperIds = (
-				database
-					.prepare("SELECT paper_id FROM papers WHERE namespace_id = ? ORDER BY paper_id")
-					.all(this.namespace) as unknown as Array<{ paper_id: string }>
+				database.prepare("SELECT paper_id FROM papers ORDER BY paper_id").all() as unknown as Array<{
+					paper_id: string;
+				}>
 			).map((row) => row.paper_id);
 			const uncategorizedPaperIds = (
 				database
 					.prepare(`SELECT p.paper_id FROM papers p
-						WHERE p.namespace_id = ?
-						AND NOT EXISTS (SELECT 1 FROM paper_collections pc WHERE pc.paper_row_id = p.row_id)
+						WHERE NOT EXISTS (SELECT 1 FROM paper_collections pc WHERE pc.paper_row_id = p.row_id)
 						ORDER BY p.paper_id`)
-					.all(this.namespace) as unknown as Array<{ paper_id: string }>
+					.all() as unknown as Array<{ paper_id: string }>
 			).map((row) => row.paper_id);
 			const collectionPaperIds: Record<string, string[]> = Object.fromEntries(
 				this.collectionRows(database).map((collection) => [collection.id, []]),
 			);
 			const memberships = database
 				.prepare(`SELECT pc.collection_id, p.paper_id
-					FROM paper_collections pc JOIN papers p ON p.row_id = pc.paper_row_id
-					WHERE p.namespace_id = ? ORDER BY pc.collection_id, p.paper_id`)
-				.all(this.namespace) as unknown as Array<{ collection_id: string; paper_id: string }>;
+					FROM paper_collections pc JOIN papers p ON p.row_id = pc.paper_row_id ORDER BY pc.collection_id, p.paper_id`)
+				.all() as unknown as Array<{ collection_id: string; paper_id: string }>;
 			for (const row of memberships) collectionPaperIds[row.collection_id]?.push(row.paper_id);
 			return { allPaperIds, uncategorizedPaperIds, collectionPaperIds };
 		});
@@ -78,12 +75,8 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			const fileIds = database
 				.prepare("SELECT file_id FROM paper_versions WHERE paper_row_id = ?")
 				.all(row.row_id) as unknown as Array<{ file_id: string }>;
-			database
-				.prepare("DELETE FROM derived_records WHERE namespace_id = ? AND paper_id = ?")
-				.run(this.namespace, id);
-			database
-				.prepare("DELETE FROM artifact_manifests WHERE namespace_id = ? AND paper_id = ?")
-				.run(this.namespace, id);
+			database.prepare("DELETE FROM derived_records WHERE paper_id = ?").run(id);
+			database.prepare("DELETE FROM artifact_manifests WHERE paper_id = ?").run(id);
 			database.prepare("DELETE FROM paper_search WHERE paper_row_id = ?").run(row.row_id);
 			database.prepare("DELETE FROM papers WHERE row_id = ?").run(row.row_id);
 			for (const file of fileIds) database.prepare("DELETE FROM stored_files WHERE id = ?").run(file.file_id);
@@ -97,24 +90,22 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 		return this.write((database) => {
 			const deleted: string[] = [];
 			const missing: string[] = [];
-			const rowQuery = database.prepare("SELECT row_id FROM papers WHERE namespace_id = ? AND paper_id = ?");
+			const rowQuery = database.prepare("SELECT row_id FROM papers WHERE paper_id = ?");
 			const fileQuery = database.prepare("SELECT file_id FROM paper_versions WHERE paper_row_id = ?");
-			const deleteDerived = database.prepare("DELETE FROM derived_records WHERE namespace_id = ? AND paper_id = ?");
-			const deleteArtifacts = database.prepare(
-				"DELETE FROM artifact_manifests WHERE namespace_id = ? AND paper_id = ?",
-			);
+			const deleteDerived = database.prepare("DELETE FROM derived_records WHERE paper_id = ?");
+			const deleteArtifacts = database.prepare("DELETE FROM artifact_manifests WHERE paper_id = ?");
 			const deleteSearch = database.prepare("DELETE FROM paper_search WHERE paper_row_id = ?");
 			const deletePaper = database.prepare("DELETE FROM papers WHERE row_id = ?");
 			const deleteFile = database.prepare("DELETE FROM stored_files WHERE id = ?");
 			for (const id of uniqueIds) {
-				const row = rowQuery.get(this.namespace, id) as { row_id: number } | undefined;
+				const row = rowQuery.get(id) as { row_id: number } | undefined;
 				if (!row) {
 					missing.push(id);
 					continue;
 				}
 				const fileIds = fileQuery.all(row.row_id) as unknown as Array<{ file_id: string }>;
-				deleteDerived.run(this.namespace, id);
-				deleteArtifacts.run(this.namespace, id);
+				deleteDerived.run(id);
+				deleteArtifacts.run(id);
 				deleteSearch.run(row.row_id);
 				deletePaper.run(row.row_id);
 				for (const file of fileIds) deleteFile.run(file.file_id);
@@ -125,20 +116,13 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 	}
 
 	async listCollections(): Promise<PaperCollection[]> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "collections")))
-		)
-			return [];
+		if (!this.initialized && !(await pathExists(this.databasePath))) return [];
 		await this.initialize();
 		return this.read((database) =>
 			(
 				database
-					.prepare(
-						"SELECT id, name, parent_id, created_at, updated_at FROM collections WHERE namespace_id = ? ORDER BY created_at, id",
-					)
-					.all(this.namespace) as unknown as Array<{
+					.prepare("SELECT id, name, parent_id, created_at, updated_at FROM collections ORDER BY created_at, id")
+					.all() as unknown as Array<{
 					id: string;
 					name: string;
 					parent_id: string | null;
@@ -166,11 +150,11 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			validateCollectionParent(collections, collection.id, collection.parentId);
 			database
 				.prepare(
-					"INSERT INTO collections(id, namespace_id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, parent_id=excluded.parent_id, updated_at=excluded.updated_at",
+					"INSERT INTO collections(id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, parent_id=excluded.parent_id, updated_at=excluded.updated_at",
 				)
 				.run(
 					collection.id,
-					this.namespace,
+
 					collection.name,
 					collection.parentId ?? null,
 					collection.createdAt,
@@ -194,8 +178,8 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 				updatedAt: new Date().toISOString(),
 			};
 			database
-				.prepare("UPDATE collections SET name = ?, parent_id = ?, updated_at = ? WHERE namespace_id = ? AND id = ?")
-				.run(updated.name, updated.parentId ?? null, updated.updatedAt, this.namespace, id);
+				.prepare("UPDATE collections SET name = ?, parent_id = ?, updated_at = ? WHERE id = ?")
+				.run(updated.name, updated.parentId ?? null, updated.updatedAt, id);
 			return updated;
 		});
 	}
@@ -208,16 +192,12 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			const deletedIds = collectionDescendantIds(collections, id);
 			const deletedSet = new Set(deletedIds);
 			const affected = (
-				database
-					.prepare("SELECT record_json FROM papers WHERE namespace_id = ?")
-					.all(this.namespace) as unknown as Array<{ record_json: string }>
+				database.prepare("SELECT record_json FROM papers").all() as unknown as Array<{ record_json: string }>
 			)
 				.map((row) => parseJson<PaperRecord>(row.record_json))
 				.filter((paper) => paper.collectionIds?.some((collectionId) => deletedSet.has(collectionId)));
 			for (const collectionId of [...deletedIds].reverse()) {
-				database
-					.prepare("DELETE FROM collections WHERE namespace_id = ? AND id = ?")
-					.run(this.namespace, collectionId);
+				database.prepare("DELETE FROM collections WHERE id = ?").run(collectionId);
 			}
 			for (const paper of affected) {
 				this.syncPaper(database, {
@@ -241,9 +221,9 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			}
 			const uniqueIds = [...new Set(paperIds)];
 			const records = uniqueIds.map((paperId) => {
-				const row = database
-					.prepare("SELECT record_json FROM papers WHERE namespace_id = ? AND paper_id = ?")
-					.get(this.namespace, paperId) as { record_json: string } | undefined;
+				const row = database.prepare("SELECT record_json FROM papers WHERE paper_id = ?").get(paperId) as
+					| { record_json: string }
+					| undefined;
 				return row ? parseJson<PaperRecord>(row.record_json) : undefined;
 			});
 			const missing = uniqueIds.filter((_, index) => !records[index]);
@@ -264,8 +244,8 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 	private collectionRows(database: DatabaseSync): PaperCollection[] {
 		return (
 			database
-				.prepare("SELECT id, name, parent_id, created_at, updated_at FROM collections WHERE namespace_id = ?")
-				.all(this.namespace) as unknown as Array<{
+				.prepare("SELECT id, name, parent_id, created_at, updated_at FROM collections")
+				.all() as unknown as Array<{
 				id: string;
 				name: string;
 				parent_id: string | null;
@@ -295,11 +275,10 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 
 	protected syncSearchRun(database: DatabaseSync, run: SearchRun): void {
 		database
-			.prepare(`INSERT INTO search_runs(namespace_id, id, started_at, completed_at, filters_json, pages_per_provider, max_results_per_provider, deduplicated_count, corpus_hit_count, scope, mode, resumed_from_checkpoint, search_plan_json, candidate_table_json, run_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(namespace_id, id) DO UPDATE SET completed_at=excluded.completed_at, run_json=excluded.run_json, candidate_table_json=excluded.candidate_table_json`)
+			.prepare(`INSERT INTO search_runs( id, started_at, completed_at, filters_json, pages_per_provider, max_results_per_provider, deduplicated_count, corpus_hit_count, scope, mode, resumed_from_checkpoint, search_plan_json, candidate_table_json, run_json)
+			VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET completed_at=excluded.completed_at, run_json=excluded.run_json, candidate_table_json=excluded.candidate_table_json`)
 			.run(
-				this.namespace,
 				run.id,
 				run.startedAt,
 				run.completedAt,
@@ -322,18 +301,17 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			"search_failures",
 			"possible_duplicates",
 		])
-			database.prepare(`DELETE FROM ${table} WHERE namespace_id = ? AND run_id = ?`).run(this.namespace, run.id);
+			database.prepare(`DELETE FROM ${table} WHERE run_id = ?`).run(run.id);
 		const queryInsert = database.prepare(
-			"INSERT INTO search_run_queries(namespace_id, run_id, position, query) VALUES (?, ?, ?, ?)",
+			"INSERT INTO search_run_queries( run_id, position, query) VALUES ( ?, ?, ?)",
 		);
-		for (const [position, query] of run.queries.entries()) queryInsert.run(this.namespace, run.id, position, query);
+		for (const [position, query] of run.queries.entries()) queryInsert.run(run.id, position, query);
 		const providerInsert = database.prepare(
-			"INSERT INTO search_run_providers(namespace_id, run_id, provider, position, source_count, health_status, record_count, failure_count, checked_at, message, retry_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO search_run_providers( run_id, provider, position, source_count, health_status, record_count, failure_count, checked_at, message, retry_after) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		);
 		run.providers.forEach((provider, position) => {
 			const health = run.providerHealth?.[provider];
 			providerInsert.run(
-				this.namespace,
 				run.id,
 				provider,
 				position,
@@ -347,16 +325,15 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 			);
 		});
 		const resultInsert = database.prepare(
-			"INSERT INTO search_run_results(namespace_id, run_id, position, paper_id, record_json) VALUES (?, ?, ?, ?, ?)",
+			"INSERT INTO search_run_results( run_id, position, paper_id, record_json) VALUES ( ?, ?, ?, ?)",
 		);
 		for (const [position, record] of run.results.entries())
-			resultInsert.run(this.namespace, run.id, position, record.id, json(record));
+			resultInsert.run(run.id, position, record.id, json(record));
 		const failureInsert = database.prepare(
-			"INSERT INTO search_failures(namespace_id, run_id, provider, query, message, retryable, status_code, rate_limited, retry_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO search_failures( run_id, provider, query, message, retryable, status_code, rate_limited, retry_after) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?)",
 		);
 		for (const failure of run.failures)
 			failureInsert.run(
-				this.namespace,
 				run.id,
 				failure.provider,
 				failure.query,
@@ -367,60 +344,36 @@ export abstract class PersonalCollectionSearchRepository extends PersonalResearc
 				failure.retryAfter ?? null,
 			);
 		const duplicateInsert = database.prepare(
-			"INSERT INTO possible_duplicates(namespace_id, run_id, left_paper_id, right_paper_id, title_similarity, reason) VALUES (?, ?, ?, ?, ?, ?)",
+			"INSERT INTO possible_duplicates( run_id, left_paper_id, right_paper_id, title_similarity, reason) VALUES ( ?, ?, ?, ?, ?)",
 		);
 		for (const duplicate of run.possibleDuplicates ?? [])
-			duplicateInsert.run(
-				this.namespace,
-				run.id,
-				duplicate.leftId,
-				duplicate.rightId,
-				duplicate.titleSimilarity,
-				duplicate.reason,
-			);
+			duplicateInsert.run(run.id, duplicate.leftId, duplicate.rightId, duplicate.titleSimilarity, duplicate.reason);
 	}
 
-	async saveSearchRun(run: SearchRun, keep = 30): Promise<void> {
+	async saveSearchRun(run: SearchRun): Promise<void> {
 		await this.initialize();
-		this.write((database) => {
-			this.syncSearchRun(database, run);
-			const stale = database
-				.prepare("SELECT id FROM search_runs WHERE namespace_id = ? ORDER BY completed_at DESC LIMIT -1 OFFSET ?")
-				.all(this.namespace, keep) as unknown as Array<{ id: string }>;
-			for (const row of stale)
-				database.prepare("DELETE FROM search_runs WHERE namespace_id = ? AND id = ?").run(this.namespace, row.id);
-		});
+		this.write((database) => this.syncSearchRun(database, run));
 	}
 
 	async getSearchRun(id: string): Promise<SearchRun | undefined> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "search-runs", `${id}.json`)))
-		)
-			return undefined;
+		if (!this.initialized && !(await pathExists(this.databasePath))) return undefined;
 		await this.initialize();
 		return this.read((database) => {
-			const row = database
-				.prepare("SELECT run_json FROM search_runs WHERE namespace_id = ? AND id = ?")
-				.get(this.namespace, id) as { run_json: string } | undefined;
+			const row = database.prepare("SELECT run_json FROM search_runs WHERE id = ?").get(id) as
+				| { run_json: string }
+				| undefined;
 			return row ? parseJson<SearchRun>(row.run_json) : undefined;
 		});
 	}
 
 	async listSearchRuns(): Promise<SearchRun[]> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "search-runs")))
-		)
-			return [];
+		if (!this.initialized && !(await pathExists(this.databasePath))) return [];
 		await this.initialize();
 		return this.read((database) =>
 			(
-				database
-					.prepare("SELECT run_json FROM search_runs WHERE namespace_id = ? ORDER BY completed_at DESC")
-					.all(this.namespace) as unknown as Array<{ run_json: string }>
+				database.prepare("SELECT run_json FROM search_runs ORDER BY completed_at DESC").all() as unknown as Array<{
+					run_json: string;
+				}>
 			).map((row) => parseJson<SearchRun>(row.run_json)),
 		);
 	}

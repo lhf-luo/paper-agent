@@ -39,14 +39,10 @@ export class WebAgentSessionStore {
 	private readonly uploadsDir: string;
 	private readonly paperSessions?: PaperAgentSessionRepository;
 	private readonly personalDatabasePath?: string;
-	private readonly canvasDatabasePath?: (namespace: string) => string;
+	private readonly canvasDatabasePath?: () => string;
 	private readonly writes = new Map<string, PersistedViewWriteState>();
 
-	constructor(
-		projectRoot: string,
-		paperSessionDatabasePath?: string,
-		canvasDatabasePath?: (namespace: string) => string,
-	) {
+	constructor(projectRoot: string, paperSessionDatabasePath?: string, canvasDatabasePath?: () => string) {
 		this.personalDatabasePath = paperSessionDatabasePath;
 		this.inputs = new WebAgentInputStore(projectRoot);
 		this.canvasDatabasePath = canvasDatabasePath;
@@ -75,17 +71,7 @@ export class WebAgentSessionStore {
 			try {
 				const view = JSON.parse(await readFile(join(this.sessionViewDir, file), "utf8")) as PersistedSessionView;
 				if (!view.id || !Array.isArray(view.messages)) continue;
-				if (view.context?.kind === "paper" && this.paperSessions) {
-					if (this.paperSessions.hasPaper(view.context)) {
-						this.paperSessions.save({ ...view, context: view.context });
-						views.set(view.id, view);
-					} else {
-						await this.deleteRuntimeFiles(view.id);
-					}
-					await rm(join(this.sessionViewDir, file), { force: true });
-				} else {
-					views.set(view.id, view);
-				}
+				if (view.context?.kind !== "paper") views.set(view.id, view);
 			} catch {
 				// Ignore one corrupt snapshot without preventing other sessions from loading.
 			}
@@ -166,10 +152,10 @@ export class WebAgentSessionStore {
 	}
 
 	hasCanvas(context: Extract<WebAgentSessionContext, { kind: "canvas" }>): boolean {
-		const databasePath = this.canvasDatabasePath?.(context.namespace) ?? this.personalDatabasePath;
+		const databasePath = this.canvasDatabasePath?.() ?? this.personalDatabasePath;
 		if (!databasePath) return false;
 		if (!existsSync(databasePath)) return false;
-		return Boolean(new ResearchCanvasStore(databasePath, context.namespace).get(context.canvasId));
+		return Boolean(new ResearchCanvasStore(databasePath).get(context.canvasId));
 	}
 
 	pendingPaperCleanupIds(): string[] {

@@ -9,11 +9,11 @@ import {
 	sanitizePaperRecordForTeamProposal,
 	TeamCorpusHttpError,
 } from "../../team/application/team-corpus-client.ts";
+import { absolutePathLocations, createWikiWorkspaceForStore } from "../../team/application/team-personal-sources.ts";
 import { executeTeamPull, previewTeamPull, type TeamPullPreview } from "../../team/application/team-pull.ts";
 import { resolveRequestedTopics } from "../../team/application/team-topic-membership.ts";
 import type { TeamPageSnapshot, TeamReviewVersions } from "../../team/domain/team-corpus-types.ts";
 import type { WikiWorkspace } from "../../wiki/application/wiki-workspace.ts";
-import { absolutePathLocations, createWikiWorkspaceForStore } from "../../team/application/team-personal-sources.ts";
 
 import type {
 	TeamArtifactProposalInput,
@@ -37,8 +37,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	 * construction as its public `wikiWorkspace()`; keeping the wiring here lets team operations read personal
 	 * wiki pages without depending on a subclass.
 	 */
-	protected wikiWorkspaceFor(namespace = this.defaultNamespace): WikiWorkspace {
-		return createWikiWorkspaceForStore(this.dataRoot, namespace, this.personalStore(namespace));
+	protected wikiWorkspaceFor(): WikiWorkspace {
+		return createWikiWorkspaceForStore(this.dataRoot, this.personalStore());
 	}
 
 	protected async teamPaperProposalPlan(
@@ -46,8 +46,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	): Promise<{ records: PaperRecord[]; requestedTopicIds?: string[]; plan: OperationPlan }> {
 		if (!input.paperIds.length || input.paperIds.length > 500)
 			throw new Error("Select between 1 and 500 personal papers");
-		const namespace = input.personalNamespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const requested = await Promise.all(input.paperIds.map(async (id) => ({ id, record: await store.getPaper(id) })));
 		const missing = requested.filter((item) => !item.record).map((item) => item.id);
 		if (missing.length) throw new Error(`Personal corpus does not contain: ${missing.join(", ")}`);
@@ -74,7 +74,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl: team.serverUrl,
 					connectionFingerprint: team.connectionFingerprint,
 					teamNamespace: team.namespace,
-					personalNamespace: namespace,
+
 					privacy: "Personal notes and screening decisions are removed; tags and source provenance remain.",
 					// The confirmation manifest must disclose the categories a reviewer will apply.
 					...(requestedTopicIds ? { requestedTopicIds } : {}),
@@ -102,18 +102,18 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	protected async teamPullPlan(input: TeamPullInput): Promise<{
 		plan: OperationPlan;
 		previews: TeamPullPreview[];
-		personalNamespace: string;
+
 		includePdf: boolean;
 	}> {
 		if (!input.paperIds.length || input.paperIds.length > 200)
 			throw new Error("Select between 1 and 200 team papers");
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
+
 		const includePdf = input.includePdf ?? false;
 		const { client, namespace, serverUrl, connectionFingerprint } = await this.configuredTeam();
 		const previews = await previewTeamPull(client, namespace, input.paperIds);
 		return {
 			previews,
-			personalNamespace,
+
 			includePdf,
 			plan: {
 				kind: "personal-corpus-write",
@@ -128,7 +128,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl,
 					connectionFingerprint,
 					teamNamespace: namespace,
-					personalNamespace,
+
 					includePdf,
 					papers: previews.map((preview) => ({
 						id: preview.record.id,
@@ -149,7 +149,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 		const prepared = await this.teamPullPlan(input);
 		await this.consent.consume(grant, prepared.plan);
 		const { client, namespace } = await this.configuredTeam(prepared.plan.details.connectionFingerprint as string);
-		const store = this.personalStore(prepared.personalNamespace);
+		const store = this.personalStore();
 		await store.initialize();
 		// The previews were fetched by the plan that was just consumed, so what lands is exactly what the manifest
 		// disclosed; no second round of team requests is needed.
@@ -168,8 +168,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	}> {
 		if (!input.keys.length || input.keys.length > 200)
 			throw new Error("Select between 1 and 200 personal derived records");
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
-		const store = this.personalStore(personalNamespace);
+
+		const store = this.personalStore();
 		await store.initialize();
 		const records: DerivedRecord[] = [];
 		const warnings: string[] = [];
@@ -202,7 +202,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl: team.serverUrl,
 					connectionFingerprint: team.connectionFingerprint,
 					teamNamespace: team.namespace,
-					personalNamespace,
+
 					keys: records.map((record) => record.key),
 					warnings,
 					preview: records,
@@ -228,10 +228,10 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 	}> {
 		if (!input.sources.length || input.sources.length > 200)
 			throw new Error("Select between 1 and 200 personal knowledge sources");
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
-		const store = this.personalStore(personalNamespace);
+
+		const store = this.personalStore();
 		await store.initialize();
-		const workspace = this.wikiWorkspaceFor(personalNamespace);
+		const workspace = this.wikiWorkspaceFor();
 		const records: TeamPageSnapshot[] = [];
 		const warnings: string[] = [];
 		const seen = new Set<string>();
@@ -246,7 +246,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 				snapshot = {
 					key,
 					sourceId: note.id,
-					sourceNamespace: personalNamespace,
+					sourceNamespace: "personal",
 					kind: "note",
 					title: note.title,
 					markdown: note.markdown,
@@ -262,7 +262,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 				snapshot = {
 					key,
 					sourceId: page.id,
-					sourceNamespace: personalNamespace,
+					sourceNamespace: "personal",
 					kind: "wiki",
 					title: page.title,
 					markdown: page.markdown,
@@ -298,7 +298,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl: team.serverUrl,
 					connectionFingerprint: team.connectionFingerprint,
 					teamNamespace: team.namespace,
-					personalNamespace,
+
 					keys: records.map((record) => record.key),
 					warnings,
 					preview: records.map(({ createdAt: _createdAt, ...snapshot }) => snapshot),
@@ -462,8 +462,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 			throw new Error("Select a completed artifact job or a saved manifest");
 		if (input.artifactJobId && input.artifactJobId.length > 200) throw new Error("artifactJobId is too long");
 		if (!input.paperId?.trim() || input.paperId.length > 500) throw new Error("paperId is required");
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
-		const paper = await this.personalStore(personalNamespace).getPaper(input.paperId);
+
+		const paper = await this.personalStore().getPaper(input.paperId);
 		if (!paper) throw new Error("The artifact manifest must be linked to a paper in the selected personal corpus");
 		const job = input.artifactJobId ? this.jobs.get(input.artifactJobId) : undefined;
 		if (
@@ -478,7 +478,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 				: job.type === "artifact-acquisition"
 					? (job.result as { manifest?: ArtifactManifest }).manifest
 					: undefined
-			: (await this.personalStore(personalNamespace).listArtifactManifests(input.paperId)).find(
+			: (await this.personalStore().listArtifactManifests(input.paperId)).find(
 					(entry) => entry.pdfSha256 === input.manifestSha256,
 				);
 		if (!source?.pdfSha256 || !Array.isArray(source.candidates) || !Array.isArray(source.acquisitions)) {
@@ -497,7 +497,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl: team.serverUrl,
 					connectionFingerprint: team.connectionFingerprint,
 					teamNamespace: team.namespace,
-					personalNamespace,
+
 					paper: { id: paper.id, title: paper.title },
 					manifest,
 				},
@@ -518,8 +518,8 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 
 	protected async teamBlobUploadPlan(input: TeamBlobUploadInput) {
 		if (!/^[a-f0-9]{64}$/i.test(input.sha256)) throw new Error("sha256 is invalid");
-		const personalNamespace = input.personalNamespace ?? this.defaultNamespace;
-		const versions = await this.personalStore(personalNamespace).listPaperVersions(input.paperId);
+
+		const versions = await this.personalStore().listPaperVersions(input.paperId);
 		const version = versions.find((candidate) => candidate.sha256 === input.sha256.toLowerCase());
 		if (!version) throw new Error("The selected PDF version is not present in the personal corpus");
 		const team = await this.configuredTeam();
@@ -534,7 +534,7 @@ export abstract class PaperAgentTeamOperations extends PaperAgentTeamAccess {
 					serverUrl: team.serverUrl,
 					connectionFingerprint: team.connectionFingerprint,
 					teamNamespace: team.namespace,
-					personalNamespace,
+
 					paperId: input.paperId,
 					sha256: version.sha256,
 					bytes: version.bytes,

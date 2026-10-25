@@ -1,12 +1,13 @@
 import "./agent-input-controls.css";
-import { ArrowUp, ChevronDown, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, Loader2, Pause } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentPendingInput } from "./types";
+import type { AgentPendingInput } from "./types.ts";
 
 export type AgentDelivery = "steer" | "followUp";
 
 export function AgentInputControls({
 	running,
+	hasDraft,
 	paused,
 	disabled,
 	stopping,
@@ -16,6 +17,7 @@ export function AgentInputControls({
 	onStop,
 }: {
 	running: boolean;
+	hasDraft: boolean;
 	paused: boolean;
 	disabled: boolean;
 	stopping: boolean;
@@ -46,31 +48,43 @@ export function AgentInputControls({
 		};
 	}, [open]);
 	const label = paused ? "待发" : running ? (delivery === "steer" ? "插话" : "追加") : "发送";
+	const pauseAction = running && (!hasDraft || stopping);
 	return (
 		<div className="agent-input-actions" ref={root}>
-			{running && (
-				<button
-					className="agent-input-stop"
-					type="button"
-					onClick={onStop}
-					disabled={stopping}
-					aria-label="停止生成"
-					title="停止当前运行，保留待发消息"
-				>
-					<Square size={12} fill="currentColor" />
-				</button>
-			)}
 			<div className="agent-send-split">
 				<button
 					className="agent-send-button"
 					type="button"
-					onClick={onSend}
-					disabled={disabled}
-					aria-label={paused ? "加入待发" : running ? (delivery === "steer" ? "插话纠正" : "追加任务") : "发送"}
-					title={`${label} (Ctrl/Cmd + Enter)`}
+					onClick={() => {
+						setOpen(false);
+						if (pauseAction) onStop();
+						else onSend();
+					}}
+					disabled={stopping || (!pauseAction && disabled)}
+					aria-label={
+						pauseAction
+							? stopping
+								? "暂停中"
+								: "暂停当前运行"
+							: paused
+								? "加入待发"
+								: running
+									? delivery === "steer"
+										? "插话纠正"
+										: "追加任务"
+									: "发送"
+					}
+					aria-busy={stopping || undefined}
+					title={pauseAction ? "暂停当前运行，保留待发消息" : `${label} (Ctrl/Cmd + Enter)`}
 				>
-					<span>{label}</span>
-					<ArrowUp size={14} />
+					<span>{pauseAction ? (stopping ? "暂停中" : "暂停") : label}</span>
+					{stopping ? (
+						<Loader2 size={14} className="agent-spinning" />
+					) : pauseAction ? (
+						<Pause size={14} />
+					) : (
+						<ArrowUp size={14} />
+					)}
 				</button>
 				<button
 					className="agent-delivery-toggle"
@@ -78,6 +92,7 @@ export function AgentInputControls({
 					aria-label="选择发送方式"
 					aria-expanded={open}
 					aria-haspopup="menu"
+					disabled={stopping}
 					onClick={() => setOpen(!open)}
 				>
 					<ChevronDown size={13} />

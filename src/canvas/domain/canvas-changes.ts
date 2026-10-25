@@ -1,3 +1,4 @@
+import { editableNodeKinds } from "./canvas-editing.ts";
 import type { CanvasChangeOperation } from "./canvas-research.ts";
 import { array, object, strings, text } from "./canvas-research-validation.ts";
 import { type ResearchCanvas, validateCanvasDocument } from "./research-canvas.ts";
@@ -69,7 +70,8 @@ export function applyCanvasOperations(board: ResearchCanvas, operations: CanvasC
 
 function applyOperation(board: ResearchCanvas, op: CanvasChangeOperation): void {
 	if (op.kind === "add_node") {
-		if (op.node.kind !== "paper" && op.node.kind !== "text") throw new Error("研究提案仅能新增论文或总结文本卡");
+		if (!(editableNodeKinds as readonly string[]).includes(op.node.kind))
+			throw new Error("节点提案仅支持论文、作者、团队和文本卡");
 		if (board.nodes.some((n) => n.id === op.node.id)) throw new Error("节点 ID 已存在");
 		board.nodes.push(structuredClone(op.node));
 	} else if (op.kind === "move_node") {

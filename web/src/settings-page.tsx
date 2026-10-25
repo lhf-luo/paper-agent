@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, jsonBody } from "./api";
 import { AccessibleModal, ConsentCard, confirmOperation, LoadingBlock, StatusPill } from "./components";
+import { McpPanel } from "./mcp-panel";
 import { ModelProvidersPanel } from "./model-providers-panel";
 import { SearchProviderProbePanel } from "./search-provider-probe-panel";
 import type {
@@ -33,6 +34,7 @@ export interface SettingsPageProps {
 
 const settingsCategories = [
 	{ id: "models", label: "模型与供应商" },
+	{ id: "mcp", label: "浏览器与 MCP" },
 	{ id: "workspace", label: "界面与存储" },
 	{ id: "network", label: "代理配置" },
 	{ id: "reader-translation", label: "PDF 选区翻译" },
@@ -162,40 +164,6 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 		}
 	};
 
-	/**
-	 * 模型与供应商面板的编辑需要立即落盘：界面显示的模型列表和磁盘上的配置必须
-	 * 一致，否则用户以为已经切换了模型，实际下次对话还是旧模型。这里接收一个
-	 * 变更函数而不是依赖 `config` 状态，避免 React 状态更新尚未生效的竞态。
-	 */
-	const saveNow = async (recipe: (next: PaperAgentConfigView) => void) => {
-		setError("");
-		setMessage("");
-		const next = structuredClone(config!);
-		recipe(next);
-		const candidate = serializable(next);
-		try {
-			const prepared = await api<PreparedOperation>("/api/config/prepare", jsonBody({ config: candidate }));
-			const grant = (await confirmOperation(prepared)) as ConfirmationGrant;
-			const result = await api<{ restartRequired: boolean }>(
-				"/api/config/execute",
-				jsonBody({ config: candidate, grant }),
-			);
-			setConfig(next);
-			setDirty(false);
-			setProbeRevision((current) => current + 1);
-			setMessage(
-				result.restartRequired
-					? "已保存。代理或存储设置有变化，请重启 Paper Agent 使其生效。"
-					: "已保存并立即生效。",
-			);
-			await load();
-			await onConfigurationSaved();
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
-			throw reason;
-		}
-	};
-
 	const executePending = async () => {
 		if (!pending) return;
 		setBusy(true);
@@ -301,19 +269,27 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</button>
 						</div>
 					)}
-					<div
+					<section
 						id="settings-panel-models"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-models"
 						hidden={activeCategory !== "models"}
 					>
-						<ModelProvidersPanel config={config} saveNow={saveNow} onSaved={load} busy={busy} />
-					</div>
-					<div
+						<ModelProvidersPanel onSaved={load} />
+					</section>
+					<section
+						id="settings-panel-mcp"
+						className="settings-section"
+						aria-labelledby="settings-nav-mcp"
+						hidden={activeCategory !== "mcp"}
+					>
+						<McpPanel active={activeCategory === "mcp"} />
+					</section>
+					<section
 						id="settings-panel-workspace"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-workspace"
 						hidden={activeCategory !== "workspace"}
 					>
@@ -321,17 +297,6 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							<span className="eyebrow">LOCAL WORKSPACE · 界面与存储</span>
 							<h2>界面与存储</h2>
 							<div className="form-grid two">
-								<label>
-									<span>默认个人 namespace</span>
-									<input
-										value={config.storage.defaultNamespace}
-										onChange={(event) =>
-											update((next) => {
-												next.storage.defaultNamespace = event.target.value;
-											})
-										}
-									/>
-								</label>
 								<label>
 									<span>本地 Web 端口</span>
 									<input
@@ -401,11 +366,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								配置文件：<code>{config.path}</code>
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-network"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-network"
 						hidden={activeCategory !== "network"}
 					>
@@ -461,11 +426,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								https://，并包含端口。直连域名留空时使用内置默认列表。保存代理变更后需重启 Paper Agent。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-reader-translation"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-reader-translation"
 						hidden={activeCategory !== "reader-translation"}
 					>
@@ -580,11 +545,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</label>
 							</div>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-wiki"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-wiki"
 						hidden={activeCategory !== "wiki"}
 					>
@@ -609,11 +574,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</label>
 							</div>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-pdf-translation"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-pdf-translation"
 						hidden={activeCategory !== "pdf-translation"}
 					>
@@ -714,11 +679,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								未提供百度命令。已配置的文本模型也可用于整篇翻译；切换只影响新任务。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-mineru"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-mineru"
 						hidden={activeCategory !== "mineru"}
 					>
@@ -782,11 +747,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								材料按需生成，并保存在论文 PDF 同级的 mineru 目录中。系统优先使用 unzip，缺少时回退到 tar。
 							</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-confirmations"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-confirmations"
 						hidden={activeCategory !== "confirmations"}
 					>
@@ -850,11 +815,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</div>
 							<p className="form-hint">团队操作、令牌、备份恢复、配置修改和系统文件操作始终需要确认。</p>
 						</section>
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-search"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-search"
 						hidden={activeCategory !== "search"}
 					>
@@ -947,11 +912,11 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 							</label>
 						</section>
 						<SearchProviderProbePanel key={probeRevision} />
-					</div>
-					<div
+					</section>
+					<section
 						id="settings-panel-team"
 						className="settings-section"
-						role="region"
+
 						aria-labelledby="settings-nav-team"
 						hidden={activeCategory !== "team"}
 					>
@@ -1051,7 +1016,7 @@ export function SettingsPage({ onConfigurationSaved }: SettingsPageProps) {
 								</>
 							)}
 						</section>
-					</div>
+					</section>
 				</div>
 			</div>
 		</>

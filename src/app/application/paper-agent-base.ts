@@ -19,6 +19,8 @@ import { OperationConsentManager } from "../../shared/application/operation-cons
 import { type CommandExecutor, NodeCommandExecutor } from "../../shared/infrastructure/command-executor.ts";
 import { applyExternalToolDirectories } from "../../shared/infrastructure/external-tool-environment.ts";
 import { PersistentJobQueue } from "../../shared/infrastructure/job-queue.ts";
+import { QuickNotes } from "../../quick-notes/application/quick-notes.ts";
+import { SqliteQuickNoteRepository } from "../../quick-notes/infrastructure/quick-note-repository.ts";
 
 import type { PaperAgentApplicationConfig } from "./paper-agent-contracts.ts";
 export abstract class PaperAgentApplicationBase {
@@ -26,7 +28,7 @@ export abstract class PaperAgentApplicationBase {
 	readonly projectRoot: string;
 	readonly dataRoot: string;
 	readonly corpusRoot: string;
-	readonly defaultNamespace: string;
+
 	readonly jobs: PersistentJobQueue;
 	readonly consent: OperationConsentManager;
 	readonly executor: CommandExecutor;
@@ -38,14 +40,10 @@ export abstract class PaperAgentApplicationBase {
 	readonly metadataProviderSearcher?: MetadataProviderSearcher;
 	protected initialized = false;
 	protected abstract configuredTeam(): Promise<unknown>;
-	abstract listNamespaces(scope: "personal" | "team"): Promise<string[]>;
-	abstract readPdfVersionBlob(paperId: string, sha256: string, namespace?: string): Promise<Buffer>;
+
+	abstract readPdfVersionBlob(paperId: string, sha256: string): Promise<Buffer>;
 	protected abstract recordsFromSearchJob(searchJobId: string, paperIds?: string[]): PaperRecord[];
-	protected abstract recordsFromSearchRun(
-		searchRunId: string,
-		paperIds?: string[],
-		namespace?: string,
-	): Promise<PaperRecord[]>;
+	protected abstract recordsFromSearchRun(searchRunId: string, paperIds?: string[]): Promise<PaperRecord[]>;
 	protected abstract registerJobHandlers(): void;
 
 	constructor(config: PaperAgentApplicationConfig) {
@@ -53,7 +51,7 @@ export abstract class PaperAgentApplicationBase {
 		this.piModels = new PiModelService(this.projectRoot);
 		this.dataRoot = resolve(config.dataRoot ?? join(this.projectRoot, ".paper-agent"));
 		this.corpusRoot = resolve(config.corpusRoot ?? join(this.dataRoot, "corpus"));
-		this.defaultNamespace = config.defaultNamespace ?? "default";
+
 		applyExternalToolDirectories(loadPaperAgentConfigSync(this.projectRoot).externalTools.commandDirectories);
 		this.executor = config.executor ?? new NodeCommandExecutor();
 		this.doiProviderLookup = config.doiProviderLookup;
@@ -67,27 +65,26 @@ export abstract class PaperAgentApplicationBase {
 			projectRoot: this.projectRoot,
 			executor: this.executor,
 			consent: this.consent,
-			store: (namespace) => this.personalStore(namespace),
+			store: () => this.personalStore(),
 		});
 		this.zotero = new ZoteroIntegrationService({
 			projectRoot: this.projectRoot,
 			consent: this.consent,
-			store: (namespace) => this.personalStore(namespace),
-			defaultNamespace: this.defaultNamespace,
+			store: () => this.personalStore(),
 		});
 		this.pdfTranslation = new PdfTranslationService({
 			projectRoot: this.projectRoot,
-			defaultNamespace: this.defaultNamespace,
+
 			executor: this.executor,
 			consent: this.consent,
-			store: (namespace) => this.personalStore(namespace),
+			store: () => this.personalStore(),
 		});
 		this.mineru = new MineruService({
 			projectRoot: this.projectRoot,
-			defaultNamespace: this.defaultNamespace,
+
 			executor: this.executor,
 			consent: this.consent,
-			store: (namespace) => this.personalStore(namespace),
+			store: () => this.personalStore(),
 		});
 		this.jobs = new PersistentJobQueue(join(this.dataRoot, "runtime", "jobs.sqlite"), config.jobConcurrency ?? 2);
 		this.registerJobHandlers();
@@ -105,34 +102,30 @@ export abstract class PaperAgentApplicationBase {
 		this.initialized = false;
 	}
 
-	personalStore(namespace = this.defaultNamespace): LiteratureStore {
-		return new LiteratureStore(
-			resolveCorpusRoot(this.projectRoot, "personal", namespace, this.corpusRoot),
-			"personal",
-			namespace,
-		);
+	personalStore(): LiteratureStore {
+		return new LiteratureStore(resolveCorpusRoot(this.projectRoot, "personal", this.corpusRoot), "personal");
 	}
 
-	async listSearchRuns(namespace = this.defaultNamespace): Promise<SearchRun[]> {
-		return this.personalStore(namespace).listSearchRuns();
+	quickNotes(): QuickNotes {
+		const store = this.personalStore();
+		return new QuickNotes(new SqliteQuickNoteRepository(store.databasePath, () => store.initialize()));
 	}
 
-	async getSearchRun(id: string, namespace = this.defaultNamespace): Promise<SearchRun | undefined> {
-		return this.personalStore(namespace).getSearchRun(id);
+	async listSearchRuns(): Promise<SearchRun[]> {
+		return this.personalStore().listSearchRuns();
 	}
 
-	teamStore(namespace = this.defaultNamespace): LiteratureStore {
-		return new LiteratureStore(
-			resolveCorpusRoot(this.projectRoot, "team", namespace, this.corpusRoot),
-			"team",
-			namespace,
-		);
+	async getSearchRun(id: string): Promise<SearchRun | undefined> {
+		return this.personalStore().getSearchRun(id);
+	}
+
+	teamStore(): LiteratureStore {
+		return new LiteratureStore(resolveCorpusRoot(this.projectRoot, "team", this.corpusRoot), "team");
 	}
 
 	async status() {
 		await this.initialize();
-		const [namespaces, records, config] = await Promise.all([
-			this.listNamespaces("personal"),
+		const [records, config] = await Promise.all([
 			this.personalStore().listPapers(),
 			loadPaperAgentConfig(this.projectRoot),
 		]);
@@ -141,9 +134,7 @@ export abstract class PaperAgentApplicationBase {
 			projectRoot: this.projectRoot,
 			dataRoot: this.dataRoot,
 			corpusRoot: this.corpusRoot,
-			defaultNamespace: this.defaultNamespace,
-			personalNamespaces: namespaces,
-			defaultRecordCount: records.length,
+			recordCount: records.length,
 			confirmations: config.confirmations,
 			jobs: {
 				queued: this.jobs.list({ status: "queued" }).length,

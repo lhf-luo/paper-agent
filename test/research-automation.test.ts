@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { PaperRecord, PaperVersion } from "../src/literature/domain/literature-types.ts";
 import {
 	automatedResearchDepth,
 	automatedResearchPlan,
 	automatedResearchPrompt,
 	automatedResearchThinkingLevel,
 } from "../src/research/application/research-automation.ts";
-import type { PaperRecord, PaperVersion } from "../src/literature/domain/literature-types.ts";
 
 const paper: PaperRecord = {
 	id: "paper-1",
@@ -81,7 +81,7 @@ describe("automatedResearchPrompt", () => {
 		const { prompt, plan } = automatedResearchPrompt({
 			request: {
 				paperId: paper.id,
-				namespace: "default",
+
 				depth: "full",
 				discoverArtifacts: true,
 			},
@@ -101,7 +101,7 @@ describe("automatedResearchPrompt", () => {
 		const { prompt } = automatedResearchPrompt({
 			request: {
 				paperId: paper.id,
-				namespace: "default",
+
 				depth: "quick",
 				discoverArtifacts: false,
 			},
@@ -117,7 +117,7 @@ describe("automatedResearchPrompt", () => {
 			automatedResearchPrompt({
 				request: {
 					paperId: paper.id,
-					namespace: "default",
+
 					depth: "quick",
 					researchQuestion: "为什么".repeat(1500),
 					discoverArtifacts: false,

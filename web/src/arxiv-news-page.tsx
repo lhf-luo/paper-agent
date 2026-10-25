@@ -1,9 +1,9 @@
+import type { ArxivNewsPaper } from "../../src/literature/domain/arxiv-news.ts";
 import { BookOpen, Folder, FolderOpen, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, jsonBody } from "./api";
 import { AccessibleModal, ConsentCard, confirmOperation, JobProgress, useJob } from "./components";
-import type { BackgroundJob, ConfirmationGrant, PaperRecord, PreparedOperation } from "./types";
-import { useWorkspace } from "./workspace-context";
+import type { BackgroundJob, ConfirmationGrant, PreparedOperation } from "./types";
 
 interface NewsBatch {
 	id: string;
@@ -24,7 +24,7 @@ interface NewsState {
 }
 interface NewsBatchDetail {
 	batch: NewsBatch;
-	papers: PaperRecord[];
+	papers: ArxivNewsPaper[];
 	screening: {
 		matchedIds: string[];
 		unresolvedIds: string[];
@@ -59,7 +59,7 @@ const parseFilterGroups = (text: string): unknown => {
 };
 
 export default function ArxivNewsPage({ onTask }: { onTask: (job: BackgroundJob) => void }) {
-	const { namespace: personalNamespace } = useWorkspace();
+
 	const [state, setState] = useState<NewsState>();
 	const [categories, setCategories] = useState<string[]>([]);
 	const [filterText, setFilterText] = useState("");
@@ -282,7 +282,6 @@ export default function ArxivNewsPage({ onTask }: { onTask: (job: BackgroundJob)
 				jsonBody({
 					newsBatchId: detail.batch.id,
 					paperIds,
-					namespace: personalNamespace,
 				}),
 			);
 			setPendingPaperIds(paperIds);
@@ -305,7 +304,7 @@ export default function ArxivNewsPage({ onTask }: { onTask: (job: BackgroundJob)
 				jsonBody({
 					newsBatchId: detail.batch.id,
 					paperIds: pendingPaperIds,
-					namespace: personalNamespace,
+
 					grant,
 				}),
 			);
@@ -385,7 +384,7 @@ export default function ArxivNewsPage({ onTask }: { onTask: (job: BackgroundJob)
 						支持粘贴 <code>filter_search_run_results</code> 的完整参数对象或 <code>groups</code> 数组；组内关键词
 						OR，组间 AND，多组规则取并集。有摘要按标题和摘要筛选；无摘要仅按标题筛选，命中后标记为待核验。
 					</p>
-					<p>粘贴完整参数时只保存 groups；search_run_id 和 namespace 不用于资讯筛选。</p>
+					<p>粘贴完整参数时只保存 groups；search_run_id 不用于资讯筛选。</p>
 					<textarea
 						aria-label="资讯筛选规则 JSON"
 						spellCheck={false}

@@ -103,7 +103,7 @@ PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Ag
 
 - `browser-extension/` 提供可直接加载到 Chrome/Edge 的 Connector。
 - 监听 Chrome/Edge 完成的 PDF 下载，不重新请求论文 URL。
-- 下载完成后通过本地 PDF 解析与 SQLite 原子导入流程进入当前默认 namespace，不调用模型。
+- 下载完成后通过本地 PDF 解析与 SQLite 原子导入流程进入个人文献库，不调用模型。
 - 确认导入成功后会删除浏览器下载目录中的原始 PDF；导入失败时保留原文件，服务关闭期间的下载不会离线排队。
 - Connector 只连接 `127.0.0.1:43127`，Paper Agent 关闭后不可用，也不会离线排队。
 
@@ -111,7 +111,7 @@ PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Ag
 
 个人库中已有本地 PDF 的论文可以按需生成 MinerU Precision v4 解析材料。入口位于 PDF 阅读器工具栏和个人库详情栏；Agent 可调用 `generate_mineru_material` 生成材料，再用 `read_mineru_material` 按目录、物理页或关键词读取。默认使用 `https://mineru.net/api/v4`、`vlm` 模型和英文文档语言，API Key 保存在 `.paper-agent/config/credentials.json` 的 `mineruApiKey` 字段。
 
-材料保存在 `.paper-agent/files/personal/<namespace>/<paperId>/mineru/`，与 PDF 和 `artifacts/` 同级。目录只保留规范化的 `full.md`、`content_list.json`、可选的 `content_list_v2.json` 和 `layout.json`、`images/`，以及 Paper Agent 生成的 `manifest.json`。MinerU 返回的 UUID 原名文件、模型中间结果和原始 PDF 副本不会重复保存；SQLite 的 `pdf_materials` 只记录当前成功版本。重新生成先写入临时目录，全部校验成功后才替换旧材料。生成中的远端批次 ID 复用后台任务 checkpoint，不创建单独的状态表。
+材料保存在 `.paper-agent/files/personal/<paperId>/mineru/`，与 PDF 和 `artifacts/` 同级。目录只保留规范化的 `full.md`、`content_list.json`、可选的 `content_list_v2.json` 和 `layout.json`、`images/`，以及 Paper Agent 生成的 `manifest.json`。MinerU 返回的 UUID 原名文件、模型中间结果和原始 PDF 副本不会重复保存；SQLite 的 `pdf_materials` 只记录当前成功版本。重新生成先写入临时目录，全部校验成功后才替换旧材料。生成中的远端批次 ID 复用后台任务 checkpoint，不创建单独的状态表。
 
 系统优先调用电脑已有的 `unzip` 解包，缺少时回退到 `tar`；两者都不存在时仅禁用 MinerU，不影响其他功能。MinerU 内容属于派生材料，关键论断、公式和表格仍应使用原始 PDF 工具复核。
 
@@ -124,7 +124,7 @@ PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Ag
 
 ### 调研笔记与团队协作
 
-- 使用可分层的 Markdown 笔记记录略读、精读和比较材料；正文和真实目录保存在 `.paper-agent/notes/{namespace}/`，SQLite 保存目录树、索引、修订和论文关系。
+- 使用可分层的 Markdown 笔记记录略读、精读和比较材料；正文和真实目录保存在 `.paper-agent/notes/`，SQLite 保存目录树、索引、修订和论文关系。
 - 一篇笔记可关联零篇或多篇个人库论文，删除论文只解除关联，不删除笔记。
 - `paper-research` 支持在用户明确要求创建笔记或保存研究结果时，读取当前模板并调用 `manage_research_note` 保存填写后的 Markdown；普通阅读请求只在对话中报告，写入遵守现有确认策略。
 - 略读、精读和比较矩阵模板位于 `.paper-agent/templates/research-notes/`，初始内容随 `.agents/skills/paper-research/assets/research-notes/` 分发。原有空模板会补齐，已有内容的模板和历史笔记保留。
@@ -166,7 +166,7 @@ PDF2zh Next 是可选外部命令，找不到时只禁用翻译功能，Paper Ag
 
 | 文件 | 内容 |
 | --- | --- |
-| `app.json` | 版本、Web 端口、是否自动打开浏览器、存储路径、默认 namespace 和操作确认策略；Connector 默认使用端口 `43127` |
+| `app.json` | 版本、Web 端口、是否自动打开浏览器、存储路径 和操作确认策略；Connector 默认使用端口 `43127` |
 | `search.json` | 默认 Provider、每源数量、分页、查询扩展和本地库复用策略 |
 | `models.json` | 当前模型，以及按 Provider 分组的 Pi 风格模型能力元数据 |
 | `auth.json` | 按模型 Provider 分组的 API key 或环境变量引用 |
@@ -196,7 +196,7 @@ paper-agent models add
 .paper-agent/
 |-- config/                         拆分配置
 |-- corpus/personal.sqlite          个人论文、检索、调研及论文专属 Agent 会话
-|-- files/personal/<namespace>/
+|-- files/personal/
 |   `-- <paperId>/
 |       |-- <论文标题>.pdf          首选正式版本
 |       |-- <论文标题> [preprint].pdf 等其他版本
@@ -204,17 +204,16 @@ paper-agent models add
 |           |-- artifact-manifest.json
 |           |-- <Git 项目名>/       浅克隆的论文仓库
 |           `-- downloads/          数据集、补充材料和其他文件
-|-- corpus/legacy-backups/          从旧 JSON 存储迁移前生成的只读备份
 |-- runtime/jobs.sqlite             持久化后台任务
 |-- audit/operations.jsonl          写操作审计
-|-- wiki/{namespace}/              研究 Wiki Markdown 仓库
+|-- wiki/              研究 Wiki Markdown 仓库
 |-- wiki/wiki.sqlite               可由 Wiki Markdown 重建的搜索索引
 `-- web-agent-memory/               普通 Web Agent 会话及 Pi 运行时上下文
 ```
 
-个人库只使用一个 `personal.sqlite`，由 `namespace_id` 隔离不同空间。PDF 二进制不写入数据库，而是按 namespace 和论文 ID 保存为可读文件名；`stored_files` 与 `paper_versions` 记录文件路径、版本关系、大小和 SHA-256。SHA-256 只用于完整性校验和精确重复检测，不再出现在正常文件名中。
+个人库使用唯一的 `personal.sqlite`。PDF 二进制按论文 ID 保存为可读文件名；`stored_files` 与 `paper_versions` 记录文件路径、版本关系、大小和 SHA-256。SHA-256 用于完整性校验和精确重复检测。
 
-PDF 阅读工作台中的论文助手支持为同一篇论文创建多个持续会话。会话、消息和工具调用保存在 `personal.sqlite`，按 `namespace + paper_id` 查询，不出现在主 Agent 页；Pi JSONL 仅作为模型运行时上下文。删除会话会同步清理其运行时文件，删除论文会级联删除该论文的全部会话、消息、工具调用和运行时文件。
+PDF 阅读工作台中的论文助手支持为同一篇论文创建多个持续会话。会话、消息和工具调用保存在 `personal.sqlite`，按 `paper_id` 查询，不出现在主 Agent 页；Pi JSONL 仅作为模型运行时上下文。删除会话会同步清理其运行时文件，删除论文会级联删除该论文的全部会话、消息、工具调用和运行时文件。
 
 ### Zotero 双向导入
 
@@ -226,7 +225,6 @@ Artifact 不再增加“论文标题 + PDF SHA”目录层。Git 仓库直接以
 
 标题中的 Windows 非法字符和保留名称会被安全处理，长标题会按完整路径预算截断。论文标题更新时，系统会同步重命名其 PDF；若文件操作失败，会保留原文件、记录 `file_operations` 并向调用方返回警告。
 
-首次打开旧个人库时，系统会自动读取原 `records/`、`paper-versions/`、`blobs/sha256/`、分类、搜索记录和派生结果，写入 SQLite，并把 PDF 硬链接或复制到可读目录。验证完成前，旧目录和 `corpus/legacy-backups/` 中的备份均不会自动删除。
 
 完整表结构和字段说明见 [Personal SQLite 数据库表说明](personal-sqlite-schema.md)。
 
@@ -247,7 +245,7 @@ Artifact 不再增加“论文标题 + PDF SHA”目录层。Git 仓库直接以
 
 项目级 Skill 统一放在 `.agents/skills/<skill-name>/`，每个目录必须包含 `SKILL.md`，并保留其 `scripts`、`references`、`assets` 和 `agents` 等配套目录。Web Agent 和本地启动脚本会扫描整个 `.agents/skills` 目录；新增或移动 Skill 后重启服务或新建会话即可生效，无需修改 Skill 固定名单。
 
-`research-wiki` Skill 管理独立于调研笔记的长期知识层。Wiki 正文位于 `.paper-agent/wiki/{namespace}/`，使用声明级证据和批量 preview/apply；`wiki.sqlite` 只是可由 Markdown 重建的页面、证据、claim、链接和分块检索索引。详细约束见 [研究 Wiki](research-wiki.md)。
+`research-wiki` Skill 管理独立于调研笔记的长期知识层。Wiki 正文位于 `.paper-agent/wiki/`，使用声明级证据和批量 preview/apply；`wiki.sqlite` 只是可由 Markdown 重建的页面、证据、claim、链接和分块检索索引。详细约束见 [研究 Wiki](research-wiki.md)。
 
 ## 10. 运维入口
 

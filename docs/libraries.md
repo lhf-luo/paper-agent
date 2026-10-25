@@ -15,19 +15,19 @@ The default is `personal + once`.
 
 ## Personal library
 
-Use the Web **Search papers** page to run discovery and explicitly save selected results. Use **Personal library** to search records and private notes, filter by screening state, inspect PDF versions, apply tags/notes/decisions to a selection, export a selection or namespace, and prepare PDF downloads.
+Use the Web **Search papers** page to run discovery and explicitly save selected results. Use **Personal library** to search records and private notes, filter by screening state, inspect PDF versions, apply tags/notes/decisions to a selection, export a selection or the whole personal library, and prepare PDF downloads.
 
 In Pi:
 
 ```text
-/collect --save --namespace thesis stateful fuzzing
+/collect --save stateful fuzzing
 /library
 /library search stateful fuzzing
 /library export bibtex
 /library audit thesis
 ```
 
-All personal namespaces share `.paper-agent/corpus/personal.sqlite` unless a different corpus root is configured. PDF files live under `.paper-agent/files/personal/<namespace>/<paperId>/` with readable title-based names. The store keeps:
+The personal workspace uses `.paper-agent/corpus/personal.sqlite` unless a different corpus root is configured. PDF files live under `.paper-agent/files/personal/<paperId>/` with readable title-based names. The store keeps:
 
 - normalized paper records and identifiers;
 - provider provenance and search runs;

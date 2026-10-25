@@ -4,10 +4,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { parse, stringify } from "yaml";
 import { extractWikiClaims } from "../domain/wiki-content.ts";
 import {
+	type IngestWikiPageInput,
 	isWikiEvidenceKind,
 	isWikiPageStatus,
 	isWikiPageType,
-	type IngestWikiPageInput,
 	type WikiEvidence,
 	type WikiEvidenceKind,
 	type WikiLintCode,
@@ -44,30 +44,6 @@ export function parseWikiPage(source: string, relativePath: string): WikiPage {
 	if (!isWikiPageType(value.type)) throw new Error(`不支持的 Wiki 页面类型：${String(value.type)}`);
 	if (!isWikiPageStatus(value.status)) throw new Error(`不支持的 Wiki 页面状态：${String(value.status)}`);
 	const rawEvidence = parseEvidence(value.evidence);
-	const paperIds = stringArray(value.paper_ids);
-	const sourceNoteIds = stringArray(value.source_notes);
-	for (const paperId of paperIds) {
-		if (!rawEvidence.some((item) => item.kind === "paper" && item.sourceId === paperId)) {
-			rawEvidence.push({
-				id: nextEvidenceId(rawEvidence),
-				kind: "paper",
-				sourceId: paperId,
-				locator: {},
-				legacy: true,
-			});
-		}
-	}
-	for (const noteId of sourceNoteIds) {
-		if (!rawEvidence.some((item) => item.kind === "note" && item.sourceId === noteId)) {
-			rawEvidence.push({
-				id: nextEvidenceId(rawEvidence),
-				kind: "note",
-				sourceId: noteId,
-				locator: {},
-				legacy: true,
-			});
-		}
-	}
 	const markdown = source.slice(match[0].length);
 	return {
 		id,
@@ -76,8 +52,8 @@ export function parseWikiPage(source: string, relativePath: string): WikiPage {
 		status: value.status,
 		aliases: stringArray(value.aliases),
 		tags: stringArray(value.tags),
-		sourceNoteIds: [...new Set([...sourceNoteIds, ...evidenceSourceIds(rawEvidence, "note")])],
-		paperIds: [...new Set([...paperIds, ...evidencePaperIds(rawEvidence)])],
+		sourceNoteIds: evidenceSourceIds(rawEvidence, "note"),
+		paperIds: evidencePaperIds(rawEvidence),
 		evidence: rawEvidence,
 		createdAt: isoDate(value.created_at, "created_at"),
 		updatedAt: isoDate(value.updated_at, "updated_at"),
@@ -97,8 +73,6 @@ export function renderWikiPage(metadata: WikiPageMetadata, markdown: string): st
 		status: metadata.status,
 		aliases: metadata.aliases,
 		tags: metadata.tags,
-		source_notes: metadata.sourceNoteIds,
-		paper_ids: metadata.paperIds,
 		evidence: metadata.evidence.map((item) => ({
 			id: item.id,
 			kind: item.kind,
@@ -135,7 +109,10 @@ export async function writeAtomic(path: string, content: string): Promise<void> 
 	await rename(temporary, path);
 }
 
-export function previewPage(change: { title: string; type: WikiPageType; change: IngestWikiPageInput; evidence: WikiEvidence[] }, existing?: WikiPage): WikiPage {
+export function previewPage(
+	change: { title: string; type: WikiPageType; change: IngestWikiPageInput; evidence: WikiEvidence[] },
+	existing?: WikiPage,
+): WikiPage {
 	const id = existing?.id ?? `wiki-preview-${normalizedPreviewLabel(change.title).slice(0, 32)}`;
 	const metadata: WikiPageMetadata = {
 		id,
@@ -152,7 +129,8 @@ export function previewPage(change: { title: string; type: WikiPageType; change:
 	};
 	return {
 		...metadata,
-		relativePath: existing?.relativePath ?? `${WIKI_TYPE_DIRECTORIES[change.type]}/${safeFilename(change.title) || "page"}.md`,
+		relativePath:
+			existing?.relativePath ?? `${WIKI_TYPE_DIRECTORIES[change.type]}/${safeFilename(change.title) || "page"}.md`,
 		markdown: change.change.markdown,
 		contentHash: "",
 		links: [],
@@ -160,11 +138,7 @@ export function previewPage(change: { title: string; type: WikiPageType; change:
 	};
 }
 
-export function validateEvidenceClaims(
-	markdown: string,
-	evidence: WikiEvidence[],
-	issues: WikiLintIssue[],
-): void {
+export function validateEvidenceClaims(markdown: string, evidence: WikiEvidence[], issues: WikiLintIssue[]): void {
 	const referenced = new Set(extractWikiClaims(markdown).flatMap((claim) => claim.evidenceIds));
 	const available = new Set(evidence.map((item) => item.id));
 	for (const evidenceId of referenced) {
@@ -177,16 +151,11 @@ export function validateEvidenceClaims(
 	}
 }
 
-export function changeSetFingerprint(
-	namespace: string,
-	summary: string,
-	changes: IngestWikiPageInput[],
-): string {
+export function changeSetFingerprint(summary: string, changes: IngestWikiPageInput[]): string {
 	return createHash("sha256")
 		.update(
 			JSON.stringify(
 				canonicalJson({
-					namespace,
 					summary,
 					changes: changes.map((change) => ({
 						pageId: change.pageId ?? null,
@@ -216,13 +185,6 @@ export function evidencePaperIds(evidence: WikiEvidence[]): string[] {
 
 export function evidenceSourceIds(evidence: WikiEvidence[], kind: WikiEvidenceKind): string[] {
 	return [...new Set(evidence.filter((item) => item.kind === kind && item.sourceId).map((item) => item.sourceId!))];
-}
-
-export function nextEvidenceId(evidence: Array<{ id: string }>): string {
-	const existing = new Set(evidence.map((item) => item.id));
-	let index = 1;
-	while (existing.has(`E${index}`)) index++;
-	return `E${index}`;
 }
 
 export function issue(
@@ -291,7 +253,7 @@ export function safeWikiPath(directory: string, relativePath: string): string {
 	const path = resolve(directory, relativePath);
 	const inside = relative(directory, path);
 	if (!inside || inside.startsWith("..") || isAbsolute(inside)) {
-		throw new Error("Wiki page path leaves the namespace vault");
+		throw new Error("Wiki page path leaves the workspace vault");
 	}
 	return path;
 }

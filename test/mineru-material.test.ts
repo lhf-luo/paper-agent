@@ -97,7 +97,7 @@ describe("MinerU material", () => {
 		const read = await readMineruMaterial(
 			{
 				id: "material-1",
-				namespace: "default",
+
 				paperId: "paper-1",
 				paperVersionId: "version-1",
 				sourceSha256: "a".repeat(64),
@@ -148,19 +148,6 @@ describe("MinerU material", () => {
 		expect(assets.body).toContain("Higher is better");
 		expect(assets.unknownAssetIds).toEqual(["missing"]);
 
-		await writeFile(
-			join(normalized, "manifest.json"),
-			JSON.stringify({
-				...built.manifest,
-				schemaVersion: 1,
-				sections: undefined,
-				statistics: undefined,
-				assets: built.manifest.assets.map(({ type, path, caption, page }) => ({ type, path, caption, page })),
-			}),
-		);
-		const legacy = await readMineruMaterial(read.material, { mode: "overview" });
-		expect(legacy.body).toContain("legacy schema-v1 package");
-		expect(legacy.body).toContain("figure-1-p2");
 	});
 
 	it("traverses full Markdown at block boundaries without gaps or overlap", async () => {
@@ -175,7 +162,9 @@ describe("MinerU material", () => {
 		await writeFile(
 			join(root, "manifest.json"),
 			JSON.stringify({
-				schemaVersion: 1,
+				schemaVersion: 2,
+				sections: [],
+				statistics: { pages: 1, blockTypes: {text: 1}, textBlocks: 1, tables: 0, figures: 0, charts: 0, codeBlocks: 0 },
 				engine: "mineru",
 				sourceSha256: "a".repeat(64),
 				modelVersion: "vlm",
@@ -188,7 +177,7 @@ describe("MinerU material", () => {
 		);
 		const material = {
 			id: "material-cursor",
-			namespace: "default",
+
 			paperId: "paper-cursor",
 			paperVersionId: "version-1",
 			sourceSha256: "a".repeat(64),
@@ -221,7 +210,7 @@ describe("MinerU material", () => {
 	it("stores only the current material row and cascades it with the paper", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-mineru-store-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const paper: PaperRecord = {
 			id: "mineru-paper",
 			title: "MinerU Test Paper",
@@ -282,7 +271,7 @@ describe("MinerU material", () => {
 	it("rejects material generated from a non-current preferred PDF", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-mineru-stale-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const paper: PaperRecord = {
 			id: "stale-paper",
 			title: "Stale material",
@@ -340,11 +329,11 @@ describe("MinerU material", () => {
 		});
 		const service = new MineruService({
 			projectRoot: root,
-			defaultNamespace: "default",
+
 			executor: {} as never,
 			consent: {} as never,
 			store: () => store,
 		});
-		await expect(service.read(paper.id, "default", { mode: "overview" })).rejects.toThrow(/stale/);
+		await expect(service.read(paper.id, { mode: "overview" })).rejects.toThrow(/stale/);
 	});
 });

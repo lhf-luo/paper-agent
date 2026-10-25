@@ -42,8 +42,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 	const [publicationTypes, setPublicationTypes] = useState("");
 	const [openAccess, setOpenAccess] = useState("any");
 	const [reuseCorpus, setReuseCorpus] = useState(true);
-	const [namespace, setNamespace] = useState("default");
-	const [namespaces, setNamespaces] = useState<string[]>(["default"]);
+
 	const [searchJobId, setSearchJobId] = useState<string>();
 	const [agentRuns, setAgentRuns] = useState<AgentSearchRunSummary[]>([]);
 	const [selectedRun, setSelectedRun] = useState<AgentSearchRun>();
@@ -93,9 +92,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		setBusy(true);
 		setError("");
 		try {
-			const response = await api<{ run: AgentSearchRun }>(
-				`/api/search/runs/${encodeURIComponent(id)}?namespace=${encodeURIComponent(namespace)}`,
-			);
+			const response = await api<{ run: AgentSearchRun }>(`/api/search/runs/${encodeURIComponent(id)}`);
 			if (requestSequence === runRequestSequence.current) setSelectedRun(response.run);
 		} catch (reason) {
 			if (requestSequence === runRequestSequence.current) {
@@ -108,10 +105,9 @@ export function SearchPage({ onTask }: SearchPageProps) {
 
 	useEffect(() => {
 		void (async () => {
-			const [catalogResult, configResult, namespaceResult] = await Promise.allSettled([
+			const [catalogResult, configResult] = await Promise.allSettled([
 				api<{ providers: typeof providerCatalog }>("/api/providers"),
 				api<PaperAgentConfigView>("/api/config"),
-				api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
 			]);
 			const errors: string[] = [];
 			if (catalogResult.status === "fulfilled") setProviderCatalog(catalogResult.value.providers);
@@ -138,15 +134,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				errors.push(
 					configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason),
 				);
-			if (namespaceResult.status === "fulfilled") {
-				setNamespace(namespaceResult.value.defaultNamespace);
-				setNamespaces(namespaceResult.value.personal);
-			} else
-				errors.push(
-					namespaceResult.reason instanceof Error
-						? namespaceResult.reason.message
-						: String(namespaceResult.reason),
-				);
+
 			if (errors.length) setError([...new Set(errors)].join("；"));
 		})();
 	}, []);
@@ -163,7 +151,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		setSearchJobId(undefined);
 		setBusy(false);
 		setError("");
-		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs?namespace=${encodeURIComponent(namespace)}`, {
+		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs`, {
 			signal: controller.signal,
 		})
 			.then((response) => {
@@ -173,13 +161,13 @@ export function SearchPage({ onTask }: SearchPageProps) {
 				if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
 			});
 		return () => controller.abort();
-	}, [namespace]);
+	}, []);
 
 	// 新搜索完成后刷新历史记录列表, 让刚完成的检索立即出现在下拉里。
 	useEffect(() => {
 		if (job?.status !== "succeeded") return;
 		const controller = new AbortController();
-		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs?namespace=${encodeURIComponent(namespace)}`, {
+		void api<{ runs: AgentSearchRunSummary[] }>(`/api/search/runs`, {
 			signal: controller.signal,
 		})
 			.then((response) => {
@@ -187,7 +175,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			})
 			.catch(() => {});
 		return () => controller.abort();
-	}, [job?.status, namespace]);
+	}, [job?.status]);
 
 	const listValues = (value: string) =>
 		value
@@ -233,7 +221,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 					},
 					pagesPerProvider: Number(pagesPerProvider),
 					maxResultsPerProvider: Number(maxResults),
-					namespace,
+
 					reuseCorpus,
 				}),
 			);
@@ -264,9 +252,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		setError("");
 		try {
 			setPendingPaperIds(undefined);
-			setPending(
-				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [...selected], namespace })),
-			);
+			setPending(await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [...selected] })));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -282,9 +268,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 		setSavingId(paper.id);
 		try {
 			setPendingPaperIds([paper.id]);
-			setPending(
-				await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [paper.id], namespace })),
-			);
+			setPending(await api("/api/library/import/prepare", jsonBody({ ...runIdBody(), paperIds: [paper.id] })));
 		} catch (reason) {
 			setPendingPaperIds(undefined);
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -303,7 +287,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const created = await api<BackgroundJob>(
 				"/api/library/import/execute",
-				jsonBody({ ...runIdBody(), paperIds, namespace, grant }),
+				jsonBody({ ...runIdBody(), paperIds, grant }),
 			);
 			onTask(created);
 			setSavedIds((current) => new Set([...current, ...paperIds]));
@@ -375,16 +359,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 								))}
 							</div>
 						</div>
-						<label>
-							<span className="field-label">个人库 namespace</span>
-							<select value={namespace} onChange={(event) => setNamespace(event.target.value)}>
-								{namespaces.map((item) => (
-									<option value={item} key={item}>
-										{item}
-									</option>
-								))}
-							</select>
-						</label>
+
 						<label>
 							<span className="field-label">起始年份</span>
 							<input
@@ -518,7 +493,7 @@ export function SearchPage({ onTask }: SearchPageProps) {
 			{agentRuns.length > 0 && (
 				<div className="agent-run-picker">
 					<label htmlFor="agent-run-select">
-						<span>当前空间的搜索记录</span>
+						<span>搜索记录</span>
 					</label>
 					<div className="agent-run-row">
 						<select

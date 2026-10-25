@@ -5,7 +5,6 @@ import { useAutomaticOperationConfirmation } from "./confirmation-policy";
 import type { PreparedOperation, ResearchNote, ResearchNoteFolder } from "./types";
 
 interface Props {
-	namespace: string;
 	folders: ResearchNoteFolder[];
 	initialTitle: string;
 	initialFolderId: string;
@@ -71,7 +70,6 @@ function useNoteCreation(props: Props) {
 			if (!draft.title.trim()) throw new Error("请输入笔记名称");
 			await props.beforeCreate();
 			const payload = {
-				namespace: props.namespace,
 				title: draft.title.trim(),
 				markdown: "",
 				templateId: "blank",

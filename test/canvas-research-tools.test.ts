@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { CanvasResearchSearch } from "../src/canvas/application/canvas-research-search.ts";
 import {
 	createCanvasResearchRuntime,
 	registerCanvasResearchTools,
@@ -50,23 +49,15 @@ describe("canvas-bound tools and human decisions", () => {
 		await expect(cancelled).rejects.toThrow("停止等待");
 		expect(s.records.get("proposal", next.id)?.value).toMatchObject({ status: "pending" });
 	});
-	it("holds a supplementation tool response until a user approves the saved plan", async () => {
-		const f = await researchFixture(),
-			s = f.service,
-			search = new CanvasResearchSearch(s);
-		const run = await s.saveAnalysis({});
-		const tools = collectRegisteredTools((pi) => registerCanvasResearchTools(pi, s, search));
-		const save = tools.find((t) => t.name === "save_canvas_analysis")!;
-		const waiting = save.execute(
-			"plan",
-			{ search_plan: { analysisId: run.id, gap: "Gap", reason: "Reason", queries: ["q"], providers: ["arxiv"] } },
-			undefined,
-			undefined,
-			{} as never,
-		);
-		const plan = s.records.list<{ status: string }>("search")[0];
-		expect(plan.value.status).toBe("pending");
-		search.decide(plan.id, true, plan.revision);
-		expect((await waiting).details).toMatchObject({ id: plan.id, status: "approved" });
+	it("exposes only the current analysis checkpoint parameters", async () => {
+		const f = await researchFixture();
+		const tools = collectRegisteredTools((pi) => registerCanvasResearchTools(pi, f.service));
+		const schema = tools.find((t) => t.name === "save_canvas_analysis")!.parameters as {
+			properties: Record<string, unknown>;
+			additionalProperties?: boolean;
+		};
+		expect(Object.keys(schema.properties).sort()).toEqual(["analysis_id", "content", "expected_revision"]);
+		expect(schema.additionalProperties).toBe(false);
+		expect(f.service.records.list("analysis")).toHaveLength(0);
 	});
 });

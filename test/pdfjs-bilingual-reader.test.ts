@@ -4,12 +4,9 @@ import { mozillaPdfViewerUrl, PDFJS_VIEWER_PATH } from "../web/src/pdfjs-viewer-
 
 describe("Mozilla PDF.js bilingual reader", () => {
 	it("builds a same-origin viewer URL without losing PDF query parameters", () => {
-		const url = mozillaPdfViewerUrl(
-			"/api/papers/paper%201/pdf/abc?namespace=research%20notes",
-			"http://127.0.0.1:4317/app",
-		);
+		const url = mozillaPdfViewerUrl("/api/papers/paper%201/pdf/abc", "http://127.0.0.1:4317/app");
 		expect(url).toBe(
-			`${PDFJS_VIEWER_PATH}?file=${encodeURIComponent("http://127.0.0.1:4317/api/papers/paper%201/pdf/abc?namespace=research%20notes")}#page=1&zoom=page-width`,
+			`${PDFJS_VIEWER_PATH}?file=${encodeURIComponent("http://127.0.0.1:4317/api/papers/paper%201/pdf/abc")}#page=1&zoom=page-width`,
 		);
 	});
 

@@ -51,7 +51,7 @@ type MenuMode = "actions" | "move";
 export function CollectionSidebar({
 	collections,
 	activeCollection,
-	namespace,
+
 	membershipPaperIds,
 	membershipLoading,
 	selectedPaperIds,
@@ -65,7 +65,7 @@ export function CollectionSidebar({
 }: {
 	collections: PaperCollection[];
 	activeCollection: string;
-	namespace: string;
+
 	membershipPaperIds: Record<string, string[]>;
 	membershipLoading: boolean;
 	selectedPaperIds: ReadonlySet<string>;
@@ -87,10 +87,11 @@ export function CollectionSidebar({
 	const confirmationSettings = useConfirmationPolicy();
 	const [dropTargetId, setDropTargetId] = useState<string | null>();
 	const [draggingCollectionId, setDraggingCollectionId] = useState<string>();
-	const [expansion, setExpansion] = useState<{ namespace: string; ids: Set<string>; saved: boolean }>({
-		namespace: "",
-		ids: new Set(),
-		saved: false,
+	const [expansion, setExpansion] = useState<{ ids: Set<string>; saved: boolean }>(() => {
+		try {
+			const raw = window.localStorage.getItem("paper-agent:collection-expansion");
+			return {ids: new Set(raw ? JSON.parse(raw) as string[] : []),saved: raw !== null};
+		} catch { return {ids: new Set(),saved:false}; }
 	});
 	const editInputRef = useRef<HTMLInputElement>(null);
 	const childInputRef = useRef<HTMLInputElement>(null);
@@ -100,38 +101,20 @@ export function CollectionSidebar({
 	const flatTree = useMemo(() => flattenCollectionTree(tree), [tree]);
 
 	useEffect(() => {
-		if (expansion.namespace === namespace) {
-			const knownIds = new Set(collections.map((collection) => collection.id));
-			setExpansion((current) => ({
-				...current,
-				ids: new Set([...current.ids].filter((id) => knownIds.has(id))),
-			}));
-			return;
-		}
-		const key = `paper-agent:collection-expansion:${namespace}`;
-		const raw = window.localStorage.getItem(key);
-		let ids = new Set<string>();
-		let saved = false;
-		if (raw) {
-			try {
-				ids = new Set(JSON.parse(raw) as string[]);
-				saved = true;
-			} catch {
-				window.localStorage.removeItem(key);
-			}
-		}
-		setExpansion({ namespace, ids, saved });
-	}, [collections, expansion.namespace, namespace]);
+		if (!collections.length) return;
+		const knownIds = new Set(collections.map((collection) => collection.id));
+		setExpansion((current) => ({...current,ids: new Set([...current.ids].filter((id) => knownIds.has(id)))}));
+	}, [collections]);
 
 	useEffect(() => {
-		if (expansion.namespace !== namespace || expansion.saved) return;
+		if (expansion.saved) return;
 		const parentIds = new Set(
 			collections
 				.filter((collection) => flatTree.some((node) => node.collection.parentId === collection.id))
 				.map((collection) => collection.id),
 		);
 		setExpansion((current) => ({ ...current, ids: parentIds }));
-	}, [collections, expansion.namespace, expansion.saved, flatTree, namespace]);
+	}, [collections, expansion.saved, flatTree]);
 
 	useEffect(() => {
 		if (editingId) editInputRef.current?.focus();
@@ -184,8 +167,8 @@ export function CollectionSidebar({
 	function updateExpanded(update: (current: Set<string>) => Set<string>) {
 		setExpansion((current) => {
 			const ids = update(new Set(current.ids));
-			window.localStorage.setItem(`paper-agent:collection-expansion:${namespace}`, JSON.stringify([...ids]));
-			return { namespace, ids, saved: true };
+			window.localStorage.setItem(`paper-agent:collection-expansion`, JSON.stringify([...ids]));
+			return { ids, saved: true };
 		});
 	}
 
@@ -207,7 +190,7 @@ export function CollectionSidebar({
 		try {
 			const collection = await api<PaperCollection>(
 				"/api/library/collections",
-				jsonBody({ name: trimmed, parentId, namespace }),
+				jsonBody({ name: trimmed, parentId }),
 			);
 			onCreated(collection);
 			if (parentId) updateExpanded((ids) => ids.add(parentId));
@@ -228,7 +211,7 @@ export function CollectionSidebar({
 		setBusy(true);
 		try {
 			const updated = await api<PaperCollection>(
-				`/api/library/collections/${encodeURIComponent(id)}?namespace=${encodeURIComponent(namespace)}`,
+				`/api/library/collections/${encodeURIComponent(id)}`,
 				jsonBody(updates, "PATCH"),
 			);
 			onUpdated(updated);
@@ -256,7 +239,7 @@ export function CollectionSidebar({
 		setBusy(true);
 		try {
 			const result = await api<{ deletedCollectionIds: string[] }>(
-				`/api/library/collections/${encodeURIComponent(node.collection.id)}?namespace=${encodeURIComponent(namespace)}`,
+				`/api/library/collections/${encodeURIComponent(node.collection.id)}`,
 				{ method: "DELETE" },
 			);
 			onDeleted(result.deletedCollectionIds);

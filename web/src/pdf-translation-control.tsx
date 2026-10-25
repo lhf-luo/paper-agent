@@ -13,7 +13,7 @@ import type {
 interface PdfTranslationSource {
 	title: string;
 	paperId: string;
-	namespace: string;
+
 	sha256: string;
 }
 
@@ -24,7 +24,7 @@ interface PdfTranslationControlProps {
 
 const requestBody = (source: PdfTranslationSource) => ({
 	paperId: source.paperId,
-	namespace: source.namespace,
+
 	sourceSha256: source.sha256,
 	sourceLanguage: "en",
 	targetLanguage: "zh-CN",

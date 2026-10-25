@@ -4,7 +4,7 @@
 
 1. Frame: define the question, inclusion/exclusion rules, time range, venue/type constraints, and expected output.
 2. Select: choose once/persistent and personal/team explicitly; default to once + personal.
-3. Reuse: search the remote team service when configured, then the selected local corpus and versioned derived-task cache before external search or repeated generation.
+3. Choose search scope: search external providers by default with `reuse_corpus=false`. Search personal or team records only when the user requests library search or reuse; library lookup is not a prerequisite for external discovery. Exact derived-task cache reuse remains separate from searching library papers.
 4. Expand: record the primary query and explicit variants. Do not hide model-generated terms.
 5. Search: use arXiv, OpenAlex, and Crossref by default. Add Semantic Scholar when its API is reachable or an API key is configured. ACL Anthology and USENIX are optional official sources: ACL requires one exact year and one supported venue, while USENIX may preserve successful papers alongside detail-level warnings. Keep pagination bounded and record partial failures.
 6. Normalize: automatically merge records with the same DOI, arXiv id, provider record id, material hash, or exact normalized title plus normalized first author when primary identifiers do not conflict. Keep fuzzy-title matches, incomplete-author matches, and identifier conflicts as review candidates.
@@ -16,7 +16,7 @@
 12. Acquire: show the selected PDFs or artifact candidates and complete the exact code-level manifest confirmation before storing or cloning anything, even when the current request already names those acquisitions. In once mode, discovery never implies download or persistence. Before a GitHub search, inspect the stored abstract for an explicitly named implementation; when it is absent or unclear, read the PDF abstract and introduction pages. Record the supporting sentence, reject names guessed only from title punctuation or generic acronyms, and inspect automatically generated queries before using their results. Search GitHub by a verified implementation/tool name first, then DOI, exact title plus author surname, and distinctive terms plus author surname. Model memory may supply an untrusted lead only after deterministic discovery fails; verify it with public primary evidence before using `additional_candidate_urls`. Revalidate cached hashes, Git commit, and remote before reuse, and never execute acquired content.
 13. Package: build a material package with `build_paper_package` after records, PDF versions, and artifact manifests exist. The package row must join metadata, version, PDF, artifact, discovery source, screening status, reading status, and update time; missing materials remain explicit.
 14. Organize: audit provenance, record new derived work with versioned keys, and export a human-reviewable snapshot.
-15. Research-note handoff: follow the `paper-research` skill for note lookup, templates, content, and mutations. Corpus operations may link only papers from the same personal namespace, and deleting a paper removes only the relationship rather than the note.
+15. Research-note handoff: follow the `paper-research` skill for note lookup, templates, content, and mutations. Corpus operations may link only papers from the personal workspace, and deleting a paper removes only the relationship rather than the note.
 16. Zotero transfer: use the official local API and exact item/collection keys. Preserve complete ancestor paths and multiple memberships; treat unreadable PDFs as non-blocking warnings, require confirmation, and never edit either SQLite database directly.
 17. Share: propose only explicitly selected, provenance-reviewed personal records to the team service, excluding personal notes and screening decisions, then require reviewer approval or rejection.
 18. Verify: use primary papers and official artifacts for claims. Metadata, citation counts, and snippets cannot prove a claim.
@@ -26,10 +26,10 @@
 - Find canonical records: focused query, identifiers, versions, and final URLs.
 - Build a reading list: explicit criteria, deduplicated records, and provenance.
 - Denoise collected results: filter the persisted run without re-searching, retain the original record set, and report retained and unresolved counts.
-- Update a topic corpus: search existing records first; persistent identical runs avoid repeated API work.
+- Update a topic corpus: collect external candidates by default; include saved records only when requested. Persistent identical runs may avoid repeated API work.
 - Reuse an analysis: compute the task key from immutable material hashes plus operation, pipeline, model/prompt, and config; look it up before generation.
 - Snowball citations: relevant seeds, direction stated, depth at most two unless a human expands scope; filter the staged citation Search Run before creating its field-driven sidebar.
-- Follow one author: use `search_literature_corpus` for already saved papers; for external works, call `find_author_papers` with a personal seed Paper ID and one of its authors. Report per-source identity resolution, failures, and truncation; then review duplicates and filter the staged Search Run before presenting a topic list or saving a selection.
+- Follow one author: use `search_literature_corpus` only when the user wants already saved papers; for external works, call `find_author_papers` with a personal seed Paper ID and one of its authors. Report per-source identity resolution, failures, and truncation; then review duplicates and filter the staged Search Run before presenting a topic list or saving a selection.
 - Save selected results: durable `search_run_id`, selected `paper_ids`, confirmation fingerprint, and write outcome counts.
 - Edit a sidebar list: existing result URL, expected revision, structured operations, exact persisted source handles, and the new revision.
 - Acquire materials: bounded downloads and an artifact manifest with hashes, commits, license hints, and failures.

@@ -55,10 +55,12 @@ export class WebAgentInputQueue {
 		this.host.changed();
 	}
 
-	begin(input: StoredWebAgentInput): void {
+	async begin(input: StoredWebAgentInput): Promise<void> {
 		this.starting = input.id;
+		if (input.phase === "dispatching") return;
 		input.phase = "dispatching";
-		this.save();
+		await this.host.persist(this.state);
+		this.host.changed();
 	}
 
 	async enqueue(pi: AgentSession, input: StoredWebAgentInput): Promise<void> {

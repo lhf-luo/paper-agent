@@ -34,7 +34,7 @@ export interface PaperAgentApplicationConfig {
 	projectRoot: string;
 	dataRoot?: string;
 	corpusRoot?: string;
-	defaultNamespace?: string;
+
 	executor?: CommandExecutor;
 	jobConcurrency?: number;
 	doiProviderLookup?: DoiProviderLookup;
@@ -48,7 +48,7 @@ export interface LiteratureSearchJobInput {
 	filters?: SearchFilters;
 	pagesPerProvider?: number;
 	maxResultsPerProvider?: number;
-	namespace?: string;
+
 	reuseCorpus?: boolean;
 	checkpointId?: string;
 }
@@ -59,14 +59,13 @@ export interface PdfDownloadPreparationInput {
 	maxFiles?: number;
 	maxMegabytesPerFile?: number;
 	concurrency?: number;
-	namespace?: string;
 }
 
 export interface ArtifactDiscoveryInput {
 	pdfPath: string;
 	sourceDirectory?: string;
 	paperId?: string;
-	namespace?: string;
+
 	additionalCandidateUrls?: string[];
 }
 
@@ -80,14 +79,13 @@ export interface AuthorizedPdfDownloadJob {
 	executionPermit: OperationExecutionPermit;
 	request: LiteraturePdfDownloadRequest;
 	prepared: PreparedLiteraturePdfDownload;
-	namespace: string;
 }
 
 export interface AuthorizedArtifactJob {
 	executionPermit: OperationExecutionPermit;
 	manifest: ArtifactManifest;
 	paperId?: string;
-	namespace: string;
+
 	candidateIds?: string[];
 	maxArtifacts: number;
 	maxBytesPerArtifact: number;
@@ -99,7 +97,7 @@ export interface CorpusImportInput {
 	newsBatchId?: string;
 	sidebarResultUrl?: string;
 	paperIds?: string[];
-	namespace?: string;
+
 	/** 保存后归入的分类(集合) id; 不传则保持未分类。 */
 	collectionId?: string;
 }
@@ -112,14 +110,14 @@ export interface AuthorizedCorpusImportJob extends CorpusImportInput {
 
 export interface TeamPaperProposalInput {
 	paperIds: string[];
-	personalNamespace?: string;
+
 	/** Existing shared categories to request; a reviewer applies them when approving the papers. */
 	topicIds?: string[];
 }
 
 export interface TeamPullInput {
 	paperIds: string[];
-	personalNamespace?: string;
+
 	includePdf?: boolean;
 }
 
@@ -127,7 +125,6 @@ export type { TeamPullResult } from "../../team/application/team-pull.ts";
 
 export interface TeamDerivedProposalInput {
 	keys: string[];
-	personalNamespace?: string;
 }
 
 export type TeamPagesProposalInput = import("../../team/domain/team-corpus-types.ts").TeamPageSourcesInput;
@@ -148,13 +145,11 @@ export interface TeamArtifactProposalInput {
 	artifactJobId?: string;
 	manifestSha256?: string;
 	paperId: string;
-	personalNamespace?: string;
 }
 
 export interface TeamBlobUploadInput {
 	paperId: string;
 	sha256: string;
-	personalNamespace?: string;
 }
 
 export interface TeamRestoreDrillInput {
@@ -171,7 +166,7 @@ export interface PdfAssetCorrectionInput {
 
 export interface PersonalCorpusAnnotationInput {
 	paperIds: string[];
-	namespace?: string;
+
 	author?: string;
 	tags?: string[];
 	note?: string;
@@ -181,13 +176,13 @@ export interface PersonalCorpusAnnotationInput {
 
 export interface PersonalMetadataEnrichmentInput {
 	paperId: string;
-	namespace?: string;
+
 	author?: string;
 }
 
 export interface PersonalPaperDetailFieldsInput {
 	paperId: string;
-	namespace?: string;
+
 	expectedRevision: number;
 	fields: PaperDetailFieldInput[];
 }
@@ -195,7 +190,7 @@ export interface PersonalPaperDetailFieldsInput {
 export interface PersonalPaperRemovalInput {
 	mode: "remove-from-collection" | "permanent-delete";
 	paperIds: string[];
-	namespace?: string;
+
 	collectionId?: string;
 	author?: string;
 }
@@ -203,21 +198,20 @@ export interface PersonalPaperRemovalInput {
 export interface PersonalPdfVersionRemovalInput {
 	paperId: string;
 	sha256: string;
-	namespace?: string;
+
 	author?: string;
 }
 
 /** 批量清洗标题杂质；省略 paperIds 时处理整个命名空间。 */
 export interface PersonalTitleRepairInput {
 	paperIds?: string[];
-	namespace?: string;
+
 	author?: string;
 }
 
 export type PersonalCorpusExportFormat = CorpusExportFormat;
 
 export interface PersonalCorpusExportInput {
-	namespace?: string;
 	paperIds?: string[];
 	format: PersonalCorpusExportFormat;
 	filename?: string;

@@ -62,9 +62,9 @@ export function inspectArtifactContent(
 		".tar": "application/x-tar",
 	};
 	const expected = expectedByExtension[extension];
-	const unverifiedLegacyTar =
+	const unverifiedTar =
 		extension === ".tar" && ["application/octet-stream", "text/plain"].includes(detectedContentType);
-	if (expected && detectedContentType !== expected && !unverifiedLegacyTar) {
+	if (expected && detectedContentType !== expected && !unverifiedTar) {
 		throw new Error(`artifact content does not match ${extension}: detected ${detectedContentType}`);
 	}
 	const declaredFamily = new Map([
@@ -79,7 +79,7 @@ export function inspectArtifactContent(
 	if (
 		declaredExpected &&
 		detectedContentType !== declaredExpected &&
-		!(declaredExpected === "application/x-tar" && unverifiedLegacyTar)
+		!(declaredExpected === "application/x-tar" && unverifiedTar)
 	) {
 		throw new Error(`artifact Content-Type ${contentType} does not match detected ${detectedContentType}`);
 	}
@@ -91,7 +91,7 @@ export function inspectArtifactContent(
 		detectedContentType,
 		contentDisposition,
 		contentValidation:
-			detectedContentType === "application/octet-stream" || unverifiedLegacyTar ? "unverified" : "validated",
+			detectedContentType === "application/octet-stream" || unverifiedTar ? "unverified" : "validated",
 	};
 }
 

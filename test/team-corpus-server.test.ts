@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 import { access, cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LiteratureStore } from "../src/literature/application/literature-store.ts";
 import type { ArtifactManifest, DerivedRecord, PaperRecord } from "../src/literature/domain/literature-types.ts";
 import { createTeamCorpusServer, hashTeamToken } from "../team-server/src/presentation/team-corpus-server.ts";
+import { fetchWithReviewPreview as fetch } from "./team-http-fixture.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -136,7 +136,7 @@ describe("team corpus server", () => {
 				body: JSON.stringify({ records: [malformedOptionalMetadata] }),
 			});
 			expect(rejectedMetadata.status).toBe(400);
-			const store = new LiteratureStore(join(root, "corpus", "security"), "team", "security");
+			const store = new LiteratureStore(join(root, "corpus", "security"), "team");
 			const teamRecord = await store.getPaper("paper-team-server");
 			expect(teamRecord?.curation?.userNotes).toEqual([]);
 			expect(teamRecord?.curation?.screening).toBeUndefined();
@@ -178,9 +178,9 @@ describe("team corpus server", () => {
 			});
 			const restoredPath = join(root, "restore-drill", "security");
 			await cp(join(backupPath, "namespace"), restoredPath, { recursive: true });
-			const restored = new LiteratureStore(restoredPath, "team", "security");
+			const restored = new LiteratureStore(restoredPath, "team");
 			expect(await restored.audit()).toMatchObject({
-				manifest: { scope: "team", namespace: "security", recordCount: 1 },
+				manifest: { scope: "team", recordCount: 1 },
 			});
 			expect((await restored.getPaper("paper-team-server"))?.curation?.teamReview?.status).toBe("team-approved");
 		} finally {
@@ -581,7 +581,7 @@ describe("team corpus server", () => {
 					method: "POST",
 					body: JSON.stringify({ paperIds: ["paper-team-server"], decision: "team-approved" }),
 				});
-			const store = new LiteratureStore(join(root, "corpus", "security"), "team", "security");
+			const store = new LiteratureStore(join(root, "corpus", "security"), "team");
 			const status = async () => (await store.getPaper("paper-team-server"))?.curation?.teamReview?.status;
 
 			expect((await propose("alice-token", paper())).status).toBe(200);

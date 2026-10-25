@@ -4,12 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { acquireArtifacts, artifactAcquisitionPlan } from "../src/artifacts/application/artifact-acquisition.ts";
-import { collectLiterature } from "../src/literature/presentation/collection-tools.ts";
 import type { ArtifactManifest, LiteratureProvider } from "../src/literature/domain/literature-types.ts";
-import {
-	searchAclAnthologyPage,
-	searchUsenixPage,
-} from "../src/literature/infrastructure/literature-providers.ts";
+import { searchAclAnthologyPage, searchUsenixPage } from "../src/literature/infrastructure/literature-providers.ts";
+import { collectLiterature } from "../src/literature/presentation/collection-tools.ts";
 import { OperationConsentManager } from "../src/shared/application/operation-consent.ts";
 
 function execAdapter(
@@ -60,7 +57,7 @@ try {
 		maxResultsPerProvider: 3,
 		scope: "personal",
 		mode: "once",
-		namespace: "live-smoke",
+
 		cwd: root,
 		reuseCorpus: false,
 	});
@@ -85,7 +82,9 @@ try {
 			searchUsenixPage({ query: "ValScope", limit: 3 }),
 		]);
 		if (!acl.records.length || !usenix.records.length) {
-			throw new Error(`official provider smoke returned no records: acl=${acl.records.length}; usenix=${usenix.records.length}`);
+			throw new Error(
+				`official provider smoke returned no records: acl=${acl.records.length}; usenix=${usenix.records.length}`,
+			);
 		}
 		officialProviderSmoke = { aclAnthology: acl.records.length, usenix: usenix.records.length };
 	}

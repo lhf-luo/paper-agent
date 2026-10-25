@@ -1,10 +1,11 @@
 import { join } from "node:path";
+import { visibleSessionSkills } from "../domain/session-skills.ts";
 import {
 	type AgentSession,
-	type PromptOptions,
 	createAgentSession,
 	DefaultResourceLoader,
 	ModelRuntime,
+	type PromptOptions,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -30,6 +31,7 @@ export type {
 } from "../domain/web-agent-contracts.ts";
 export { WebAgentServiceError } from "../domain/web-agent-contracts.ts";
 
+import { registerWebAgentMcpTools } from "./web-agent-mcp-tools.ts";
 import { WebAgentPiEvents } from "./web-agent-pi-events.ts";
 import type { ManagedWebAgentSession } from "./web-agent-support.ts";
 
@@ -118,17 +120,24 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 				noContextFiles: true,
 				noPromptTemplates: true,
 				noThemes: true,
-				additionalSkillPaths: this.additionalSkillPaths,
+				additionalSkillPaths: [...new Set([this.projectSkillRoot, ...this.additionalSkillPaths])],
+				skillsOverride: ({ skills, diagnostics }) => ({
+					skills: visibleSessionSkills(skills, session.context?.kind === "canvas"),
+					diagnostics,
+				}),
 				extensionFactories: [
 					{
 						name: "paper-agent-web",
 						factory: async (pi) => {
 							await this.extensionFactory(pi);
 							await this.canvasResearchFor(session)?.extension(pi);
+							await registerWebAgentMcpTools(pi, this.mcp, session.id, (message) =>
+								this.emit(session, { type: "notice", level: "warning", message }),
+							);
 						},
 					},
 				],
-				systemPrompt: this.systemPrompt,
+				systemPrompt: `${this.systemPrompt}\n本地 Paper Agent 只有一个个人工作区，本地工具不再接受 namespace 等空间参数。历史对话中出现的空间参数已经停用；远端团队工具仍按其当前参数说明使用。`,
 			});
 			await resourceLoader.reload();
 			// UI history is persisted separately; once turns must never reload an earlier Pi context.
@@ -187,17 +196,20 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 			}
 			return result.session;
 		} catch (error) {
+			await this.mcp.releaseSession(session.id);
 			if (error instanceof WebAgentServiceError) throw error;
 			throw new WebAgentServiceError(502, `无法启动 Agent 会话：${this.redact(error)}`);
 		}
 	}
 
 	protected async ensurePiSession(session: ManagedWebAgentSession, revision: number): Promise<AgentSession> {
-		if (session.pi && session.piRevision === revision) return session.pi;
+		const mcpRevision = await this.mcp.revision();
+		if (session.pi && session.piRevision === revision && session.piMcpRevision === mcpRevision) return session.pi;
 		if (session.pi) this.disposePiSession(session);
 		const pi = await this.createPiSession(session, revision);
 		session.pi = pi;
 		session.piRevision = revision;
+		session.piMcpRevision = mcpRevision;
 		session.unsubscribePi = pi.subscribe((event) => this.handlePiEvent(session, event));
 		return pi;
 	}
@@ -209,6 +221,8 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 		session.pi?.dispose();
 		session.pi = undefined;
 		session.piRevision = undefined;
+		session.piMcpRevision = undefined;
+		void this.mcp.releaseSession(session.id);
 		session.activeAssistantMessageId = undefined;
 	}
 
@@ -258,6 +272,7 @@ export abstract class WebAgentRuntime extends WebAgentPiEvents {
 			}
 			session.activeAssistantMessageId = undefined;
 			session.runPromise = undefined;
+			session.startingRun = false;
 			session.abortRequested = false;
 			this.touch(session);
 			if (session.mode === "once" && !session.inputState.pending.length) this.disposePiSession(session);

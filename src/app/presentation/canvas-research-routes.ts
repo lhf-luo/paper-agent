@@ -3,18 +3,16 @@ import type { WebAgentServiceApi } from "../../agent/domain/web-agent-contracts.
 import type { ResearchLayout } from "../../canvas/application/canvas-research-layout.ts";
 import { latestResearchAnalysis } from "../../canvas/application/canvas-research-projection.ts";
 import { previewPaperSelection, previewResearchRelations } from "../../canvas/application/canvas-research-proposals.ts";
-import { CanvasResearchSearch } from "../../canvas/application/canvas-research-search.ts";
 import { CanvasResearchService } from "../../canvas/application/canvas-research-service.ts";
 import type {
 	CanvasChangeProposal,
 	CanvasResearchAnalysis,
-	CanvasSearchPlan,
 } from "../../canvas/domain/canvas-research.ts";
 import { integer, strings, text } from "../../canvas/domain/canvas-research-validation.ts";
 import { subscribeCanvasResearch } from "../../canvas/infrastructure/canvas-research-events.ts";
 import { CanvasRevisionConflict } from "../../canvas/infrastructure/research-canvas-store.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
-import { ApiError, json, namespaceValue, readJson } from "./web-http.ts";
+import { ApiError, json, readJson } from "./web-http.ts";
 
 export async function handleCanvasResearchRoutes(
 	application: PaperAgentApplication,
@@ -32,23 +30,18 @@ export async function handleCanvasResearchRoutes(
 	)
 		throw new ApiError(405, "研究接口不支持此请求方法");
 	const body = request.method === "GET" ? {} : await readJson(request);
-	const namespace =
-		namespaceValue(body.namespace ?? url.searchParams.get("namespace")) ?? application.defaultNamespace;
+
 	const sessionId =
 		typeof body.sessionId === "string" ? body.sessionId : (url.searchParams.get("sessionId") ?? "user");
 	const canvasId = decodeURIComponent(match[1]);
 	if (sessionId !== "user") {
 		const session = await agentService?.getSession(sessionId);
-		if (
-			session?.context?.kind !== "canvas" ||
-			session.context.namespace !== namespace ||
-			session.context.canvasId !== canvasId
-		)
+		if (session?.context?.kind !== "canvas" || session.context.canvasId !== canvasId)
 			throw new ApiError(404, "会话不属于此画布");
 	}
-	const library = application.personalStore(namespace);
+	const library = application.personalStore();
 	await library.initialize();
-	const service = new CanvasResearchService(library, namespace, canvasId, sessionId);
+	const service = new CanvasResearchService(library, canvasId, sessionId);
 	if (!service.canvases.get(canvasId)) throw new ApiError(404, "画布不存在");
 	try {
 		if (request.method === "GET") await readRoute(service, match[2], url, response, request, openStreams);
@@ -103,43 +96,7 @@ async function readRoute(
 			})),
 		});
 	}
-	if (route === "searches")
-		return json(response, 200, {
-			plans: service.records.list<CanvasSearchPlan>("search").slice(offset, offset + limit),
-		});
-	const candidates = /^searches\/([^/]+)\/candidates$/.exec(route);
-	if (candidates) return readCandidates(service, decodeURIComponent(candidates[1]), url, response, offset, limit);
 	throw new ApiError(404, "研究接口不存在");
-}
-
-async function readCandidates(
-	service: CanvasResearchService,
-	id: string,
-	url: URL,
-	response: ServerResponse,
-	offset: number,
-	limit: number,
-) {
-	const plan = service.records.get<CanvasSearchPlan>("search", id);
-	const runId = url.searchParams.get("runId") ?? plan?.value.searchRunIds[0];
-	if (!plan || !runId || !plan.value.searchRunIds.includes(runId)) throw new Error("候选检索不属于本计划");
-	const run = await service.library.getSearchRun(runId);
-	if (!run) throw new Error("检索记录不存在");
-	return json(response, 200, {
-		runId,
-		total: run.results.length,
-		papers: run.results.slice(offset, offset + limit),
-		failures: run.failures,
-		coverage: run.coverage,
-		executions: run.executions,
-		authorExpansion: run.authorExpansion,
-		citationExpansion: run.citationExpansion,
-		gaps: plan.value.gap,
-		recommendations:
-			service.records
-				.get<CanvasResearchAnalysis>("analysis", plan.value.analysisId)
-				?.value.candidates?.filter((c) => c.searchRunId === runId) ?? [],
-	});
 }
 
 async function writeRoute(
@@ -161,20 +118,6 @@ async function writeRoute(
 				body.expectedRevision === undefined ? undefined : integer(body.expectedRevision, 0, 10000000),
 			),
 		);
-	if (route === "searches") return json(response, 201, new CanvasResearchSearch(service).create(body.plan));
-	const decision = /^searches\/([^/]+)\/decision$/.exec(route);
-	if (decision) {
-		if (typeof body.approved !== "boolean") throw new Error("请选择接受或拒绝");
-		return json(
-			response,
-			200,
-			new CanvasResearchSearch(service).decide(
-				decodeURIComponent(decision[1]),
-				body.approved,
-				integer(body.expectedRevision, 0, 10000000),
-			),
-		);
-	}
 	if (route === "proposals") return json(response, 201, await createProposal(service, body));
 	const change = /^proposals\/([^/]+)\/(apply|undo)$/.exec(route);
 	if (change)
@@ -183,7 +126,7 @@ async function writeRoute(
 			200,
 			await service.apply(
 				decodeURIComponent(change[1]),
-				strings(body.selectedIds ?? [], 1000),
+				strings(body.selectedIds ?? [], 3000),
 				integer(body.expectedRevision, 0, 10000000),
 				change[2] === "undo",
 			),
@@ -221,7 +164,7 @@ function streamEvents(service: CanvasResearchService, request: IncomingMessage, 
 	const send = () => {
 		if (!response.destroyed) response.write(`data: ${JSON.stringify({ canvasId: service.canvasId })}\n\n`);
 	};
-	const unsubscribe = subscribeCanvasResearch(service.library.databasePath, service.namespace, service.canvasId, send);
+	const unsubscribe = subscribeCanvasResearch(service.library.databasePath, service.canvasId, send);
 	const timer = setInterval(() => {
 		if (!response.destroyed) response.write(": keepalive\n\n");
 	}, 15000);

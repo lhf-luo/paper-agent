@@ -43,7 +43,7 @@ describe("Paper Agent local configuration", () => {
 	it("registers an Obsidian Wiki vault once and reuses its stable vault id", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-obsidian-"));
 		try {
-			const vaultPath = join(root, "wiki", "default");
+			const vaultPath = join(root, "wiki");
 			const configPath = join(root, "obsidian", "obsidian.json");
 			await mkdir(vaultPath, { recursive: true });
 			const first = await ensureObsidianVault(vaultPath, configPath);
@@ -70,17 +70,16 @@ describe("Paper Agent local configuration", () => {
 		}
 	});
 
-	it("rejects research namespaces that could escape the application data root", async () => {
+	it("creates the personal notebook without a workspace selector", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-research-namespace-"));
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
-		expect(() => application.researchNotebook("..\\outside")).toThrow("namespace must use");
+		expect(() => application.researchNotebook()).not.toThrow();
 		await application.close();
 	});
 
 	it("stores only environment-variable names and round-trips validated settings", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-config-"));
 		const value = defaultPaperAgentConfig();
-		value.storage.defaultNamespace = "researcher-a";
 		value.readerTranslation.defaultProvider = "deepl";
 		value.credentials = {
 			googleTranslateApiKey: "google-secret",
@@ -107,7 +106,7 @@ describe("Paper Agent local configuration", () => {
 		const loaded = await loadPaperAgentConfig(root);
 		expect(loaded).toMatchObject({
 			readerTranslation: { defaultProvider: "deepl" },
-			storage: { defaultNamespace: "researcher-a" },
+			storage: {},
 			externalTools: {
 				commandDirectories: [join(root, "tools", "poppler"), join(root, "tools", "tesseract")],
 			},
@@ -397,7 +396,7 @@ describe("Paper Agent local configuration", () => {
 		await savePaperAgentConfig(root, {
 			version: 1,
 			interface: { port: 0, openBrowser: false },
-			storage: { defaultNamespace: "lab-a" },
+			storage: {},
 			search: {
 				providers: ["dblp", "openalex"],
 				maxResultsPerProvider: 37,
@@ -416,7 +415,7 @@ describe("Paper Agent local configuration", () => {
 				maxResultsPerProvider: 37,
 				pagesPerProvider: 3,
 				queryExpansions: ["protocol state inference", "stateful fuzzing"],
-				namespace: "lab-a",
+
 				reuseCorpus: false,
 			});
 			await application.jobs.cancel(queued.id);
@@ -715,15 +714,14 @@ describe("Paper Agent local configuration", () => {
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
 		try {
 			const next = defaultPaperAgentConfig();
-			next.storage.defaultNamespace = "approved";
 			next.credentials = { ...next.credentials, coreApiKey: "fresh-core-key" };
 			const prepared = await application.prepareConfigurationWrite(next);
 			const grant = await application.confirmOperation(prepared.operationId, prepared.manifestFingerprint);
 			await expect(
-				application.writeConfiguration({ ...next, storage: { defaultNamespace: "changed" } }, grant),
+				application.writeConfiguration({ ...next, storage: { dataRoot: "D:/different" } }, grant),
 			).rejects.toThrow("does not match");
 			await expect(application.writeConfiguration(next, grant)).resolves.toMatchObject({
-				config: { storage: { defaultNamespace: "approved" } },
+				config: { storage: {} },
 			});
 			expect(providerCredentials.coreApiKey).toBe("fresh-core-key");
 		} finally {
@@ -1015,7 +1013,7 @@ describe("Paper Agent local configuration", () => {
 			});
 
 			// 存储路径变化仍然要求重启，避免把两种情形混为一谈。
-			const movedStorage = { ...withModel, storage: { ...withModel.storage, defaultNamespace: "renamed" } };
+			const movedStorage = { ...withModel, storage: { ...withModel.storage, dataRoot: join(root, "moved-data") } };
 			const moved = await application.prepareConfigurationWrite(movedStorage);
 			const movedGrant = await application.confirmOperation(moved.operationId, moved.manifestFingerprint);
 			await expect(application.writeConfiguration(movedStorage, movedGrant)).resolves.toMatchObject({

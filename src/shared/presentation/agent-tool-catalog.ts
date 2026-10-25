@@ -16,6 +16,7 @@ export class AgentToolCatalog {
 	private readonly tools = new Map<string, RegisteredAgentTool>();
 
 	add(tool: RegisteredAgentTool): void {
+		if (this.tools.has(tool.name)) throw new Error(`Agent tool already registered: ${tool.name}`);
 		this.tools.set(tool.name, tool);
 	}
 
@@ -33,7 +34,10 @@ export class AgentToolCatalog {
 			.toLowerCase()
 			.match(/[\p{L}\p{N}_-]+/gu)
 			?.filter(Boolean);
-		if (!terms?.length) return this.entries().slice(0, 50).map((tool) => entry(tool, false));
+		if (!terms?.length)
+			return this.entries()
+				.slice(0, 50)
+				.map((tool) => entry(tool, false));
 		return this.entries()
 			.map((tool) => {
 				const fields = [
@@ -97,7 +101,8 @@ export function registerAgentToolCatalogTool(pi: ExtensionAPI, catalog: AgentToo
 										const guidelines = item.promptGuidelines.length
 											? `\n  Guidelines: ${item.promptGuidelines.join(" | ")}`
 											: "";
-										const schema = "parameters" in item ? `\n  Schema: ${JSON.stringify(item.parameters)}` : "";
+										const schema =
+											"parameters" in item ? `\n  Schema: ${JSON.stringify(item.parameters)}` : "";
 										return `- ${item.name}: ${item.description}${guidelines}${schema}`;
 									})
 									.join("\n")
@@ -111,16 +116,16 @@ export function registerAgentToolCatalogTool(pi: ExtensionAPI, catalog: AgentToo
 }
 
 export function collectRegisteredTools(registerExtension: (pi: ExtensionAPI) => void): RegisteredAgentTool[] {
-	const tools = new Map<string, RegisteredAgentTool>();
+	const catalog = new AgentToolCatalog();
 	const pi = {
 		on() {},
 		registerCommand() {},
 		registerTool(tool: RegisteredAgentTool) {
-			tools.set(tool.name, tool);
+			catalog.add(tool);
 		},
 	} as unknown as ExtensionAPI;
 	registerExtension(pi);
-	return [...tools.values()].sort((left, right) => left.name.localeCompare(right.name));
+	return catalog.entries();
 }
 
 function entry(tool: RegisteredAgentTool, includeSchema: boolean): AgentToolCatalogEntry {

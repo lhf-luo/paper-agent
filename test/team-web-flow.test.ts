@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,9 +84,9 @@ async function fixture() {
 describe("native Node team Web API flow", () => {
 	it("uses concrete versions across roles, rejects stale confirmation, and preserves edits on repeat pulls", async () => {
 		const f = await fixture();
-		const personal = await f.call("contributor", "/api/team/pages/personal?namespace=default");
+		const personal = await f.call("contributor", "/api/team/pages/personal");
 		const note = personal.notes[0];
-		const input = { sources: [{ kind: "note", id: note.id }], personalNamespace: "default" };
+		const input = { sources: [{ kind: "note", id: note.id }] };
 		const proposal = await f.mutate("contributor", "/api/team/pages", input);
 		const id = proposal.entries[0].snapshot.key;
 		const first = await f.call("reviewer", `/api/team/content/pages/${id}?pending=true`);
@@ -107,7 +107,6 @@ describe("native Node team Web API flow", () => {
 				markdown: "# New version\n\nOnly this approved evidence is reusable.",
 				expectedRevision: note.revision,
 				expectedContentHash: note.contentHash,
-				namespace: "default",
 			},
 			"PATCH",
 		);
@@ -124,7 +123,7 @@ describe("native Node team Web API flow", () => {
 		expect((await f.call("reader", `/api/team/content/pages/${id}`)).content.snapshot.markdown).toContain(
 			"approved evidence",
 		);
-		const pull = { entries: [{ resource: "pages", id }], personalNamespace: "default" };
+		const pull = { entries: [{ resource: "pages", id }] };
 		const firstPull = await f.mutate("reader", "/api/team/knowledge-pull", pull);
 		expect(firstPull.created).toHaveLength(1);
 		expect((await f.mutate("reader", "/api/team/knowledge-pull", pull)).unchanged).toHaveLength(1);
@@ -137,7 +136,6 @@ describe("native Node team Web API flow", () => {
 				markdown: "My private continuation",
 				expectedRevision: local.revision,
 				expectedContentHash: local.contentHash,
-				namespace: "default",
 			},
 			"PATCH",
 		);

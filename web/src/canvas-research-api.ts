@@ -20,22 +20,20 @@ export interface ResearchNode {
 	height: number;
 }
 export interface ResearchClient {
-	namespace: string;
 	get<T>(path: string, query?: Record<string, string | number>): Promise<T>;
 	post<T>(path: string, body: Record<string, unknown>): Promise<T>;
 	events(): EventSource;
 }
-export function researchClient(canvasId: string, namespace: string, sessionId?: string): ResearchClient {
+export function researchClient(canvasId: string, sessionId?: string): ResearchClient {
 	const base = `/api/canvases/${encodeURIComponent(canvasId)}/research/`;
-	const params = new URLSearchParams({ namespace, ...(sessionId ? { sessionId } : {}) });
+	const params = new URLSearchParams({ ...(sessionId ? { sessionId } : {}) });
 	return {
-		namespace,
 		get: (path, query = {}) =>
 			api(`${base}${path}?${params}&${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`),
 		post: (path, body) =>
 			api(`${base}${path}`, {
 				method: path === "settings" ? "PATCH" : "POST",
-				body: JSON.stringify({ ...body, namespace, ...(sessionId ? { sessionId } : {}) }),
+				body: JSON.stringify({ ...body, ...(sessionId ? { sessionId } : {}) }),
 			}),
 		events: () => new EventSource(`${base}events?${params}`),
 	};

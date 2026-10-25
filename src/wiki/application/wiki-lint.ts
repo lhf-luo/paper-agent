@@ -77,16 +77,6 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 			}
 		}
 		for (const evidence of page.evidence) {
-			if (evidence.legacy) {
-				issues.push({
-					severity: "warning",
-					code: "legacy-source-granularity",
-					path: page.relativePath,
-					message: `旧式页面级来源 ${evidence.id} 缺少声明级定位`,
-					pageId: page.id,
-					evidenceId: evidence.id,
-				});
-			}
 			if (!referenced.has(evidence.id) && page.claims.length) {
 				issues.push({
 					severity: "warning",
@@ -185,7 +175,6 @@ export async function lintWikiPages(pages: WikiPage[], lookup: WikiSourceLookup)
 				});
 			}
 			if (
-				!evidence.legacy &&
 				evidence.kind === "paper" &&
 				(!evidence.sourceId || !evidence.version || !evidence.locator.pdfPage)
 			) {

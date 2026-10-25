@@ -3,6 +3,7 @@ import { createServer, type IncomingHttpHeaders, type ServerResponse } from "nod
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,7 +33,7 @@ interface FakeModelRequest {
 	headers: IncomingHttpHeaders;
 }
 
-async function startFakeModelServer(options: { secret: string; toolPath?: string }) {
+async function startFakeModelServer(options: { secret: string; toolPath?: string; mcpTool?: string }) {
 	const requests: FakeModelRequest[] = [];
 	const heldResponses = new Set<ServerResponse>();
 	const server = createServer(async (request, response) => {
@@ -88,11 +89,12 @@ async function startFakeModelServer(options: { secret: string; toolPath?: string
 		}
 		const hasToolResult = messages.some((message) => message.role === "tool");
 		const tools = Array.isArray(body.tools) ? (body.tools as Array<Record<string, unknown>>) : [];
+		const requestedTool = options.mcpTool ?? "test_write";
 		const hasTestWrite = tools.some((tool) => {
 			const definition = tool.function as Record<string, unknown> | undefined;
-			return definition?.name === "test_write";
+			return definition?.name === requestedTool;
 		});
-		if (options.toolPath && hasTestWrite && !hasToolResult) {
+		if ((options.toolPath || options.mcpTool) && hasTestWrite && !hasToolResult) {
 			chunk([
 				{
 					index: 0,
@@ -103,7 +105,7 @@ async function startFakeModelServer(options: { secret: string; toolPath?: string
 								index: 0,
 								id: "call_test_write",
 								type: "function",
-								function: { name: "test_write", arguments: JSON.stringify({ path: options.toolPath }) },
+								function: { name: requestedTool, arguments: JSON.stringify(options.mcpTool ? { text: "MCP integration", namespace: "external-fixture" } : { path: options.toolPath }) },
 							},
 						],
 					},
@@ -167,6 +169,31 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 describe("WebAgentService", () => {
+	it("executes MCP tools through the native Pi session and the existing permission UI", async () => {
+		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-mcp-integration-"));
+		temporaryPaths.push(root);
+		const secret = "synthetic-mcp-model-secret";
+		const provider = await startFakeModelServer({ secret, mcpTool: "mcp__fixture__echo" });
+		try {
+			const service = await WebAgentService.create({ projectRoot: root }); services.push(service);
+			await service.mcp.save({ mcpServers: { fixture: { command: process.execPath, args: [fileURLToPath(new URL("./fixtures/mcp-server.mjs", import.meta.url))] } } }, (await service.mcp.view()).version);
+			await service.updateConfig({ providerId: "fake-provider", modelId: "fake-model", baseUrl: provider.baseUrl, api: "openai-completions", apiKey: secret });
+			const session = service.createSession({ mode: "persistent" });
+			await service.sendMessage(session.id, { message: "call the MCP fixture" });
+			await waitFor(() => service.getSession(session.id).uiRequests.length === 1);
+			const pending = service.getSession(session.id);
+			expect(pending.uiRequests[0].title).toContain("fixture/echo");
+			expect(pending.tools[0]).toMatchObject({ name: "mcp__fixture__echo", status: "running" });
+			await service.respondToUI(session.id, pending.uiRequests[0].id, true);
+			await waitFor(() => service.getSession(session.id).status !== "running");
+			expect(service.getSession(session.id).error).toBeUndefined();
+			expect(service.getSession(session.id).tools[0]).toMatchObject({ name: "mcp__fixture__echo", status: "succeeded" });
+			expect(JSON.stringify(provider.requests.at(-1)?.body.messages)).toContain("external-fixture");
+			await service.deleteSession(session.id);
+			await waitFor(async () => (await service.mcp.view()).servers[0].connectionCount === 0);
+		} finally { await provider.close(); }
+	});
+
 	it("discovers every project skill under .agents/skills", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-project-skills-"));
 		temporaryPaths.push(root);
@@ -226,7 +253,7 @@ describe("WebAgentService", () => {
 	it("persists and restores paper session context", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-paper-context-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alternate"), "personal", "alternate");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.upsertPaper({
 			id: "paper-context",
 			title: "Context paper",
@@ -242,11 +269,11 @@ describe("WebAgentService", () => {
 		const created = first.createSession({
 			mode: "persistent",
 			title: "阅读：Context paper",
-			context: { kind: "paper", namespace: "alternate", paperId: "paper-context" },
+			context: { kind: "paper",  paperId: "paper-context" },
 		});
-		expect(created.context).toEqual({ kind: "paper", namespace: "alternate", paperId: "paper-context" });
+		expect(created.context).toEqual({ kind: "paper",  paperId: "paper-context" });
 		expect(first.listSessions()).toEqual([]);
-		expect(first.listSessions({ scope: "paper", namespace: "alternate", paperId: "paper-context" })).toHaveLength(1);
+		expect(first.listSessions({ scope: "paper",  paperId: "paper-context" })).toHaveLength(1);
 		expect(await readdir(join(root, ".paper-agent", "web-agent-memory", "session-views"))).toEqual([]);
 		await first.close();
 		services.splice(services.indexOf(first), 1);
@@ -258,7 +285,7 @@ describe("WebAgentService", () => {
 		services.push(restoredService);
 		expect(restoredService.getSession(created.id).context).toEqual({
 			kind: "paper",
-			namespace: "alternate",
+
 			paperId: "paper-context",
 		});
 
@@ -280,7 +307,7 @@ describe("WebAgentService", () => {
 	it("keeps the selected paper PDF in model context without adding it to the visible message", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-reading-context-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.upsertPaper({
 			id: "paper-reading",
 			title: "Reading paper",
@@ -306,10 +333,10 @@ describe("WebAgentService", () => {
 			});
 			const session = service.createSession({
 				mode: "persistent",
-				context: { kind: "paper", namespace: "default", paperId: "paper-reading" },
+				context: { kind: "paper",  paperId: "paper-reading" },
 			});
 			const reading = {
-				namespace: "default",
+
 				paperId: "paper-reading",
 				title: "Reading paper",
 				pdfPath: join(root, "first.pdf"),
@@ -459,7 +486,7 @@ describe("WebAgentService", () => {
 		}
 	});
 
-	it("surfaces relay reasoning and reports when a provider returns none", async () => {
+	it("surfaces relay reasoning and quietly renders answers when a provider returns none", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-web-agent-reasoning-"));
 		temporaryPaths.push(root);
 		const secret = "synthetic-reasoning-test-key";
@@ -484,14 +511,13 @@ describe("WebAgentService", () => {
 			const streamedSnapshot = service.getSession(streamed.id);
 			expect(streamedSnapshot.messages.at(-1)?.thinking).toBe("step one step two");
 			expect(streamedEvents.some((event) => event.type === "thinking_delta")).toBe(true);
-			// Reasoning arrived, so no degradation notice should be emitted.
+			// Reasoning is displayed without an informational banner.
 			expect(
 				streamedEvents.some((event) => event.type === "notice" && event.message.includes("未提供详细推理内容")),
 			).toBe(false);
 			subscription.unsubscribe();
 
-			// An unknown field name yields no reasoning; the answer must still render and the
-			// session must say so rather than showing an unexplained blank.
+			// An unknown field name yields no reasoning; the answer still renders without a banner.
 			const unknown = service.createSession({ mode: "once" });
 			const unknownEvents: WebAgentEvent[] = [];
 			const unknownSubscription = service.subscribeSession(unknown.id, (event) => unknownEvents.push(event));
@@ -506,7 +532,7 @@ describe("WebAgentService", () => {
 			expect(unknownSnapshot.status).toBe("idle");
 			expect(
 				unknownEvents.some((event) => event.type === "notice" && event.message.includes("未提供详细推理内容")),
-			).toBe(true);
+			).toBe(false);
 			unknownSubscription.unsubscribe();
 		} finally {
 			await provider.close();

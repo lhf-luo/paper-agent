@@ -1,6 +1,6 @@
 export interface PdfMaterialRecord {
 	id: string;
-	namespace: string;
+
 	paperId: string;
 	paperVersionId: string;
 	sourceSha256: string;
@@ -19,5 +19,5 @@ export interface PdfMaterialRecord {
 
 export type SavePdfMaterialInput = Omit<
 	PdfMaterialRecord,
-	"id" | "namespace" | "paperVersionId" | "path" | "createdAt" | "updatedAt"
+	"id" | "paperVersionId" | "path" | "createdAt" | "updatedAt"
 >;

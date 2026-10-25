@@ -16,14 +16,13 @@ export abstract class PersonalDatabaseBase {
 	readonly databasePath: string;
 	readonly filesRoot: string;
 	readonly dataRoot: string;
-	readonly legacyRoot: string;
-	readonly namespace: string;
+	readonly root: string;
+
 	protected initialized = false;
 	protected abstract paperRow(database: DatabaseSync, paperId: string): PaperRow | undefined;
 	protected abstract syncPaper(database: DatabaseSync, record: PaperRecord, previousId?: string): number;
 	protected abstract renamePaperFiles(paperId: string, title: string): Promise<string[]>;
 	protected abstract recoverFileOperations(): Promise<void>;
-	protected abstract migrateLegacyCorpus(): Promise<void>;
 	abstract getPaper(id: string): Promise<PaperRecord | undefined>;
 	abstract listPapers(): Promise<PaperRecord[]>;
 	abstract listCollections(): Promise<PaperCollection[]>;
@@ -33,18 +32,17 @@ export abstract class PersonalDatabaseBase {
 		paperId: string,
 		sha256: string,
 	): Promise<{ version: PaperVersion; preferredSha256?: string; materialPath?: string }>;
-	abstract saveSearchRun(run: SearchRun, keep?: number): Promise<void>;
+	abstract saveSearchRun(run: SearchRun): Promise<void>;
 	abstract putDerived(record: DerivedRecord, replace?: boolean): Promise<"created" | "replaced" | "unchanged">;
 	abstract saveArtifactManifest(manifest: ArtifactManifest, paperId?: string): Promise<string>;
 	abstract listArtifactManifests(paperId?: string): Promise<ArtifactManifest[]>;
 
-	constructor(root: string, namespace: string) {
-		const layout = sqlitePathLayout(root, namespace);
+	constructor(root: string) {
+		const layout = sqlitePathLayout(root);
 		this.databasePath = layout.databasePath;
 		this.filesRoot = layout.filesRoot;
 		this.dataRoot = layout.dataRoot;
-		this.legacyRoot = layout.legacyRoot;
-		this.namespace = namespace;
+		this.root = layout.root;
 	}
 
 	protected open(): DatabaseSync {
@@ -83,7 +81,7 @@ export abstract class PersonalDatabaseBase {
 
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
-		const key = `${this.databasePath}:${this.namespace}`;
+		const key = `${this.databasePath}`;
 		let pending = initializationPromises.get(key);
 		if (!pending) {
 			pending = this.initializeOnce();
@@ -104,14 +102,7 @@ export abstract class PersonalDatabaseBase {
 			mkdir(dirname(this.databasePath), { recursive: true }),
 			mkdir(this.filesRoot, { recursive: true }),
 		]);
-		this.write((database) => {
-			const now = new Date().toISOString();
-			database
-				.prepare("INSERT OR IGNORE INTO namespaces(id, created_at, updated_at) VALUES (?, ?, ?)")
-				.run(this.namespace, now, now);
-		});
 		this.initialized = true;
 		await this.recoverFileOperations();
-		await this.migrateLegacyCorpus();
 	}
 }

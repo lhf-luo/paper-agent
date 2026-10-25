@@ -25,7 +25,7 @@ export function literatureImportPlan(
 	const normalized = [...accepted].sort((left, right) => left.id.localeCompare(right.id));
 	return {
 		kind: "personal-corpus-write",
-		summary: `Import ${normalized.length} parsed literature record(s) into ${store.namespace}`,
+		summary: `Import ${normalized.length} parsed literature record(s) into the personal library`,
 		targets: [
 			{ label: "personal-corpus", value: store.root, risk: "medium" },
 			{ label: "rejection-log", value: rejectionPath, risk: "low" },
@@ -33,7 +33,7 @@ export function literatureImportPlan(
 		details: {
 			inputPath,
 			corpusPath: store.root,
-			namespace: store.namespace,
+
 			collection: options.collection?.trim() || undefined,
 			recordIds: normalized.map((record) => record.id),
 			records: normalized.map((record) => ({

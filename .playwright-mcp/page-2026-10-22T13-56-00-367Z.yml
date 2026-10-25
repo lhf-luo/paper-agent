@@ -1,0 +1,260 @@
+- generic [ref=f3e2]:
+  - banner [ref=f3e3]:
+    - button [ref=f3e4] [cursor=pointer]
+    - link "首页" [ref=f3e6] [cursor=pointer]:
+      - /url: /schhp?hl=zh-CN
+    - button "搜索" [ref=f3e8] [cursor=pointer]
+  - main [ref=f3e11]:
+    - generic [ref=f3e12]:
+      - navigation
+      - main [ref=f3e13]:
+        - generic [ref=f3e14]:
+          - button "关注" [ref=f3e15] [cursor=pointer]
+          - img "Gelei Deng" [ref=f3e20]
+          - generic [ref=f3e21]:
+            - generic [ref=f3e22]: Gelei Deng
+            - link "Nanyang Technological University" [ref=f3e25] [cursor=pointer]:
+              - /url: /citations?view_op=view_org&hl=zh-CN&org=3012140508424117850
+            - generic [ref=f3e26]: 在 ntu.edu.sg 的电子邮件经过验证
+            - generic [ref=f3e27]:
+              - link "Cybersecurity" [ref=f3e28] [cursor=pointer]:
+                - /url: /citations?view_op=search_authors&hl=zh-CN&mauthors=label:cybersecurity
+              - link "System security" [ref=f3e29] [cursor=pointer]:
+                - /url: /citations?view_op=search_authors&hl=zh-CN&mauthors=label:system_security
+              - link "Robotics Security" [ref=f3e30] [cursor=pointer]:
+                - /url: /citations?view_op=search_authors&hl=zh-CN&mauthors=label:robotics_security
+              - link "AI Security" [ref=f3e31] [cursor=pointer]:
+                - /url: /citations?view_op=search_authors&hl=zh-CN&mauthors=label:ai_security
+              - link "Software Testing" [ref=f3e32] [cursor=pointer]:
+                - /url: /citations?view_op=search_authors&hl=zh-CN&mauthors=label:software_testing
+      - navigation [ref=f3e33]:
+        - tablist [ref=f3e34]:
+          - tab "文章" [selected] [ref=f3e35]
+          - tab "引用次数" [ref=f3e36] [cursor=pointer]
+          - tab "开放获取的出版物数量" [ref=f3e37] [cursor=pointer]
+          - tab "合著作者" [ref=f3e38] [cursor=pointer]
+      - tabpanel "文章" [ref=f3e39]:
+        - generic [ref=f3e40]:
+          - table [ref=f3e42]:
+            - rowgroup [ref=f3e43]:
+              - row [ref=f3e44]:
+                - columnheader [ref=f3e45]:
+                  - link "标题" [ref=f3e47] [cursor=pointer]:
+                    - /url: /citations?hl=zh-CN&user=NuzUkMEAAAAJ&view_op=list_works&sortby=title
+                - columnheader [ref=f3e48]:
+                  - link "引用次数" [ref=f3e51] [cursor=pointer]:
+                    - /url: /citations?hl=zh-CN&user=NuzUkMEAAAAJ&view_op=list_works
+                - columnheader "年份" [ref=f3e52]
+            - rowgroup [ref=f3e53]:
+              - row [ref=f3e54]:
+                - 'cell "Learn from Human-driving Accidents to Attack Autonomous Driving: Practical Multi-Vehicle Attacks on Decision-making X Han, H Tian, Y Zhou, J Zhang, G Deng, S Xu, X Huang, T Zhang IEEE Transactions on Dependable and Secure Computing" [ref=f3e55]':
+                  - 'link "Learn from Human-driving Accidents to Attack Autonomous Driving: Practical Multi-Vehicle Attacks on Decision-making" [ref=f3e56] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:KxtntwgDAa4C
+                  - generic [ref=f3e57]: X Han, H Tian, Y Zhou, J Zhang, G Deng, S Xu, X Huang, T Zhang
+                  - generic [ref=f3e58]: IEEE Transactions on Dependable and Secure Computing
+                - cell [ref=f3e59]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e60]
+              - row [ref=f3e62]:
+                - 'cell "SAF: An AI-Agent-Ready and Browser-Accessible Static Analysis Framework for LLVM IR Y Li, W Li, W Song, Y Liu, G Deng Proceedings of the 41st IEEE/ACM International Conference on Automated …" [ref=f3e63]':
+                  - 'link "SAF: An AI-Agent-Ready and Browser-Accessible Static Analysis Framework for LLVM IR" [ref=f3e64] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:nb7KW1ujOQ8C
+                  - generic [ref=f3e65]: Y Li, W Li, W Song, Y Liu, G Deng
+                  - generic [ref=f3e66]: Proceedings of the 41st IEEE/ACM International Conference on Automated …
+                - cell [ref=f3e67]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e68]
+              - row [ref=f3e70]:
+                - 'cell "How your credentials are leaked by LLM agent skills: An empirical study Z Chen, Y Zhang, Y Liu, G Deng, Y Li, Y Zhang, J Ning, LY Zhang, L Ma, ... Proceedings of the 41st IEEE/ACM International Conference on Automated …" [ref=f3e71]':
+                  - 'link "How your credentials are leaked by LLM agent skills: An empirical study" [ref=f3e72] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:pyW8ca7W8N0C
+                  - generic [ref=f3e73]: Z Chen, Y Zhang, Y Liu, G Deng, Y Li, Y Zhang, J Ning, LY Zhang, L Ma, ...
+                  - generic [ref=f3e74]: Proceedings of the 41st IEEE/ACM International Conference on Automated …
+                - cell [ref=f3e75]:
+                  - link "13" [ref=f3e76] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=10466934359252523758
+                - cell "2026" [ref=f3e77]
+              - row [ref=f3e79]:
+                - cell "Uncovering Logit Suppression Vulnerabilities in LLM Safety Alignment Y Li, Y Liu, Y Li, L Shi, G Deng, S Chen, K Wang International Conference on Pattern Recognition, 61-76" [ref=f3e80]:
+                  - link "Uncovering Logit Suppression Vulnerabilities in LLM Safety Alignment" [ref=f3e81] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:_xSYboBqXhAC
+                  - generic [ref=f3e82]: Y Li, Y Liu, Y Li, L Shi, G Deng, S Chen, K Wang
+                  - generic [ref=f3e83]: International Conference on Pattern Recognition, 61-76
+                - cell [ref=f3e84]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e85]
+              - row [ref=f3e87]:
+                - 'cell "SPOLRE: Semantic Preserving Object Layout Reconstruction for Image Captioning System Testing Y Liu, G Wang, X Zheng, G Deng, K Wang, Y Liu, H Wang ACM Transactions on Software Engineering and Methodology 35 (5), 1-25" [ref=f3e88]':
+                  - 'link "SPOLRE: Semantic Preserving Object Layout Reconstruction for Image Captioning System Testing" [ref=f3e89] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:dhFuZR0502QC
+                  - generic [ref=f3e90]: Y Liu, G Wang, X Zheng, G Deng, K Wang, Y Liu, H Wang
+                  - generic [ref=f3e91]: ACM Transactions on Software Engineering and Methodology 35 (5), 1-25
+                - cell [ref=f3e92]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e93]
+              - row [ref=f3e95]:
+                - 'cell "RSafe: Incentivizing proactive reasoning to build robust and adaptive LLM safeguards X Ji, Y Lu, C Cui, W Zhao, G Deng, Z Liang, A Zhang, TS Chua Advances in Neural Information Processing Systems 38, 28540-28575" [ref=f3e96]':
+                  - 'link "RSafe: Incentivizing proactive reasoning to build robust and adaptive LLM safeguards" [ref=f3e97] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:u_35RYKgDlwC
+                  - generic [ref=f3e98]: X Ji, Y Lu, C Cui, W Zhao, G Deng, Z Liang, A Zhang, TS Chua
+                  - generic [ref=f3e99]: Advances in Neural Information Processing Systems 38, 28540-28575
+                - cell [ref=f3e100]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e101]
+              - row [ref=f3e103]:
+                - cell "Safe+ safe= unsafe? exploring how safe images can be exploited to jailbreak large vision-language models C Cui, G Deng, A Zhang, Y Li, L Gao, T Zhang, TS Chua Advances in Neural Information Processing Systems 38, 100059-100091" [ref=f3e104]:
+                  - link "Safe+ safe= unsafe? exploring how safe images can be exploited to jailbreak large vision-language models" [ref=f3e105] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:HDshCWvjkbEC
+                  - generic [ref=f3e106]: C Cui, G Deng, A Zhang, Y Li, L Gao, T Zhang, TS Chua
+                  - generic [ref=f3e107]: Advances in Neural Information Processing Systems 38, 100059-100091
+                - cell [ref=f3e108]:
+                  - link "20" [ref=f3e109] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=3490262790886008487
+                - cell "2026" [ref=f3e110]
+              - row [ref=f3e112]:
+                - 'cell "Audiotrust: Benchmarking the multifaceted trustworthiness of audio large language models K Li, C Shen, Y Liu, J Han, X Zou, L WANG, S Zhang, X Du, H Luo, Y Jin, ... International Conference on Learning Representations 2026, 24938-25016" [ref=f3e113]':
+                  - 'link "Audiotrust: Benchmarking the multifaceted trustworthiness of audio large language models" [ref=f3e114] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:NaGl4SEjCO4C
+                  - generic [ref=f3e115]: K Li, C Shen, Y Liu, J Han, X Zou, L WANG, S Zhang, X Du, H Luo, Y Jin, ...
+                  - generic [ref=f3e116]: International Conference on Learning Representations 2026, 24938-25016
+                - cell [ref=f3e117]:
+                  - link "19" [ref=f3e118] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=17970882200880460314
+                - cell "2026" [ref=f3e119]
+              - row [ref=f3e121]:
+                - cell "Supply-chain poisoning attacks against LLM coding agent skill ecosystems Y Qu, Y Liu, T Geng, G Deng, Y Li, LY Zhang, Y Zhang, L Ma arXiv preprint arXiv:2604.03081" [ref=f3e122]:
+                  - link "Supply-chain poisoning attacks against LLM coding agent skill ecosystems" [ref=f3e123] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:ZHo1McVdvXMC
+                  - generic [ref=f3e124]: Y Qu, Y Liu, T Geng, G Deng, Y Li, LY Zhang, Y Zhang, L Ma
+                  - generic [ref=f3e125]: arXiv preprint arXiv:2604.03081
+                - cell [ref=f3e126]:
+                  - link "51" [ref=f3e127] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=9296050408989615810
+                - cell "2026" [ref=f3e128]
+              - row [ref=f3e130]:
+                - 'cell "Credential leakage in llm agent skills: A large-scale empirical study Z Chen, Y Zhang, Y Liu, G Deng, Y Li, Y Zhang, J Ning, LY Zhang, L Ma, ... arXiv e-prints, arXiv: 2604.03070" [ref=f3e131]':
+                  - 'link "Credential leakage in llm agent skills: A large-scale empirical study" [ref=f3e132] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:SeFeTyx0c_EC
+                  - generic [ref=f3e133]: Z Chen, Y Zhang, Y Liu, G Deng, Y Li, Y Zhang, J Ning, LY Zhang, L Ma, ...
+                  - generic [ref=f3e134]: "arXiv e-prints, arXiv: 2604.03070"
+                - cell [ref=f3e135]:
+                  - link "15" [ref=f3e136] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=2781509896525487919
+                - cell "2026" [ref=f3e137]
+              - row [ref=f3e139]:
+                - cell "Mind your heartbeat! claw background execution inherently enables silent memory pollution Y Zhang, S Zhao, J Zhang, G Deng, J Zhang, X Liu, C Xiao, T Zhang arXiv preprint arXiv:2603.23064" [ref=f3e140]:
+                  - link "Mind your heartbeat! claw background execution inherently enables silent memory pollution" [ref=f3e141] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:rO6llkc54NcC
+                  - generic [ref=f3e142]: Y Zhang, S Zhao, J Zhang, G Deng, J Zhang, X Liu, C Xiao, T Zhang
+                  - generic [ref=f3e143]: arXiv preprint arXiv:2603.23064
+                - cell [ref=f3e144]:
+                  - link "7" [ref=f3e145] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=1041034696495692450
+                - cell "2026" [ref=f3e146]
+              - row [ref=f3e148]:
+                - 'cell "{\\sf KubeSec}: Automatic Detection of Takeover Risks Introduced by Third-Party Apps in the Kubernetes Ecosystem T Zheng, Q Hou, H Ren, X Chen, G Deng, T Zhang, G Xu, H Li IEEE Transactions on Dependable and Secure Computing" [ref=f3e149]':
+                  - link [ref=f3e150] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:bFI3QPDXJZMC
+                    - 'img "{\\sf KubeSec}" [ref=f3e151]'
+                    - text: ": Automatic Detection of Takeover Risks Introduced by Third-Party Apps in the Kubernetes Ecosystem"
+                  - generic [ref=f3e161]: T Zheng, Q Hou, H Ren, X Chen, G Deng, T Zhang, G Xu, H Li
+                  - generic [ref=f3e162]: IEEE Transactions on Dependable and Secure Computing
+                - cell [ref=f3e163]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e164]
+              - row [ref=f3e166]:
+                - cell "What makes a good llm agent for real-world penetration testing? G Deng, Y Liu, Y Li, R Yang, X Xie, J Zhang, H Qiu, T Zhang arXiv preprint arXiv:2602.17622" [ref=f3e167]:
+                  - link "What makes a good llm agent for real-world penetration testing?" [ref=f3e168] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:g5m5HwL7SMYC
+                  - generic [ref=f3e169]: G Deng, Y Liu, Y Li, R Yang, X Xie, J Zhang, H Qiu, T Zhang
+                  - generic [ref=f3e170]: arXiv preprint arXiv:2602.17622
+                - cell [ref=f3e171]:
+                  - link "22" [ref=f3e172] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=14759875628641956890
+                - cell "2026" [ref=f3e173]
+              - row [ref=f3e175]:
+                - 'cell "\" Do Not Mention This to the User\": Detecting and Understanding Malicious Agent Skills in the Wild Y Liu, Z Chen, Y Zhang, G Deng, Y Li, J Ning, LY Zhang arXiv preprint arXiv:2602.06547" [ref=f3e176]':
+                  - 'link "\" Do Not Mention This to the User\": Detecting and Understanding Malicious Agent Skills in the Wild" [ref=f3e177] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:cFHS6HbyZ2cC
+                  - generic [ref=f3e178]: Y Liu, Z Chen, Y Zhang, G Deng, Y Li, J Ning, LY Zhang
+                  - generic [ref=f3e179]: arXiv preprint arXiv:2602.06547
+                - cell [ref=f3e180]:
+                  - link "32" [ref=f3e181] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=5114666988064657329
+                - cell "2026" [ref=f3e182]
+              - row [ref=f3e184]:
+                - 'cell "Malicious agent skills in the wild: A large-scale security empirical study Y Liu, Z Chen, Y Zhang, G Deng, Y Li, J Ning, LY Zhang arXiv e-prints, arXiv: 2602.06547" [ref=f3e185]':
+                  - 'link "Malicious agent skills in the wild: A large-scale security empirical study" [ref=f3e186] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:ldfaerwXgEUC
+                  - generic [ref=f3e187]: Y Liu, Z Chen, Y Zhang, G Deng, Y Li, J Ning, LY Zhang
+                  - generic [ref=f3e188]: "arXiv e-prints, arXiv: 2602.06547"
+                - cell [ref=f3e189]:
+                  - link "70" [ref=f3e190] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=14934179347922912931
+                - cell "2026" [ref=f3e191]
+              - row [ref=f3e193]:
+                - 'cell "Agent skills in the wild: An empirical study of security vulnerabilities at scale Y Liu, W Wang, R Feng, Y Zhang, G Xu, G Deng, Y Li, L Zhang arXiv preprint arXiv:2601.10338" [ref=f3e194]':
+                  - 'link "Agent skills in the wild: An empirical study of security vulnerabilities at scale" [ref=f3e195] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:RYcK_YlVTxYC
+                  - generic [ref=f3e196]: Y Liu, W Wang, R Feng, Y Zhang, G Xu, G Deng, Y Li, L Zhang
+                  - generic [ref=f3e197]: arXiv preprint arXiv:2601.10338
+                - cell [ref=f3e198]:
+                  - link "123" [ref=f3e199] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=7048439785466778106
+                - cell "2026" [ref=f3e200]
+              - row [ref=f3e202]:
+                - 'cell "CognixShield: PoV-Guided Vulnerable API Usage Detection in Large Codebases via LLMs Q Fu, W Lingxiang, W Song, G Deng, Y Liu, D Williams, Y Zhang 20th International Symposium on Empirical Software Engineering and …" [ref=f3e203]':
+                  - 'link "CognixShield: PoV-Guided Vulnerable API Usage Detection in Large Codebases via LLMs" [ref=f3e204] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:xtRiw3GOFMkC
+                  - generic [ref=f3e205]: Q Fu, W Lingxiang, W Song, G Deng, Y Liu, D Williams, Y Zhang
+                  - generic [ref=f3e206]: 20th International Symposium on Empirical Software Engineering and …
+                - cell [ref=f3e207]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e208]
+              - row [ref=f3e210]:
+                - cell "Do LLMs and VLMs Share Reasoning Neurons? Evidence and Mechanisms of Cross-Modal Transfer C Cui, A Zhang, Y Chen, G Deng, J Zheng, Z Liang, X Wang, TS Chua Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern …" [ref=f3e211]:
+                  - link "Do LLMs and VLMs Share Reasoning Neurons? Evidence and Mechanisms of Cross-Modal Transfer" [ref=f3e212] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:4OULZ7Gr8RgC
+                  - generic [ref=f3e213]: C Cui, A Zhang, Y Chen, G Deng, J Zheng, Z Liang, X Wang, TS Chua
+                  - generic [ref=f3e214]: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern …
+                - cell [ref=f3e215]:
+                  - link:
+                    - /url: ""
+                - cell "2026" [ref=f3e216]
+              - row [ref=f3e218]:
+                - 'cell "Pentesteval: Benchmarking llm-based penetration testing with modular and stage-level design R Yang, M Cheng, G Deng, T Zhang, J Wang, X Xie arXiv preprint arXiv:2512.14233" [ref=f3e219]':
+                  - 'link "Pentesteval: Benchmarking llm-based penetration testing with modular and stage-level design" [ref=f3e220] [cursor=pointer]':
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:O3NaXMp0MMsC
+                  - generic [ref=f3e221]: R Yang, M Cheng, G Deng, T Zhang, J Wang, X Xie
+                  - generic [ref=f3e222]: arXiv preprint arXiv:2512.14233
+                - cell [ref=f3e223]:
+                  - link "21" [ref=f3e224] [cursor=pointer]:
+                    - /url: https://scholar.google.com/scholar?oi=bibs&hl=zh-CN&cites=11319263836811803408
+                - cell "2025" [ref=f3e225]
+              - row [ref=f3e227]:
+                - cell "Controllable Spoofing Attacks on Visual SLAM in Robotic Vehicles Y Xu, G Deng, G Li, X Han, S Guo, T Zhang 2025 IEEE Annual Computer Security Applications Conference (ACSAC), 629-645" [ref=f3e228]:
+                  - link "Controllable Spoofing Attacks on Visual SLAM in Robotic Vehicles" [ref=f3e229] [cursor=pointer]:
+                    - /url: /citations?view_op=view_citation&hl=zh-CN&user=NuzUkMEAAAAJ&sortby=pubdate&citation_for_view=NuzUkMEAAAAJ:GnPB-g6toBAC
+                  - generic [ref=f3e230]: Y Xu, G Deng, G Li, X Han, S Guo, T Zhang
+                  - generic [ref=f3e231]: 2025 IEEE Annual Computer Security Applications Conference (ACSAC), 629-645
+                - cell [ref=f3e232]:
+                  - link:
+                    - /url: ""
+                - cell "2025" [ref=f3e233]
+          - generic [ref=f3e235]:
+            - generic [ref=f3e236]: 文章 1–20
+            - button "展开" [ref=f3e238] [cursor=pointer]
+  - contentinfo [ref=f3e242]:
+    - generic [ref=f3e243]:
+      - link "隐私权" [ref=f3e244] [cursor=pointer]:
+        - /url: //www.google.com/intl/zh-CN/policies/privacy/
+      - link "条款" [ref=f3e245] [cursor=pointer]:
+        - /url: //www.google.com/intl/zh-CN/policies/terms/
+      - button "帮助" [ref=f3e246] [cursor=pointer]

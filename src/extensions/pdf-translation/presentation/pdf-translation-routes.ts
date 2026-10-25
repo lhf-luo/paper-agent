@@ -6,7 +6,7 @@ import type { PdfTranslationRequest } from "../domain/pdf-translation-types.ts";
 function requestFromBody(body: Record<string, unknown>): Partial<PdfTranslationRequest> {
 	return {
 		paperId: typeof body.paperId === "string" ? body.paperId : undefined,
-		namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 		sourceSha256: typeof body.sourceSha256 === "string" ? body.sourceSha256 : undefined,
 		sourceLanguage: typeof body.sourceLanguage === "string" ? body.sourceLanguage : undefined,
 		targetLanguage: typeof body.targetLanguage === "string" ? body.targetLanguage : undefined,

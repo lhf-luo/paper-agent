@@ -209,7 +209,7 @@ Agent 和 Web 的普通个人库写入默认不询问。个人库删除、调研
 - **停止生成** 会中止当前模型回合，不会同意尚未处理的操作。
 - 点击其他会话即可切换对话。
 - 删除会话会清理已保存的对话及关联的 Pi 会话数据。
-- 普通 Web 对话保存在 `.paper-agent/web-agent-memory/session-views/`，Pi 上下文文件保存在 `pi-sessions/`；论文阅读器会话保存在个人 SQLite 中，按 namespace 和论文隔离。
+- 普通 Web 对话保存在 `.paper-agent/web-agent-memory/session-views/`，Pi 上下文文件保存在 `pi-sessions/`；论文阅读器会话保存在个人 SQLite 中，按论文关联。
 - 重启服务会恢复已保存的会话，但不会自动继续中断的模型生成，也不会批准待确认操作。网页输入的密钥需要重新提供。
 
 不同研究问题建议使用不同会话，避免模型上下文和待确认操作混在一起。

@@ -1,7 +1,7 @@
 import { LiteratureStore, resolveCorpusRoot } from "../../literature/application/literature-store.ts";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
-import { executeTeamKnowledgePull, previewTeamKnowledgePull } from "../application/team-knowledge-pull.ts";
 import { sanitizeArtifactManifestForTeamProposal, type TeamCorpusClient } from "../application/team-corpus-client.ts";
+import { executeTeamKnowledgePull, previewTeamKnowledgePull } from "../application/team-knowledge-pull.ts";
 import type { TeamCollaborationChange, TeamReviewResource, TeamTopicChange } from "../domain/team-corpus-types.ts";
 
 export interface TeamCollaborationToolParams {
@@ -24,7 +24,7 @@ export interface TeamCollaborationToolParams {
 	topic_title?: string;
 	topic_description?: string;
 	topic_entries?: Array<{ resource: TeamReviewResource; id: string }>;
-	personal_namespace?: string;
+
 	personal_corpus_root?: string;
 	sha256?: string;
 	backup_path?: string;
@@ -48,14 +48,9 @@ export async function handleTeamCollaborationTool(
 	};
 	const ref = () => ({ resource: params.review_resource ?? "papers", id: id() });
 	const targetStore = async () => {
-		const personalNamespace = params.personal_namespace ?? "default";
-		const store = new LiteratureStore(
-			resolveCorpusRoot(cwd, "personal", personalNamespace, params.personal_corpus_root),
-			"personal",
-			personalNamespace,
-		);
+		const store = new LiteratureStore(resolveCorpusRoot(cwd, "personal", params.personal_corpus_root), "personal");
 		await store.initialize();
-		return { store, personalNamespace };
+		return { store };
 	};
 	if (params.action === "search_content")
 		return reply(
@@ -149,7 +144,7 @@ export async function handleTeamCollaborationTool(
 		const resource = params.review_resource;
 		if (!resource || resource === "papers" || !params.entry_ids?.length)
 			throw new Error("pull_knowledge requires a non-paper review_resource and entry_ids");
-		const { store, personalNamespace } = await targetStore();
+		const { store } = await targetStore();
 		const previews = await previewTeamKnowledgePull({
 			client,
 			namespace,
@@ -161,12 +156,12 @@ export async function handleTeamCollaborationTool(
 			kind: "research-memory-write",
 			summary: `Save ${previews.length} team snapshots as personal research notes`,
 			targets: previews.map((entry) => ({ label: entry.title, value: entry.id, risk: "low" })),
-			details: { namespace, personalNamespace, previews },
+			details: { namespace, previews },
 		});
 		return reply(await executeTeamKnowledgePull(store, previews));
 	}
 	if (params.action === "personal_artifacts" || params.action === "propose_artifact") {
-		const { store, personalNamespace } = await targetStore();
+		const { store } = await targetStore();
 		if (params.action === "personal_artifacts") {
 			const entries = [];
 			for (const paper of await store.listPapers())
@@ -197,7 +192,7 @@ export async function handleTeamCollaborationTool(
 			kind: "team-proposal",
 			summary: "Propose a saved artifact manifest",
 			targets: [{ label: "Artifact manifest", value: paperId, risk: "high" }],
-			details: { namespace, personalNamespace, manifest },
+			details: { namespace, manifest },
 		});
 		return reply(await client.proposeArtifact(namespace, paperId, manifest));
 	}

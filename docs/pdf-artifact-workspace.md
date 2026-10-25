@@ -73,7 +73,7 @@ The network and Git layer enforces:
 
 The manifest records successful and failed attempts, including source/final URL, resolved addresses, bytes, content type, SHA-256, Git remote/ref/commit, license files, output paths, and failure reason.
 
-For a saved personal paper, repositories are cloned directly to `.paper-agent/files/personal/<namespace>/<paperId>/artifacts/<project>/`. The manifest is stored at the `artifacts/` root, while non-Git files use its `downloads/` directory. Repository acquisition uses Git; `fetch_url` is only a read-only verification tool.
+For a saved personal paper, repositories are cloned directly to `.paper-agent/files/personal/<paperId>/artifacts/<project>/`. The manifest is stored at the `artifacts/` root, while non-Git files use its `downloads/` directory. Repository acquisition uses Git; `fetch_url` is only a read-only verification tool.
 
 On Windows, the manifest records safely named excluded directories when an upstream repository contains generated output or filenames that NTFS cannot represent. Paper Agent does not rewrite those upstream names, because doing so would make the local snapshot differ from the recorded commit.
 

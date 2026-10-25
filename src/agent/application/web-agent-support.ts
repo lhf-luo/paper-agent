@@ -1,14 +1,14 @@
 import type { AgentSession, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { WebAgentInputState } from "../domain/web-agent-inputs.ts";
-import type { WebAgentInputQueue } from "./web-agent-input-queue.ts";
-import type { CanvasResearchRuntime } from "../../canvas/presentation/canvas-research-tools.ts";
+import type { CanvasResearchRuntime } from "../../canvas/application/canvas-research-runtime.ts";
 import type {
 	ModelApiKind,
 	ModelInputModality,
 	PaperAgentModelConfig,
 	PiBuiltinToolName,
 } from "../../config/application/config-service.ts";
+import type { WebAgentInputState } from "../domain/web-agent-inputs.ts";
 import type { PiModelService } from "./pi-model-service.ts";
+import type { WebAgentInputQueue } from "./web-agent-input-queue.ts";
 
 export const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const SUPPORTED_APIS = new Set<ModelApiKind>([
@@ -139,15 +139,16 @@ export interface ManagedWebAgentSession {
 	eventId: number;
 	pi?: AgentSession;
 	piRevision?: number;
+	piMcpRevision?: string;
 	unsubscribePi?: () => void;
 	runPromise?: Promise<void>;
+	startingRun?: boolean;
 	activeAssistantMessageId?: string;
 	toolMessageAnchors: Map<string, string>;
 	abortRequested: boolean;
 	thinkingLevel?: WebAgentThinkingLevel;
 	permissionMode: "ask" | "auto";
 	/** Set once a session has been told its provider returns no reasoning content. */
-	reasoningNoticeSent?: boolean;
 	canvasResearch?: CanvasResearchRuntime;
 }
 
@@ -171,7 +172,7 @@ export interface WebAgentServiceOptions {
 	builtinTools?: PiBuiltinToolName[];
 	shellPath?: string;
 	paperSessionDatabasePath?: string;
-	canvasDatabasePath?: (namespace: string) => string;
+	canvasDatabasePath?: () => string;
 	canvasResearchFactory?: (
 		context: Extract<WebAgentSessionContext, { kind: "canvas" }>,
 		sessionId: string,

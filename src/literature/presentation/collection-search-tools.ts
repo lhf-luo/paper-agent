@@ -113,10 +113,7 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 				}),
 			),
 			paper_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
-			source_namespace: Type.Optional(Type.String({ description: "Source corpus namespace; default: default" })),
-			target_namespace: Type.Optional(
-				Type.String({ description: "Target personal corpus namespace; default: source" }),
-			),
+
 			source_corpus_root: Type.Optional(Type.String()),
 			target_corpus_root: Type.Optional(Type.String()),
 			contributor: Type.String({ description: "Human or agent identity for the save confirmation audit" }),
@@ -129,22 +126,19 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 			if (Boolean(params.search_run_id) === Boolean(params.sidebar_result_url)) {
 				throw new Error("Provide exactly one of search_run_id or sidebar_result_url");
 			}
-			const sourceNamespace = params.source_namespace ?? "default";
-			const targetNamespace = params.target_namespace ?? sourceNamespace;
+
 			const source = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", sourceNamespace, params.source_corpus_root),
+				resolveCorpusRoot(ctx.cwd, "personal", params.source_corpus_root),
 				"personal",
-				sourceNamespace,
 			);
 			const target = new LiteratureStore(
 				resolveCorpusRoot(
 					ctx.cwd,
 					"personal",
-					targetNamespace,
+
 					params.target_corpus_root ?? params.source_corpus_root,
 				),
 				"personal",
-				targetNamespace,
 			);
 			if (params.sidebar_result_url) {
 				const preparedSidebar = await prepareSidebarSelection(
@@ -399,13 +393,13 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 			"Use set_fields to add, remove, or reorder visible columns. It rerenders every row from stored metadata and does not delete hidden annotation values.",
 			"set_fields uses the same fixed field names as update_literature_sidebar and must keep title first.",
 			"After search_literature finds corrected metadata, use replace_from_search with the returned searchRunId and paperId. Finding a DOI does not update the list until this edit succeeds.",
-			"Use the revision returned by update_literature_sidebar or the preceding edit. Legacy sidebars without a fields schema cannot be edited.",
+			"Use the revision returned by update_literature_sidebar or the preceding edit. A fields schema is required.",
 			"Edits affect only the sidebar document. They never silently modify or delete papers already saved in the personal library.",
 		],
 		parameters: Type.Object({
 			result_url: Type.String({ description: "Existing mdUrl returned by update_literature_sidebar" }),
 			expected_revision: Type.Integer({ minimum: 1 }),
-			namespace: Type.Optional(Type.String({ description: "Search-run namespace; default: default" })),
+
 			corpus_root: Type.Optional(Type.String()),
 			operations: Type.Array(
 				Type.Union([
@@ -464,11 +458,7 @@ export function registerCollectionSearchTools(pi: ExtensionAPI): void {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", params.namespace ?? "default", params.corpus_root),
-				"personal",
-				params.namespace ?? "default",
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const operations: SidebarEditOperation[] = params.operations.map((operation) => {
 				if (operation.action === "set_fields") {
 					return { action: "set-fields", fields: operation.fields };

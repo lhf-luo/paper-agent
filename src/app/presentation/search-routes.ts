@@ -1,14 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiteratureSearchJobInput, PaperAgentApplication } from "../application/paper-agent-application.ts";
-import {
-	ApiError,
-	boundedStringArray,
-	integerValue,
-	json,
-	namespaceValue,
-	readJson,
-	searchFilters,
-} from "./web-http.ts";
+import { ApiError, boundedStringArray, integerValue, json, readJson, searchFilters } from "./web-http.ts";
 
 export async function handleSearchRoutes(
 	application: PaperAgentApplication,
@@ -34,7 +26,7 @@ export async function handleSearchRoutes(
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/search/runs") {
-		const runs = await application.listSearchRuns(namespaceValue(url.searchParams.get("namespace")));
+		const runs = await application.listSearchRuns();
 		json(response, 200, {
 			runs: runs.map((run) => ({
 				id: run.id,
@@ -48,17 +40,13 @@ export async function handleSearchRoutes(
 				failures: run.failures,
 				scope: run.scope,
 				mode: run.mode,
-				namespace: run.namespace,
 			})),
 		});
 		return;
 	}
 	const searchRunPaperRoute = /^\/api\/search\/runs\/([^/]+)\/papers\/([^/]+)$/.exec(url.pathname);
 	if (request.method === "GET" && searchRunPaperRoute) {
-		const run = await application.getSearchRun(
-			decodeURIComponent(searchRunPaperRoute[1]),
-			namespaceValue(url.searchParams.get("namespace")),
-		);
+		const run = await application.getSearchRun(decodeURIComponent(searchRunPaperRoute[1]));
 		if (!run) throw new ApiError(404, "search run not found");
 		const paperId = decodeURIComponent(searchRunPaperRoute[2]);
 		const paper = run.results.find((candidate) => candidate.id === paperId || candidate.mergedFrom.includes(paperId));
@@ -69,15 +57,18 @@ export async function handleSearchRoutes(
 	const searchRunRoute = /^\/api\/search\/runs\/([^/]+)$/.exec(url.pathname);
 	if (request.method === "GET" && searchRunRoute) {
 		const id = decodeURIComponent(searchRunRoute[1]);
-		const found = await application.getSearchRun(id, namespaceValue(url.searchParams.get("namespace")));
+		const found = await application.getSearchRun(id);
 		if (!found) throw new ApiError(404, "search run not found");
 		json(response, 200, { run: found });
 		return;
 	}
 	if (request.method === "POST" && url.pathname === "/api/search") {
 		const body = await readJson(request);
-		if (typeof body.query !== "string" || body.query.trim().length > 2_000)
-			throw new ApiError(400, "query must contain at most 2000 characters");
+		const allowed = new Set(["query", "queryExpansions", "providers", "filters", "pagesPerProvider", "maxResultsPerProvider", "reuseCorpus"]);
+		const unknown = Object.keys(body).filter((key) => !allowed.has(key));
+		if (unknown.length) throw new ApiError(400, `Unsupported search parameter(s): ${unknown.join(", ")}`);
+		if (typeof body.query !== "string" || !body.query.trim() || body.query.trim().length > 2_000)
+			throw new ApiError(400, "query must contain 1–2000 characters");
 		const providers = boundedStringArray(body.providers, "providers", 20, 64);
 		if (providers?.length === 0) throw new ApiError(400, "Select at least one literature provider");
 		const catalog = application.providerCatalog();
@@ -92,12 +83,6 @@ export async function handleSearchRoutes(
 			throw new ApiError(400, "reuseCorpus must be a boolean");
 		}
 		const filters = searchFilters(body.filters);
-		if (!body.query.trim() && !filters.arxivSubmittedFrom) {
-			throw new ApiError(400, "query is required unless an arXiv submission date range is selected");
-		}
-		if (filters.arxivSubmittedFrom && (providers?.length !== 1 || providers[0] !== "arxiv")) {
-			throw new ApiError(400, "arXiv submission dates require selecting arXiv only");
-		}
 		for (const providerId of providers ?? []) {
 			const constraints = catalog.find((provider) => provider.id === providerId)?.searchConstraints;
 			if (constraints?.exactYear && (filters.yearFrom === undefined || filters.yearFrom !== filters.yearTo)) {
@@ -115,13 +100,13 @@ export async function handleSearchRoutes(
 			}
 		}
 		const input: LiteratureSearchJobInput = {
-			query: body.query.trim() || "*",
+			query: body.query.trim(),
 			queryExpansions: boundedStringArray(body.queryExpansions, "queryExpansions", 20, 500),
 			providers: providers as LiteratureSearchJobInput["providers"],
 			filters,
 			pagesPerProvider: integerValue(body.pagesPerProvider, "pagesPerProvider", 1, 20),
 			maxResultsPerProvider: integerValue(body.maxResultsPerProvider, "maxResultsPerProvider", 1, 500),
-			namespace: namespaceValue(body.namespace),
+
 			reuseCorpus: typeof body.reuseCorpus === "boolean" ? body.reuseCorpus : undefined,
 		};
 		json(response, 202, await application.enqueueLiteratureSearch(input));

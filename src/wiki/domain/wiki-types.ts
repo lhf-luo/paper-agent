@@ -28,7 +28,6 @@ export interface WikiEvidenceInput {
 }
 
 export interface WikiEvidence extends WikiEvidenceInput {
-	legacy?: boolean;
 }
 
 export interface WikiClaim {
@@ -70,7 +69,6 @@ export interface WikiPaperDependencyPage {
 }
 
 export interface WikiPaperDependencyPreview {
-	namespace: string;
 	paperIds: string[];
 	fingerprint: string;
 	dependencies: Array<{ paperId: string; pages: WikiPaperDependencyPage[] }>;
@@ -99,7 +97,6 @@ export type WikiLintCode =
 	| "self-link"
 	| "missing-source"
 	| "stale-source"
-	| "legacy-source-granularity"
 	| "missing-evidence"
 	| "unused-evidence"
 	| "invalid-evidence-locator"
@@ -136,14 +133,9 @@ export interface IngestWikiPageInput {
 	aliases?: string[];
 	tags?: string[];
 	evidence?: WikiEvidenceInput[];
-	/** Legacy page-level sources. New pages should use evidence. */
-	sourceNoteIds?: string[];
-	/** Legacy page-level sources. New pages should use evidence. */
-	paperIds?: string[];
 }
 
 export interface WikiIngestRequest {
-	namespace?: string;
 	summary: string;
 	changes: IngestWikiPageInput[];
 }
@@ -173,7 +165,6 @@ export interface WikiChangePreview {
 }
 
 export interface WikiIngestPreview {
-	namespace: string;
 	summary: string;
 	fingerprint: string;
 	generatedAt: string;
@@ -204,7 +195,6 @@ export interface WikiSourcePageDeletionBacklink {
 }
 
 export interface WikiSourcePageDeletionPreview {
-	namespace: string;
 	paperId: string;
 	includeMixedPageIds: string[];
 	fingerprint: string;
@@ -235,7 +225,6 @@ export interface WikiSearchOptions {
 }
 
 export interface WikiSearchResult {
-	namespace: string;
 	pages: WikiPageSummary[];
 	tree?: WikiTreeNode[];
 	sync: WikiSyncResult;
@@ -259,7 +248,7 @@ export interface WikiTreeNode {
 }
 
 export interface WikiSearchBackend {
-	search(namespace: string, options?: WikiSearchOptions): Promise<WikiSearchResult>;
+	search(options?: WikiSearchOptions): Promise<WikiSearchResult>;
 }
 
 export function isWikiPageType(value: unknown): value is WikiPageType {

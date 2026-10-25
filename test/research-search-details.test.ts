@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchDetails } from "../src/literature/presentation/literature-discovery-tools.ts";
 import type { PaperRecord, SearchRun } from "../src/literature/domain/literature-types.ts";
+import { buildSearchDetails } from "../src/literature/presentation/literature-discovery-tools.ts";
 
 describe("search_literature details", () => {
 	it("returns persisted source handles and separates discovery from DOI enrichment providers", () => {
@@ -31,7 +31,6 @@ describe("search_literature details", () => {
 			deduplicatedCount: 1,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
 		};
 
 		const details = buildSearchDetails("title author", run);

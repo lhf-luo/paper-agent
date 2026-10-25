@@ -152,7 +152,7 @@ describe("research preview transactions and undo", () => {
 		await s.apply(p.id, ["summary"], s.board().revision);
 		const board = s.board(),
 			copy = s.canvases.duplicate(s.canvasId, board.revision)!;
-		const copied = new CanvasResearchService(f.library, "research", copy.id);
+		const copied = new CanvasResearchService(f.library, copy.id);
 		expect(copied.settings().value.question).toBe("Research");
 		expect(copied.records.list("analysis")).toHaveLength(0);
 		expect(copied.records.list("proposal")).toHaveLength(0);

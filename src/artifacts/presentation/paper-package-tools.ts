@@ -80,15 +80,15 @@ export async function hasAvailableArtifact(manifests: ArtifactManifest[]): Promi
 function artifactLabel(record: PaperRecord, manifests: ArtifactManifest[]): string {
 	const links = record.links.filter((link) => link.kind === "artifact").map((link) => link.url);
 	const acquired = latestArtifactSnapshots(manifests).map((snapshot) =>
-			[
-				snapshot.candidateId,
-				snapshot.status,
-				snapshot.localPath ?? snapshot.finalUrl ?? snapshot.sourceUrl,
-				snapshot.commit ? `commit=${snapshot.commit}` : undefined,
-				snapshot.sha256 ? `sha256=${snapshot.sha256}` : undefined,
-			]
-				.filter(Boolean)
-				.join(" "),
+		[
+			snapshot.candidateId,
+			snapshot.status,
+			snapshot.localPath ?? snapshot.finalUrl ?? snapshot.sourceUrl,
+			snapshot.commit ? `commit=${snapshot.commit}` : undefined,
+			snapshot.sha256 ? `sha256=${snapshot.sha256}` : undefined,
+		]
+			.filter(Boolean)
+			.join(" "),
 	);
 	const discovered = [
 		...new Map(
@@ -212,22 +212,17 @@ export function registerPaperPackageTools(pi: ExtensionAPI): void {
 		promptSnippet: "Build a traceable paper material package from corpus metadata, PDF versions, and artifacts",
 		promptGuidelines: [
 			"Use after saving literature records and downloading PDFs or acquiring artifacts.",
-			"Artifact manifests associated with the paper are loaded from SQLite automatically. Pass artifact_manifest_paths only for unassociated legacy or temporary manifests.",
+			"Artifact manifests associated with the paper are loaded from SQLite automatically. Pass artifact_manifest_paths only for unassociated temporary manifests.",
 			"Report missing PDF or artifact materials explicitly instead of inventing availability.",
 		],
 		parameters: Type.Object({
 			paper_id: Type.String(),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			artifact_manifest_paths: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
-				"personal",
-				namespace,
-			);
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const record = await store.getPaper(params.paper_id);
 			if (!record) throw new Error(`Paper not found in personal corpus: ${params.paper_id}`);
 			const versions = await store.listPaperVersions(record.id);

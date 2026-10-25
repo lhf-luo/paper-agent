@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,6 +29,33 @@ function input(phase: StoredWebAgentInput["phase"]): StoredWebAgentInput {
 }
 
 describe("durable web input journal", () => {
+	it("coalesces concurrent updates and persists the latest captured snapshot before resolving", async () => {
+		const { store } = await fixture();
+		const state = emptyWebAgentInputs();
+		const writes: Promise<void>[] = [];
+		for (let index = 0; index < 50; index++) {
+			state.receipts[String(index)] = String(index);
+			writes.push(store.write("burst", state));
+		}
+		expect(new Set(writes).size).toBe(1);
+		await Promise.all(writes);
+		state.receipts.unpersisted = "not submitted";
+		expect(Object.keys((await store.restore("burst")).receipts)).toHaveLength(50);
+		await store.flush("burst");
+	});
+
+	it("rejects failed durable writes and permits retry after the filesystem is repaired", async () => {
+		const { store, root } = await fixture();
+		await mkdir(join(root, ".paper-agent"));
+		const blocked = join(root, ".paper-agent", "web-agent-memory");
+		await writeFile(blocked, "not a directory");
+		const state = emptyWebAgentInputs();
+		state.receipts.saved = "fingerprint";
+		await expect(store.write("retry", state)).rejects.toThrow();
+		await rm(blocked);
+		await store.write("retry", state);
+		expect((await store.restore("retry")).receipts).toEqual(state.receipts);
+	});
 	it("keeps old sessions compatible and pauses safely unconsumed queued inputs", async () => {
 		const { store } = await fixture();
 		expect(await store.restore("old-session")).toEqual(emptyWebAgentInputs());

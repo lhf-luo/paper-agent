@@ -27,17 +27,13 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 			max_megabytes_per_file: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			concurrency: Type.Optional(Type.Integer({ minimum: 1, maximum: 5, description: "Default: 3" })),
 			scope: Type.Optional(scopeSchema),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const scope = params.scope ?? "personal";
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, scope, namespace, params.corpus_root),
-				scope,
-				namespace,
-			);
+
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, scope, params.corpus_root), scope);
 			const request = {
 				paperIds: params.paper_ids,
 				publicationVersionId: params.publication_version_id,
@@ -129,7 +125,7 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 			result: Type.Optional(Type.Unknown()),
 			created_by: Type.Optional(Type.String()),
 			scope: Type.Optional(scopeSchema),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -137,12 +133,8 @@ export function registerLiteratureDownloadMemoryTools(pi: ExtensionAPI): void {
 			if (params.action === "record" && scope === "team") {
 				throw new Error("Derived analysis cannot be recorded directly in team scope; record it personally first");
 			}
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, scope, namespace, params.corpus_root),
-				scope,
-				namespace,
-			);
+
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, scope, params.corpus_root), scope);
 			const normalizedConfig = params.normalized_config ?? {};
 			const key = derivedCacheKey({
 				inputHashes: params.input_hashes,

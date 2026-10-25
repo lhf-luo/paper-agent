@@ -80,9 +80,7 @@ describe("personal library metadata enrichment", () => {
 					venue: "FreshConf",
 					publicationType: "conference-paper",
 					identifiers: { doi },
-					provenance: [
-						{ provider, query: doi, retrievedAt: "2026-09-17T00:00:00.000Z", providerRecordId: "cr" },
-					],
+					provenance: [{ provider, query: doi, retrievedAt: "2026-09-17T00:00:00.000Z", providerRecordId: "cr" }],
 				});
 			}
 			return paper({
@@ -94,9 +92,7 @@ describe("personal library metadata enrichment", () => {
 				citationCount: 19,
 				referencedWorks: ["W1", "W2"],
 				identifiers: { doi, openAlexId: "W100" },
-				provenance: [
-					{ provider, query: doi, retrievedAt: "2026-09-17T00:00:00.000Z", providerRecordId: "W100" },
-				],
+				provenance: [{ provider, query: doi, retrievedAt: "2026-09-17T00:00:00.000Z", providerRecordId: "W100" }],
 			});
 		});
 		const { application, server } = await fixture({
@@ -117,7 +113,6 @@ describe("personal library metadata enrichment", () => {
 			await application.personalStore().upsertPaper(original);
 			const preparedResponse = await post(server.url, "/api/library/metadata/prepare", {
 				paperId: original.id,
-				namespace: "default",
 			});
 			expect(preparedResponse.status, await preparedResponse.clone().text()).toBe(200);
 			const preparation = (await preparedResponse.json()) as {
@@ -134,7 +129,7 @@ describe("personal library metadata enrichment", () => {
 			const grant = await confirm(server.url, preparation.prepared);
 			const executeResponse = await post(server.url, "/api/library/metadata/execute", {
 				paperId: original.id,
-				namespace: "default",
+
 				grant,
 			});
 			expect(executeResponse.status, await executeResponse.clone().text()).toBe(200);
@@ -174,9 +169,7 @@ describe("personal library metadata enrichment", () => {
 					year: 2024,
 					venue: "KeywordVenue",
 					identifiers: { doi: "10.1000/discovered" },
-					provenance: [
-						{ provider, query: options.query, retrievedAt: "2026-09-17T00:00:00.000Z" },
-					],
+					provenance: [{ provider, query: options.query, retrievedAt: "2026-09-17T00:00:00.000Z" }],
 				}),
 			],
 			requestUrl: "https://provider.example/search",

@@ -10,9 +10,6 @@ import type {
 	WikiSearchResult,
 } from "../domain/wiki-types.ts";
 import {
-	type WikiLinkRow,
-	type WikiNeighborRow,
-	type WikiRankRow,
 	chunks,
 	emptySync,
 	evidenceIdsFromText,
@@ -21,11 +18,14 @@ import {
 	parseLocator,
 	parseStrings,
 	searchExpression,
+	type WikiLinkRow,
+	type WikiNeighborRow,
+	type WikiRankRow,
 } from "./wiki-index-support.ts";
 
 interface WikiPageRow {
 	id: string;
-	namespace_id: string;
+
 	relative_path: string;
 	title: string;
 	page_type: string;
@@ -44,10 +44,8 @@ interface WikiSourceRow {
 	paper_id: string | null;
 	source_version: string | null;
 	locator_json: string;
-	legacy: number;
 }
 
-const currentSchemaVersion = 2;
 
 export class WikiIndex implements WikiSearchBackend {
 	private readonly databasePath: string;
@@ -58,27 +56,11 @@ export class WikiIndex implements WikiSearchBackend {
 
 	private open(): DatabaseSync {
 		const database = new DatabaseSync(this.databasePath);
-		const version = Number(
-			(database.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined)?.user_version ?? 0,
-		);
-		if (version !== currentSchemaVersion) {
-			database.exec(`
-				DROP TABLE IF EXISTS wiki_claim_evidence;
-				DROP TABLE IF EXISTS wiki_claims;
-				DROP TABLE IF EXISTS wiki_page_sources;
-				DROP TABLE IF EXISTS wiki_links;
-				DROP TABLE IF EXISTS wiki_chunks;
-				DROP TABLE IF EXISTS wiki_search;
-				DROP TABLE IF EXISTS wiki_chunk_search;
-				DROP TABLE IF EXISTS wiki_pages;
-			`);
-		}
 		database.exec(`
 			PRAGMA foreign_keys = ON;
 			PRAGMA busy_timeout = 15000;
 			CREATE TABLE IF NOT EXISTS wiki_pages (
 				id TEXT NOT NULL,
-				namespace_id TEXT NOT NULL,
 				relative_path TEXT NOT NULL,
 				title TEXT NOT NULL,
 				page_type TEXT NOT NULL,
@@ -88,11 +70,10 @@ export class WikiIndex implements WikiSearchBackend {
 				content_hash TEXT NOT NULL,
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL,
-				PRIMARY KEY(namespace_id, id),
-				UNIQUE(namespace_id, relative_path)
+				PRIMARY KEY(id),
+				UNIQUE(relative_path)
 			);
 			CREATE TABLE IF NOT EXISTS wiki_page_sources (
-				namespace_id TEXT NOT NULL,
 				page_id TEXT NOT NULL,
 				evidence_id TEXT NOT NULL,
 				kind TEXT NOT NULL,
@@ -100,49 +81,43 @@ export class WikiIndex implements WikiSearchBackend {
 				paper_id TEXT,
 				source_version TEXT,
 				locator_json TEXT NOT NULL,
-				legacy INTEGER NOT NULL DEFAULT 0,
 				position INTEGER NOT NULL,
-				PRIMARY KEY(namespace_id, page_id, evidence_id),
-				FOREIGN KEY(namespace_id, page_id) REFERENCES wiki_pages(namespace_id, id) ON DELETE CASCADE
+				PRIMARY KEY(page_id, evidence_id),
+				FOREIGN KEY(page_id) REFERENCES wiki_pages(id) ON DELETE CASCADE
 			);
 			CREATE TABLE IF NOT EXISTS wiki_claims (
-				namespace_id TEXT NOT NULL,
 				page_id TEXT NOT NULL,
 				claim_id TEXT NOT NULL,
 				position INTEGER NOT NULL,
 				text TEXT NOT NULL,
 				inferred INTEGER NOT NULL DEFAULT 0,
-				PRIMARY KEY(namespace_id, page_id, claim_id),
-				FOREIGN KEY(namespace_id, page_id) REFERENCES wiki_pages(namespace_id, id) ON DELETE CASCADE
+				PRIMARY KEY(page_id, claim_id),
+				FOREIGN KEY(page_id) REFERENCES wiki_pages(id) ON DELETE CASCADE
 			);
 			CREATE TABLE IF NOT EXISTS wiki_claim_evidence (
-				namespace_id TEXT NOT NULL,
 				page_id TEXT NOT NULL,
 				claim_id TEXT NOT NULL,
 				evidence_id TEXT NOT NULL,
 				position INTEGER NOT NULL,
-				PRIMARY KEY(namespace_id, page_id, claim_id, evidence_id),
-				FOREIGN KEY(namespace_id, page_id, claim_id)
-					REFERENCES wiki_claims(namespace_id, page_id, claim_id) ON DELETE CASCADE
+				PRIMARY KEY(page_id, claim_id, evidence_id),
+				FOREIGN KEY(page_id, claim_id)
+					REFERENCES wiki_claims(page_id, claim_id) ON DELETE CASCADE
 			);
 			CREATE TABLE IF NOT EXISTS wiki_links (
-				namespace_id TEXT NOT NULL,
 				source_page_id TEXT NOT NULL,
 				target_title TEXT NOT NULL,
 				position INTEGER NOT NULL,
-				FOREIGN KEY(namespace_id, source_page_id) REFERENCES wiki_pages(namespace_id, id) ON DELETE CASCADE
+				FOREIGN KEY(source_page_id) REFERENCES wiki_pages(id) ON DELETE CASCADE
 			);
 			CREATE TABLE IF NOT EXISTS wiki_chunks (
-				namespace_id TEXT NOT NULL,
 				page_id TEXT NOT NULL,
 				chunk_index INTEGER NOT NULL,
 				heading TEXT,
 				content TEXT NOT NULL,
-				PRIMARY KEY(namespace_id, page_id, chunk_index),
-				FOREIGN KEY(namespace_id, page_id) REFERENCES wiki_pages(namespace_id, id) ON DELETE CASCADE
+				PRIMARY KEY(page_id, chunk_index),
+				FOREIGN KEY(page_id) REFERENCES wiki_pages(id) ON DELETE CASCADE
 			);
 			CREATE VIRTUAL TABLE IF NOT EXISTS wiki_search USING fts5(
-				namespace_id UNINDEXED,
 				page_id UNINDEXED,
 				title,
 				aliases,
@@ -151,14 +126,12 @@ export class WikiIndex implements WikiSearchBackend {
 				tokenize='unicode61 remove_diacritics 2'
 			);
 			CREATE VIRTUAL TABLE IF NOT EXISTS wiki_chunk_search USING fts5(
-				namespace_id UNINDEXED,
 				page_id UNINDEXED,
 				chunk_index UNINDEXED,
 				heading,
 				content,
 				tokenize='unicode61 remove_diacritics 2'
 			);
-			PRAGMA user_version = ${currentSchemaVersion};
 		`);
 		return database;
 	}
@@ -168,7 +141,7 @@ export class WikiIndex implements WikiSearchBackend {
 		this.open().close();
 	}
 
-	async replaceNamespace(namespace: string, pages: WikiPage[]): Promise<void> {
+	async replacePages(pages: WikiPage[]): Promise<void> {
 		await this.initialize();
 		const database = this.open();
 		try {
@@ -183,38 +156,37 @@ export class WikiIndex implements WikiSearchBackend {
 				"wiki_chunk_search",
 				"wiki_pages",
 			]) {
-				database.prepare(`DELETE FROM ${table} WHERE namespace_id = ?`).run(namespace);
+				database.prepare(`DELETE FROM ${table}`).run();
 			}
 			const insertPage = database.prepare(`INSERT INTO wiki_pages(
-				id, namespace_id, relative_path, title, page_type, status, aliases_json, tags_json,
+				id, relative_path, title, page_type, status, aliases_json, tags_json,
 				content_hash, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-			const insertEvidence = database.prepare(`INSERT INTO wiki_page_sources(
-				namespace_id, page_id, evidence_id, kind, source_id, paper_id, source_version,
-				locator_json, legacy, position
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-			const insertClaim = database.prepare(`INSERT INTO wiki_claims(
-				namespace_id, page_id, claim_id, position, text, inferred
-			) VALUES (?, ?, ?, ?, ?, ?)`);
-			const insertClaimEvidence = database.prepare(`INSERT INTO wiki_claim_evidence(
-				namespace_id, page_id, claim_id, evidence_id, position
-			) VALUES (?, ?, ?, ?, ?)`);
+			const insertEvidence =
+				database.prepare(`INSERT INTO wiki_page_sources( page_id, evidence_id, kind, source_id, paper_id, source_version,
+				locator_json, position
+			) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?)`);
+			const insertClaim = database.prepare(`INSERT INTO wiki_claims( page_id, claim_id, position, text, inferred
+			) VALUES ( ?, ?, ?, ?, ?)`);
+			const insertClaimEvidence =
+				database.prepare(`INSERT INTO wiki_claim_evidence( page_id, claim_id, evidence_id, position
+			) VALUES ( ?, ?, ?, ?)`);
 			const insertLink = database.prepare(
-				"INSERT INTO wiki_links(namespace_id, source_page_id, target_title, position) VALUES (?, ?, ?, ?)",
+				"INSERT INTO wiki_links( source_page_id, target_title, position) VALUES ( ?, ?, ?)",
 			);
 			const insertChunk = database.prepare(
-				"INSERT INTO wiki_chunks(namespace_id, page_id, chunk_index, heading, content) VALUES (?, ?, ?, ?, ?)",
+				"INSERT INTO wiki_chunks( page_id, chunk_index, heading, content) VALUES ( ?, ?, ?, ?)",
 			);
 			const insertPageSearch = database.prepare(
-				"INSERT INTO wiki_search(namespace_id, page_id, title, aliases, tags, body) VALUES (?, ?, ?, ?, ?, ?)",
+				"INSERT INTO wiki_search( page_id, title, aliases, tags, body) VALUES ( ?, ?, ?, ?, ?)",
 			);
 			const insertChunkSearch = database.prepare(
-				"INSERT INTO wiki_chunk_search(namespace_id, page_id, chunk_index, heading, content) VALUES (?, ?, ?, ?, ?)",
+				"INSERT INTO wiki_chunk_search( page_id, chunk_index, heading, content) VALUES ( ?, ?, ?, ?)",
 			);
 			for (const page of pages) {
 				insertPage.run(
 					page.id,
-					namespace,
+
 					page.relativePath,
 					page.title,
 					page.type,
@@ -227,7 +199,6 @@ export class WikiIndex implements WikiSearchBackend {
 				);
 				page.evidence.forEach((evidence, position) => {
 					insertEvidence.run(
-						namespace,
 						page.id,
 						evidence.id,
 						evidence.kind,
@@ -235,23 +206,21 @@ export class WikiIndex implements WikiSearchBackend {
 						evidence.paperId ?? null,
 						evidence.version ?? null,
 						JSON.stringify(evidence.locator),
-						evidence.legacy ? 1 : 0,
 						position,
 					);
 				});
 				page.claims.forEach((claim, claimPosition) => {
-					insertClaim.run(namespace, page.id, claim.id, claimPosition, claim.text, claim.inferred ? 1 : 0);
+					insertClaim.run(page.id, claim.id, claimPosition, claim.text, claim.inferred ? 1 : 0);
 					claim.evidenceIds.forEach((evidenceId, evidencePosition) => {
-						insertClaimEvidence.run(namespace, page.id, claim.id, evidenceId, evidencePosition);
+						insertClaimEvidence.run(page.id, claim.id, evidenceId, evidencePosition);
 					});
 				});
 				page.links.forEach((title, position) => {
-					insertLink.run(namespace, page.id, title, position);
+					insertLink.run(page.id, title, position);
 				});
 				chunks(page.markdown).forEach((chunk, index) => {
-					insertChunk.run(namespace, page.id, index, chunk.heading ?? null, chunk.content);
+					insertChunk.run(page.id, index, chunk.heading ?? null, chunk.content);
 					insertChunkSearch.run(
-						namespace,
 						page.id,
 						index,
 						chunk.heading ?? "",
@@ -259,7 +228,6 @@ export class WikiIndex implements WikiSearchBackend {
 					);
 				});
 				insertPageSearch.run(
-					namespace,
 					page.id,
 					page.title,
 					page.aliases.join(" "),
@@ -278,7 +246,7 @@ export class WikiIndex implements WikiSearchBackend {
 		}
 	}
 
-	async search(namespace: string, options: WikiSearchOptions = {}): Promise<WikiSearchResult> {
+	async search(options: WikiSearchOptions = {}): Promise<WikiSearchResult> {
 		await this.initialize();
 		const database = this.open();
 		try {
@@ -286,46 +254,45 @@ export class WikiIndex implements WikiSearchBackend {
 			const expression = options.query ? searchExpression(options.query) : undefined;
 			const filter = filtersSql(options);
 			const rows = database
-				.prepare(`SELECT p.* FROM wiki_pages p WHERE p.namespace_id = ?${filter.sql} ORDER BY p.updated_at DESC LIMIT 1000`)
-				.all(namespace, ...filter.params) as unknown as WikiPageRow[];
+				.prepare(`SELECT p.* FROM wiki_pages p WHERE 1=1${filter.sql} ORDER BY p.updated_at DESC LIMIT 1000`)
+				.all(...filter.params) as unknown as WikiPageRow[];
 			const byId = new Map(rows.map((row) => [row.id, row]));
 			if (options.pageId) {
 				const row = byId.get(options.pageId);
 				return {
-					namespace,
-					pages: row ? [await this.summary(database, namespace, row)] : [],
+					pages: row ? [await this.summary(database, row)] : [],
 					sync: emptySync(rows.length),
 				};
 			}
 			if (!expression) {
 				if (options.query) {
-					return { namespace, pages: [], sync: emptySync(rows.length) };
+					return { pages: [], sync: emptySync(rows.length) };
 				}
-				const pages = rows.slice(0, limit).map((row) => this.summarySync(database, namespace, row));
+				const pages = rows.slice(0, limit).map((row) => this.summarySync(database, row));
 				if (options.includeRelated && pages.length) {
-					const related = await this.relatedSummaries(database, namespace, pages, byId, limit);
+					const related = await this.relatedSummaries(database, pages, byId, limit);
 					for (const page of related) if (!pages.some((item) => item.id === page.id)) pages.push(page);
 				}
-				return { namespace, pages: pages.slice(0, limit), sync: emptySync(rows.length) };
+				return { pages: pages.slice(0, limit), sync: emptySync(rows.length) };
 			}
 
 			const pageRanks = database
-				.prepare(`SELECT s.page_id, bm25(wiki_search, 0, 0, 8, 3, 2, 1) AS rank,
-						snippet(wiki_search, 5, '<mark>', '</mark>', ' … ', 18) AS snippet
+				.prepare(`SELECT s.page_id, bm25(wiki_search, 0, 8, 3, 2, 1) AS rank,
+						snippet(wiki_search, 4, '<mark>', '</mark>', ' … ', 18) AS snippet
 					FROM wiki_search s
-					JOIN wiki_pages p ON p.namespace_id = s.namespace_id AND p.id = s.page_id
-					WHERE wiki_search MATCH ? AND s.namespace_id = ?${filter.sql}
+					JOIN wiki_pages p ON p.id = s.page_id
+					WHERE wiki_search MATCH ?${filter.sql}
 					ORDER BY rank LIMIT 200`)
-				.all(expression, namespace, ...filter.params) as unknown as WikiRankRow[];
+				.all(expression, ...filter.params) as unknown as WikiRankRow[];
 			const chunkRanks = database
 				.prepare(`SELECT c.page_id, c.heading, c.chunk_index,
-						bm25(wiki_chunk_search, 0, 0, 0, 4, 1) AS rank,
-						snippet(wiki_chunk_search, 4, '<mark>', '</mark>', ' … ', 24) AS snippet
+						bm25(wiki_chunk_search, 0, 0, 4, 1) AS rank,
+						snippet(wiki_chunk_search, 3, '<mark>', '</mark>', ' … ', 24) AS snippet
 					FROM wiki_chunk_search c
-					JOIN wiki_pages p ON p.namespace_id = c.namespace_id AND p.id = c.page_id
-					WHERE wiki_chunk_search MATCH ? AND c.namespace_id = ?${filter.sql}
+					JOIN wiki_pages p ON p.id = c.page_id
+					WHERE wiki_chunk_search MATCH ?${filter.sql}
 					ORDER BY rank LIMIT 300`)
-				.all(expression, namespace, ...filter.params) as unknown as WikiRankRow[];
+				.all(expression, ...filter.params) as unknown as WikiRankRow[];
 
 			const scored = new Map<string, { row: WikiPageRow; score: number; match: WikiPageSummary["match"] }>();
 			const queryNormalized = normalizeLabel(options.query ?? "");
@@ -378,85 +345,91 @@ export class WikiIndex implements WikiSearchBackend {
 				.filter((item) => item.score > 1 || queryNormalized.includes(normalizeLabel(item.row.title)))
 				.sort((left, right) => right.score - left.score || right.row.updated_at.localeCompare(left.row.updated_at))
 				.slice(0, limit)
-				.map((item) => this.summarySync(database, namespace, item.row, item.match));
+				.map((item) => this.summarySync(database, item.row, item.match));
 			if (options.includeRelated && result.length) {
-				for (const page of await this.relatedSummaries(database, namespace, result, byId, limit)) {
+				for (const page of await this.relatedSummaries(database, result, byId, limit)) {
 					if (!result.some((item) => item.id === page.id)) result.push(page);
 				}
 			}
-			return { namespace, pages: result.slice(0, limit), sync: emptySync(rows.length) };
+			return { pages: result.slice(0, limit), sync: emptySync(rows.length) };
 		} finally {
 			database.close();
 		}
 	}
 
-	async list(namespace: string, query?: string, limit = 100): Promise<WikiPageSummary[]> {
-		return (await this.search(namespace, { query, limit })).pages;
+	async list(query?: string, limit = 100): Promise<WikiPageSummary[]> {
+		return (await this.search({ query, limit })).pages;
 	}
 
-	async count(namespace: string): Promise<number> {
+	async count(): Promise<number> {
 		await this.initialize();
 		const database = this.open();
 		try {
 			return Number(
-				(database.prepare("SELECT COUNT(*) AS count FROM wiki_pages WHERE namespace_id = ?").get(namespace) as {
-					count: number;
-				}).count,
+				(
+					database.prepare("SELECT COUNT(*) AS count FROM wiki_pages").get() as {
+						count: number;
+					}
+				).count,
 			);
 		} finally {
 			database.close();
 		}
 	}
 
-	async pathFor(namespace: string, id: string): Promise<string | undefined> {
+	async pathFor(id: string): Promise<string | undefined> {
 		await this.initialize();
 		const database = this.open();
 		try {
 			return (
-				database
-					.prepare("SELECT relative_path FROM wiki_pages WHERE namespace_id = ? AND id = ?")
-					.get(namespace, id) as { relative_path: string } | undefined
+				database.prepare("SELECT relative_path FROM wiki_pages WHERE id = ?").get(id) as
+					| { relative_path: string }
+					| undefined
 			)?.relative_path;
 		} finally {
 			database.close();
 		}
 	}
 
-	async backlinks(namespace: string, titles: string[]): Promise<Array<{ id: string; title: string }>> {
+	async backlinks(titles: string[]): Promise<Array<{ id: string; title: string }>> {
 		await this.initialize();
 		const database = this.open();
 		try {
 			if (!titles.length) return [];
 			const normalized = new Set(titles.map(normalizeLabel));
 			const links = database
-				.prepare("SELECT source_page_id, target_title FROM wiki_links WHERE namespace_id = ?")
-				.all(namespace) as unknown as WikiLinkRow[];
+				.prepare("SELECT source_page_id, target_title FROM wiki_links")
+				.all() as unknown as WikiLinkRow[];
 			const sourceIds = [
-				...new Set(links.filter((link) => normalized.has(normalizeLabel(link.target_title))).map((link) => link.source_page_id)),
+				...new Set(
+					links
+						.filter((link) => normalized.has(normalizeLabel(link.target_title)))
+						.map((link) => link.source_page_id),
+				),
 			];
 			if (!sourceIds.length) return [];
 			const placeholders = sourceIds.map(() => "?").join(", ");
 			return database
-				.prepare(`SELECT id, title FROM wiki_pages WHERE namespace_id = ? AND id IN (${placeholders}) ORDER BY title`)
-				.all(namespace, ...sourceIds) as unknown as Array<{ id: string; title: string }>;
+				.prepare(`SELECT id, title FROM wiki_pages WHERE id IN (${placeholders}) ORDER BY title`)
+				.all(...sourceIds) as unknown as Array<{ id: string; title: string }>;
 		} finally {
 			database.close();
 		}
 	}
 
-	async neighbors(namespace: string, pageId: string, limit = 20): Promise<WikiPageSummary[]> {
+	async neighbors(pageId: string, limit = 20): Promise<WikiPageSummary[]> {
 		await this.initialize();
 		const database = this.open();
 		try {
 			const rows = database
-				.prepare("SELECT id, title, aliases_json FROM wiki_pages WHERE namespace_id = ?")
-				.all(namespace) as unknown as WikiNeighborRow[];
+				.prepare("SELECT id, title, aliases_json FROM wiki_pages")
+				.all() as unknown as WikiNeighborRow[];
 			const page = rows.find((row) => row.id === pageId);
 			if (!page) return [];
 			const labels = new Set([page.title, ...parseStrings(page.aliases_json)].map(normalizeLabel));
 			const links = database
-				.prepare("SELECT source_page_id, target_title FROM wiki_links WHERE namespace_id = ?")
-				.all(namespace) as unknown as WikiLinkRow[];
+				.prepare("SELECT source_page_id, target_title FROM wiki_links")
+				.all() as unknown as WikiLinkRow[];
 			const ids = new Set<string>();
 			for (const link of links) {
 				if (link.source_page_id === pageId && labels.has(normalizeLabel(link.target_title))) continue;
@@ -467,16 +440,19 @@ export class WikiIndex implements WikiSearchBackend {
 					ids.add(target.id);
 					continue;
 				}
-				if (link.source_page_id !== pageId && labels.has(normalizeLabel(link.target_title))) ids.add(link.source_page_id);
+				if (link.source_page_id !== pageId && labels.has(normalizeLabel(link.target_title)))
+					ids.add(link.source_page_id);
 			}
 			return rows
 				.filter((row) => ids.has(row.id))
 				.slice(0, limit)
 				.map((row) => {
-					const full = database.prepare("SELECT * FROM wiki_pages WHERE namespace_id = ? AND id = ?").get(namespace, row.id) as
+					const full = database.prepare("SELECT * FROM wiki_pages WHERE id = ?").get(row.id) as
 						| WikiPageRow
 						| undefined;
-					return full ? this.summarySync(database, namespace, full, { reason: "related", score: 50, evidenceIds: [] }) : undefined;
+					return full
+						? this.summarySync(database, full, { reason: "related", score: 50, evidenceIds: [] })
+						: undefined;
 				})
 				.filter((item): item is WikiPageSummary => Boolean(item));
 		} finally {
@@ -486,14 +462,14 @@ export class WikiIndex implements WikiSearchBackend {
 
 	private async relatedSummaries(
 		database: DatabaseSync,
-		namespace: string,
+
 		pages: WikiPageSummary[],
 		byId: Map<string, WikiPageRow>,
 		limit: number,
 	): Promise<WikiPageSummary[]> {
 		const result: WikiPageSummary[] = [];
 		for (const page of pages.slice(0, 5)) {
-			const related = await this.neighborsWithDatabase(database, namespace, page.id, limit);
+			const related = await this.neighborsWithDatabase(database, page.id, limit);
 			for (const item of related) {
 				if (!byId.has(item.id) || pages.some((existing) => existing.id === item.id)) continue;
 				if (!result.some((existing) => existing.id === item.id)) result.push(item);
@@ -504,52 +480,53 @@ export class WikiIndex implements WikiSearchBackend {
 
 	private async neighborsWithDatabase(
 		database: DatabaseSync,
-		namespace: string,
+
 		pageId: string,
 		limit: number,
 	): Promise<WikiPageSummary[]> {
-		const rows = database
-			.prepare("SELECT * FROM wiki_pages WHERE namespace_id = ?")
-			.all(namespace) as unknown as WikiPageRow[];
+		const rows = database.prepare("SELECT * FROM wiki_pages").all() as unknown as WikiPageRow[];
 		const page = rows.find((row) => row.id === pageId);
 		if (!page) return [];
 		const labels = new Set([page.title, ...parseStrings(page.aliases_json)].map(normalizeLabel));
 		const links = database
-			.prepare("SELECT source_page_id, target_title FROM wiki_links WHERE namespace_id = ?")
-			.all(namespace) as unknown as WikiLinkRow[];
+			.prepare("SELECT source_page_id, target_title FROM wiki_links")
+			.all() as unknown as WikiLinkRow[];
 		const ids = new Set<string>();
 		for (const link of links) {
 			if (link.source_page_id === pageId) {
-				const target = rows.find((row) => row.id !== pageId && normalizeLabel(row.title) === normalizeLabel(link.target_title));
+				const target = rows.find(
+					(row) => row.id !== pageId && normalizeLabel(row.title) === normalizeLabel(link.target_title),
+				);
 				if (target) ids.add(target.id);
 			}
-			if (link.source_page_id !== pageId && labels.has(normalizeLabel(link.target_title))) ids.add(link.source_page_id);
+			if (link.source_page_id !== pageId && labels.has(normalizeLabel(link.target_title)))
+				ids.add(link.source_page_id);
 		}
 		return rows
 			.filter((row) => ids.has(row.id))
 			.slice(0, limit)
-			.map((row) => this.summarySync(database, namespace, row, { reason: "related", score: 50, evidenceIds: [] }));
+			.map((row) => this.summarySync(database, row, { reason: "related", score: 50, evidenceIds: [] }));
 	}
 
 	private async summary(
 		database: DatabaseSync,
-		namespace: string,
+
 		row: WikiPageRow,
 		match?: WikiPageSummary["match"],
 	): Promise<WikiPageSummary> {
-		return this.summarySync(database, namespace, row, match);
+		return this.summarySync(database, row, match);
 	}
 
 	private summarySync(
 		database: DatabaseSync,
-		namespace: string,
+
 		row: WikiPageRow,
 		match?: WikiPageSummary["match"],
 	): WikiPageSummary {
 		const sources = database
-			.prepare(`SELECT evidence_id, kind, source_id, paper_id, source_version, locator_json, legacy
-				FROM wiki_page_sources WHERE namespace_id = ? AND page_id = ? ORDER BY position`)
-			.all(namespace, row.id) as unknown as WikiSourceRow[];
+			.prepare(`SELECT evidence_id, kind, source_id, paper_id, source_version, locator_json
+				FROM wiki_page_sources WHERE page_id = ? ORDER BY position`)
+			.all(row.id) as unknown as WikiSourceRow[];
 		const evidence = sources.map((source) => ({
 			id: source.evidence_id,
 			kind: source.kind as WikiEvidence["kind"],
@@ -557,16 +534,15 @@ export class WikiIndex implements WikiSearchBackend {
 			...(source.paper_id ? { paperId: source.paper_id } : {}),
 			...(source.source_version ? { version: source.source_version } : {}),
 			locator: parseLocator(source.locator_json),
-			...(source.legacy ? { legacy: true } : {}),
 		}));
 		const sourceNoteIds = [
 			...new Set(evidence.filter((item) => item.kind === "note" && item.sourceId).map((item) => item.sourceId!)),
 		];
 		const paperIds = [
 			...new Set(
-				evidence.flatMap((item) => [item.kind === "paper" ? item.sourceId : undefined, item.paperId]).filter(
-					(value): value is string => Boolean(value),
-				),
+				evidence
+					.flatMap((item) => [item.kind === "paper" ? item.sourceId : undefined, item.paperId])
+					.filter((value): value is string => Boolean(value)),
 			),
 		];
 		return {

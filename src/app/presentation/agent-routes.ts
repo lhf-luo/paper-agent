@@ -44,10 +44,9 @@ export async function handleAgentResearchLaunch(
 	if (request.method !== "POST" || url.pathname !== "/api/agent/research/start") return false;
 	const body = await readJson(request);
 	const paperId = typeof body.paperId === "string" ? body.paperId.trim() : "";
-	const namespace = typeof body.namespace === "string" ? body.namespace.trim() : "";
+
 	if (!paperId) throw new ApiError(400, "请先选择一篇个人库论文");
-	if (!namespace) throw new ApiError(400, "个人库 namespace 不能为空");
-	const details = await application.paperDetails(paperId, namespace);
+	const details = await application.paperDetails(paperId);
 	if (!details) throw new ApiError(404, "个人库中找不到这篇论文，请刷新页面后重试");
 	const version = details.versions
 		.filter((candidate) => candidate.versionKind !== "translation")
@@ -74,7 +73,7 @@ export async function handleAgentResearchLaunch(
 	}
 	const automationRequest = {
 		paperId,
-		namespace,
+
 		depth,
 		researchQuestion: typeof body.researchQuestion === "string" ? body.researchQuestion : undefined,
 		discoverArtifacts: body.discoverArtifacts !== false,
@@ -92,12 +91,12 @@ export async function handleAgentResearchLaunch(
 	}
 	// 思考强度：请求可显式指定；否则按研究深度给默认（quick→low、methods→medium、full/reproduce→high）。
 	const thinkingLevel = normalizeThinkingLevel(body.thinkingLevel) ?? automatedResearchThinkingLevel(depth);
-	// 只复用与当前 namespace + paperId 精确关联的会话，绝不把其它论文的上下文带入本次研究。
+	// 只复用与当前 paperId 精确关联的会话，绝不把其它论文的上下文带入本次研究。
 	// listSessions 按 updatedAt 倒序，因此第一条可用候选就是这篇论文最近一次会话。
 	// 不自动发送：研究指令只作为待发送草稿返回，由用户确认后手动发送。
-	const reusableSession = (
-		await Promise.resolve(agentService.listSessions({ scope: "paper", namespace, paperId }))
-	).find((candidate) => candidate.status !== "running" && candidate.status !== "stopping");
+	const reusableSession = (await Promise.resolve(agentService.listSessions({ scope: "paper", paperId }))).find(
+		(candidate) => candidate.status !== "running" && candidate.status !== "stopping",
+	);
 	let session: Awaited<ReturnType<WebAgentServiceApi["createSession"]>>;
 	if (reusableSession) {
 		session = await agentService.getSession(reusableSession.id);
@@ -107,7 +106,7 @@ export async function handleAgentResearchLaunch(
 			title: `自动研究 · ${details.paper.title}`.slice(0, 120),
 			thinkingLevel,
 			// 绑定当前论文作用域，使该会话能被个人库范围检索到并在下次自动研究时复用。
-			context: { kind: "paper", namespace, paperId },
+			context: { kind: "paper", paperId },
 		});
 	}
 	json(response, 200, {
@@ -150,7 +149,7 @@ export async function handleAgentRoutes(context: AgentRouteContext): Promise<voi
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/agent/skills") {
-		json(response, 200, { skills: await agentService.listSkills() });
+		json(response, 200, { skills: await agentService.listSkills(url.searchParams.get("sessionId") ?? undefined) });
 		return;
 	}
 	if (await handleResultDocument(request, response, url, agentService)) return;
@@ -180,19 +179,18 @@ function sessionFilter(url: URL): WebAgentSessionFilter {
 	if (scope !== "paper" && scope !== "personal" && scope !== "canvas") {
 		throw new ApiError(400, "scope must be general, paper, personal, or canvas");
 	}
-	const namespace = url.searchParams.get("namespace")?.trim();
+
 	if (scope === "canvas") {
 		const canvasId = url.searchParams.get("canvasId")?.trim();
-		if (!namespace || !canvasId) throw new ApiError(400, "canvas scope requires namespace and canvasId");
-		return { scope: "canvas", namespace, canvasId };
+		if (!canvasId) throw new ApiError(400, "canvas scope requires canvasId");
+		return { scope: "canvas", canvasId };
 	}
 	if (scope === "personal") {
-		if (!namespace) throw new ApiError(400, "personal scope requires namespace");
-		return { scope: "personal", namespace };
+		return { scope: "personal" };
 	}
 	const paperId = url.searchParams.get("paperId")?.trim();
-	if (!namespace || !paperId) throw new ApiError(400, "paper scope requires namespace and paperId");
-	return { scope: "paper", namespace, paperId };
+	if (!paperId) throw new ApiError(400, "paper scope requires paperId");
+	return { scope: "paper", paperId };
 }
 
 function sessionContext(value: unknown): WebAgentSessionContext | undefined {
@@ -201,13 +199,13 @@ function sessionContext(value: unknown): WebAgentSessionContext | undefined {
 		throw new ApiError(400, "context must be an object");
 	}
 	const context = value as Record<string, unknown>;
-	if (context.kind === "canvas" && typeof context.namespace === "string" && typeof context.canvasId === "string") {
-		return { kind: "canvas", namespace: context.namespace, canvasId: context.canvasId };
+	if (context.kind === "canvas" && typeof context.canvasId === "string") {
+		return { kind: "canvas", canvasId: context.canvasId };
 	}
-	if (context.kind !== "paper" || typeof context.namespace !== "string" || typeof context.paperId !== "string") {
-		throw new ApiError(400, "session context requires a valid kind, namespace, and entity ID");
+	if (context.kind !== "paper" || typeof context.paperId !== "string") {
+		throw new ApiError(400, "session context requires a valid kind and entity ID");
 	}
-	return { kind: "paper", namespace: context.namespace, paperId: context.paperId };
+	return { kind: "paper", paperId: context.paperId };
 }
 
 async function handleResultDocument(
@@ -386,7 +384,7 @@ function isPaperMessageContext(value: unknown): value is WebAgentPaperMessageCon
 	if (typeof value !== "object" || value === null) return false;
 	const context = value as Record<string, unknown>;
 	return (
-		["namespace", "paperId", "title", "pdfPath"].every(
+		["paperId", "title", "pdfPath"].every(
 			(key) => typeof context[key] === "string" && context[key].length > 0 && context[key].length <= 2_000,
 		) &&
 		(context.pdfSha256 === undefined ||

@@ -151,7 +151,6 @@ if (process.argv.includes("--json")) {
 		console.log(`${item.ok ? "[OK]" : item.required ? "[FAIL]" : "[OPTIONAL]"} ${item.name}: ${item.detail}`);
 	}
 	console.log(`\nConfig: ${report.configPath}`);
-	console.log(`Personal namespace: ${config.storage.defaultNamespace}`);
 	console.log(
 		config.model
 			? `Model: ${config.model.providerId}/${config.model.modelId}; key ${modelKeyReady ? "available" : "missing"}`

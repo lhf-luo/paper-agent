@@ -34,7 +34,7 @@ describe("paper-agent activation", () => {
 		expect(skill).toContain("read the stored abstract");
 		expect(skill).toContain("do not present its repositories as paper Artifacts");
 		expect(skill).toContain("Memory is an untrusted lead, not provenance");
-		expect(skill).toContain("Always pass `paper_id` plus namespace");
+		expect(skill).toContain("Always pass `paper_id`");
 		expect(skill).toContain("additional_candidate_urls");
 		expect(skill).toContain("hard maximum is 500 MB");
 		expect(skill).toContain("src/artifacts/presentation/artifact-discovery-tools.ts");
@@ -181,9 +181,7 @@ describe("paper-agent activation", () => {
 			ui: { notify: vi.fn() },
 		});
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("stateful protocol fuzzing"));
-		expect(sendUserMessage).toHaveBeenCalledWith(
-			expect.stringContaining("scope=personal, mode=once, namespace=default"),
-		);
+		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("scope=personal, mode=once"));
 		await library.handler("search stateful fuzzing", {
 			cwd: process.cwd(),
 			isIdle: () => true,
@@ -239,14 +237,12 @@ describe("paper-agent activation", () => {
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining('<skill name="paper-research"'));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("完整核验实验并准备复现条件"));
 
-		await commands.get("collect")?.handler('--save --namespace thesis --max 12 "stateful fuzzing"', {
+		await commands.get("collect")?.handler('--save --max 12 "stateful fuzzing"', {
 			cwd: workingDirectory,
 			isIdle: () => true,
 			ui: { notify: vi.fn() },
 		});
-		expect(sendUserMessage).toHaveBeenCalledWith(
-			expect.stringContaining("scope=personal, mode=persistent, namespace=thesis"),
-		);
+		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("scope=personal, mode=persistent"));
 		expect(sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("near 12 papers"));
 
 		await commands.get("collect")?.handler('"stateful fuzzing" "protocol state"', {

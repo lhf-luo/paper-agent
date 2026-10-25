@@ -1,8 +1,8 @@
 # Wiki page contract
 
-Paper Agent stores each namespace under `.paper-agent/wiki/{namespace}/` and rebuilds `.paper-agent/wiki/wiki.sqlite` from Markdown before Wiki reads.
+Paper Agent stores its Wiki under `.paper-agent/wiki/` and rebuilds `.paper-agent/wiki/wiki.sqlite` from Markdown before Wiki reads.
 
-The namespace is initialized with the matching folders `topics/`, `concepts/`, `methods/`, `systems/`, `datasets/`, `syntheses/`, and `questions/`. The folder is the default location for its page type, not a separate source of truth.
+The Wiki is initialized with the matching folders `topics/`, `concepts/`, `methods/`, `systems/`, `datasets/`, `syntheses/`, and `questions/`. The folder is the default location for its page type, not a separate source of truth.
 
 The root also contains generated `index.md` for Obsidian navigation and append-only `log.md` for page-write events. Both files are reserved management files: they are not Wiki pages, evidence, query results, or lint targets.
 
@@ -58,7 +58,7 @@ Allowed types are `topic`, `concept`, `method`, `system`, `dataset`, `synthesis`
 
 Allowed statuses are `draft`, `needs-review`, `reviewed`, and `conflicted`. The Agent may create drafts and cause reviewed pages to return to `needs-review`; it must not claim human review.
 
-`source_notes` and `paper_ids` remain readable for legacy pages; new pages derive them from `evidence`. A legacy page has page-level sources and receives `legacy-source-granularity` lint warnings until it is re-ingested.
+Source note and paper IDs are derived from `evidence`; page-level source fields are not supported.
 
 ## Claims
 

@@ -98,7 +98,6 @@ const LIBRARY_VIEW_KEY = "paper-agent:library-view";
 const SCREENING_FILTERS = new Set(["all", "unreviewed", "include", "maybe", "exclude"]);
 
 interface LibraryViewState {
-	namespace: string;
 	activeCollection: string;
 	query: string;
 	screeningFilter: string;
@@ -117,9 +116,8 @@ function readLibraryViewState(): LibraryViewState | undefined {
 		const saved = JSON.parse(
 			window.sessionStorage.getItem(LIBRARY_VIEW_KEY) ?? "null",
 		) as Partial<LibraryViewState> | null;
-		if (!saved || typeof saved.namespace !== "string" || typeof saved.activeCollection !== "string") return undefined;
+		if (!saved || typeof saved.activeCollection !== "string") return undefined;
 		return {
-			namespace: saved.namespace,
 			activeCollection: saved.activeCollection,
 			query: typeof saved.query === "string" ? saved.query : "",
 			screeningFilter: SCREENING_FILTERS.has(saved.screeningFilter ?? "") ? saved.screeningFilter! : "all",
@@ -180,24 +178,24 @@ function ZoteroSelectionCheckbox({
 }
 
 export function LibraryPage({
+	focusPaperId,
 	onOpenReader,
 	onTask,
 	toolbarTarget,
 	onOpenResearchNote,
 	onAgentSession,
 }: {
+	focusPaperId?: string;
 	onOpenReader: (state: ReaderState) => void;
 	onTask: (job: BackgroundJob) => void;
 	toolbarTarget: HTMLDivElement | null;
 	onOpenResearchNote: (target: ResearchNoteNavigation) => void;
-	onAgentSession: (
-		sessionId: string,
-		draft: string | undefined,
-		target: { paperId: string; namespace: string },
-	) => void;
+	onAgentSession: (sessionId: string, draft: string | undefined, target: { paperId: string }) => void;
 }) {
 	const confirmationSettings = useConfirmationPolicy();
 	const [restoredView] = useState(readLibraryViewState);
+	const pendingFocusPaperId = useRef(focusPaperId);
+	useEffect(() => { pendingFocusPaperId.current = focusPaperId; }, [focusPaperId]);
 	const [query, setQuery] = useState(restoredView?.query ?? "");
 	const [papers, setPapers] = useState<PaperRecord[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -224,10 +222,7 @@ export function LibraryPage({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
-	const [namespace, setNamespace] = useState(restoredView?.namespace ?? "default");
-	const namespaceRef = useRef(namespace);
-	namespaceRef.current = namespace;
-	const [namespaces, setNamespaces] = useState<string[]>(["default"]);
+
 	const [collections, setCollections] = useState<PaperCollection[]>([]);
 	const [collectionMemberships, setCollectionMemberships] = useState<CollectionMembershipIndex>();
 	const [collectionMembershipsLoading, setCollectionMembershipsLoading] = useState(true);
@@ -256,7 +251,6 @@ export function LibraryPage({
 			window.sessionStorage.setItem(
 				LIBRARY_VIEW_KEY,
 				JSON.stringify({
-					namespace,
 					activeCollection,
 					query,
 					screeningFilter,
@@ -267,7 +261,7 @@ export function LibraryPage({
 		} catch {
 			// The library remains usable if browser storage is unavailable.
 		}
-	}, [namespace, activeCollection, query, screeningFilter, detailPaperId]);
+	}, [activeCollection, query, screeningFilter, detailPaperId]);
 	const openReaderFromLibrary = (state: ReaderState) => {
 		// Capture synchronously in case navigation precedes the latest scroll event.
 		if (paperPaneRef.current?.offsetHeight) scrollPositionRef.current.listScrollTop = paperPaneRef.current.scrollTop;
@@ -350,7 +344,7 @@ export function LibraryPage({
 	const localFileRef = useRef<HTMLInputElement>(null);
 	const localPdfTargetRef = useRef<PaperRecord | undefined>(undefined);
 	const localImportBatchIdRef = useRef<string | undefined>(undefined);
-	const zoteroNamespaceRef = useRef(namespace);
+
 	const zoteroImportOperationIdRef = useRef<string | undefined>(undefined);
 	const zoteroExportOperationIdRef = useRef<string | undefined>(undefined);
 	const cancelLocalImport = useCallback(async (returnFocus = true) => {
@@ -413,16 +407,7 @@ export function LibraryPage({
 		document.addEventListener("keydown", close);
 		return () => document.removeEventListener("keydown", close);
 	}, [importMenuOpen, localImportBatch, localImportBusy, cancelLocalImport]);
-	useEffect(() => {
-		void api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces")
-			.then((value) => {
-				setNamespaces(value.personal);
-				if (restoredView && value.personal.includes(restoredView.namespace)) return;
-				setNamespace(value.defaultNamespace);
-				setActiveCollection("all");
-			})
-			.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-	}, [restoredView]);
+
 	useEffect(() => {
 		if (loading) return;
 		persistView();
@@ -441,7 +426,7 @@ export function LibraryPage({
 		setLoading(true);
 		setError("");
 		try {
-			const params = new URLSearchParams({ q: query, namespace, limit: "300" });
+			const params = new URLSearchParams({ q: query, limit: "300" });
 			if (screeningFilter !== "all") params.append("screeningStatus", screeningFilter);
 			if (activeCollection !== "all") params.append("collection", activeCollection);
 			const records = (
@@ -449,13 +434,13 @@ export function LibraryPage({
 			).hits.map((hit) => hit.record);
 			if (requestId !== loadRequestRef.current) return;
 			const saved = pendingViewRef.current;
-			if (saved?.detailPaperId && records.some((paper) => paper.id === saved.detailPaperId)) {
+			const requestedDetailId = pendingFocusPaperId.current ?? saved?.detailPaperId;
+			if (requestedDetailId && (pendingFocusPaperId.current || records.some((paper) => paper.id === requestedDetailId))) {
 				try {
-					const restoredDetail = await api(
-						`/api/papers/${encodeURIComponent(saved.detailPaperId)}?namespace=${encodeURIComponent(namespace)}`,
-					);
+					const restoredDetail = await api(`/api/papers/${encodeURIComponent(requestedDetailId)}`);
 					if (requestId !== loadRequestRef.current) return;
 					setDetails(restoredDetail);
+					pendingFocusPaperId.current = undefined;
 				} catch {
 					// A removed paper must not prevent restoring the remaining list.
 				}
@@ -466,12 +451,11 @@ export function LibraryPage({
 		} finally {
 			if (requestId === loadRequestRef.current) setLoading(false);
 		}
-	}, [namespace, query, screeningFilter, activeCollection]);
+	}, [query, screeningFilter, activeCollection, focusPaperId]);
 	useEffect(() => {
 		const saved = pendingViewRef.current;
 		if (
 			!saved ||
-			saved.namespace !== namespace ||
 			saved.activeCollection !== activeCollection ||
 			saved.query !== query ||
 			saved.screeningFilter !== screeningFilter
@@ -486,7 +470,7 @@ export function LibraryPage({
 		return () => {
 			++loadRequestRef.current;
 		};
-	}, [load, namespace, activeCollection, query, screeningFilter]);
+	}, [load, activeCollection, query, screeningFilter]);
 	useLayoutEffect(() => {
 		if (loading) return;
 		// Restore only after both the list and saved details establish their final column widths.
@@ -528,16 +512,13 @@ export function LibraryPage({
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [activeLibraryTool, annotationPending, exportPending]);
 	const loadCollectionData = useCallback(async () => {
-		const requestedNamespace = namespace;
 		setCollectionMemberships(undefined);
 		setCollectionMembershipsLoading(true);
 		const [collectionsResult, membershipsResult] = await Promise.allSettled([
-			api<PaperCollection[]>(`/api/library/collections?namespace=${encodeURIComponent(namespace)}`),
-			api<CollectionMembershipIndex>(
-				`/api/library/collection-memberships?namespace=${encodeURIComponent(namespace)}`,
-			),
+			api<PaperCollection[]>(`/api/library/collections`),
+			api<CollectionMembershipIndex>(`/api/library/collection-memberships`),
 		]);
-		if (requestedNamespace !== namespaceRef.current) return;
+
 		if (collectionsResult.status === "fulfilled") {
 			setCollections(collectionsResult.value);
 			setActiveCollection((current) =>
@@ -561,15 +542,13 @@ export function LibraryPage({
 					: String(membershipsResult.reason),
 			);
 		setCollectionMembershipsLoading(false);
-	}, [namespace]);
+	}, []);
 	useEffect(() => {
 		void loadCollectionData();
 	}, [loadCollectionData]);
 	useEffect(() => {
 		let cancelled = false;
-		void api<{ byPaperId: Record<string, ResearchNoteSummary[]> }>(
-			`/api/research/note-index?namespace=${encodeURIComponent(namespace)}`,
-		)
+		void api<{ byPaperId: Record<string, ResearchNoteSummary[]> }>(`/api/research/note-index`)
 			.then((value) => {
 				if (!cancelled) setNoteIndex(value.byPaperId);
 			})
@@ -577,14 +556,12 @@ export function LibraryPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [namespace]);
+	}, []);
 	const loadDetail = async (paper: PaperRecord) => {
 		setError("");
 		try {
 			if (details?.paper?.id !== paper.id) scrollPositionRef.current.detailScrollTop = 0;
-			setDetails(
-				await api(`/api/papers/${encodeURIComponent(paper.id)}?namespace=${encodeURIComponent(namespace)}`),
-			);
+			setDetails(await api(`/api/papers/${encodeURIComponent(paper.id)}`));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		}
@@ -621,10 +598,7 @@ export function LibraryPage({
 		setArtifactFolderOpening(true);
 		setError("");
 		try {
-			await api(
-				`/api/papers/${encodeURIComponent(details.paper.id)}/artifacts/open?namespace=${encodeURIComponent(namespace)}`,
-				{ method: "POST" },
-			);
+			await api(`/api/papers/${encodeURIComponent(details.paper.id)}/artifacts/open`, { method: "POST" });
 			setMessage("已打开 Artifact 文件夹。");
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -688,7 +662,6 @@ export function LibraryPage({
 			const prepared = await api<ZoteroImportPreparation>(
 				"/api/zotero/imports/prepare",
 				jsonBody({
-					namespace,
 					collectionKeys: [],
 					itemKeys,
 					includeSubcollections: false,
@@ -778,39 +751,12 @@ export function LibraryPage({
 			setZoteroBusy(false);
 		}
 	};
-	useEffect(() => {
-		if (zoteroNamespaceRef.current === namespace) return;
-		zoteroNamespaceRef.current = namespace;
-		const importOperationId = zoteroImportOperationIdRef.current;
-		const exportOperationId = zoteroExportOperationIdRef.current;
-		setZoteroImportOpen(false);
-		setZoteroImportPrepared(undefined);
-		setZoteroImportFinished(false);
-		setZoteroImportProgress(undefined);
-		setZoteroItemKeys(new Set());
-		setActiveZoteroCollection(ALL_ZOTERO_ITEMS);
-		setZoteroExportPrepared(undefined);
-		if (exportOperationId) {
-			setExportPending(undefined);
-			setExportPayload(undefined);
-		}
-		if (importOperationId) {
-			void api(`/api/zotero/imports/${encodeURIComponent(importOperationId)}`, { method: "DELETE" }).catch(
-				() => undefined,
-			);
-		}
-		if (exportOperationId) {
-			void api(`/api/zotero/exports/${encodeURIComponent(exportOperationId)}`, { method: "DELETE" }).catch(
-				() => undefined,
-			);
-		}
-	}, [namespace]);
-	const prepareDownload = async (paperIds: string[]) => {
+const prepareDownload = async (paperIds: string[]) => {
 		setActiveLibraryTool(undefined);
 		setBusy(true);
 		setError("");
 		try {
-			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds, namespace })));
+			setPending(await api("/api/pdf-downloads/prepare", jsonBody({ paperIds })));
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -825,7 +771,7 @@ export function LibraryPage({
 			const grant = (await confirmOperation(pending)) as ConfirmationGrant;
 			const job = await api<BackgroundJob>(
 				"/api/pdf-downloads/execute",
-				jsonBody({ paperIds: [...selected], namespace, grant }),
+				jsonBody({ paperIds: [...selected], grant }),
 			);
 			onTask(job);
 			setPending(undefined);
@@ -849,7 +795,6 @@ export function LibraryPage({
 		// 研究指令只填入输入框作为待发送草稿，由用户确认后手动发送。
 		onAgentSession(response.session.id, response.draft, {
 			paperId: input.paperId,
-			namespace: input.namespace,
 		});
 		if (response.reusedExistingSession) setMessage("已把研究任务填入该论文最近会话的输入框，请确认后发送。");
 	};
@@ -861,7 +806,7 @@ export function LibraryPage({
 		try {
 			const payload: Record<string, unknown> = {
 				paperIds: [...selected],
-				namespace,
+
 				tags: annotationTags
 					.split(",")
 					.map((tag) => tag.trim())
@@ -912,7 +857,6 @@ export function LibraryPage({
 		setMessage("");
 		try {
 			const payload: Record<string, unknown> = {
-				namespace,
 				...(selected.size ? { paperIds: [...selected] } : {}),
 			};
 			const prepared = await api<{ prepared: PreparedOperation | null }>(
@@ -957,7 +901,7 @@ export function LibraryPage({
 		setError("");
 		setMessage("");
 		try {
-			const payload = { paperId: paper.id, namespace };
+			const payload = { paperId: paper.id };
 			const result = await api<MetadataEnrichmentPreparation>("/api/library/metadata/prepare", jsonBody(payload));
 			if (result.status === "ready" && result.prepared) {
 				setMetadataEnrichmentPayload(payload);
@@ -1030,7 +974,7 @@ export function LibraryPage({
 			if (exportFormat === "zotero") {
 				const prepared = await api<ZoteroExportPreparation>(
 					"/api/zotero/exports/prepare",
-					jsonBody({ paperIds: [...selected], namespace }),
+					jsonBody({ paperIds: [...selected] }),
 				);
 				setZoteroExportPrepared(prepared);
 				setExportPayload({ zotero: true, operationId: prepared.operation.operationId });
@@ -1040,7 +984,7 @@ export function LibraryPage({
 			}
 			const payload: Record<string, unknown> = {
 				paperIds: [...selected],
-				namespace,
+
 				format: exportFormat,
 				filename: exportFilename.trim() || undefined,
 			};
@@ -1086,9 +1030,7 @@ export function LibraryPage({
 				"/api/library/export/execute",
 				jsonBody({ ...exportPayload, grant }),
 			);
-			const bytes = await apiBytes(
-				`/api/library/exports/${encodeURIComponent(result.filename)}?namespace=${encodeURIComponent(namespace)}`,
-			);
+			const bytes = await apiBytes(`/api/library/exports/${encodeURIComponent(result.filename)}`);
 			const objectUrl = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer]));
 			const anchor = document.createElement("a");
 			anchor.href = objectUrl;
@@ -1130,7 +1072,7 @@ export function LibraryPage({
 		setError("");
 		setMessage("");
 		try {
-			await api(`/api/papers/${encodeURIComponent(target.id)}/pdf?namespace=${encodeURIComponent(namespace)}`, {
+			await api(`/api/papers/${encodeURIComponent(target.id)}/pdf`, {
 				method: "POST",
 				headers: { "content-type": "application/pdf" },
 				body: file,
@@ -1164,10 +1106,7 @@ export function LibraryPage({
 		setLocalImportBusy(true);
 		try {
 			const collectionId = !["all", "__uncategorized__"].includes(activeCollection) ? activeCollection : undefined;
-			const created = await api<LocalPdfImportBatchView>(
-				"/api/library/local-imports",
-				jsonBody({ namespace, collectionId }),
-			);
+			const created = await api<LocalPdfImportBatchView>("/api/library/local-imports", jsonBody({ collectionId }));
 			setLocalImportBatch(created);
 			localImportBatchIdRef.current = created.id;
 			const uploaded: LocalPdfImportFilePreview[] = [];
@@ -1253,7 +1192,7 @@ export function LibraryPage({
 		try {
 			await api(
 				`/api/library/collections/${encodeURIComponent(collectionId)}/papers`,
-				jsonBody({ paperIds, mode: "assign", namespace }, "PATCH"),
+				jsonBody({ paperIds, mode: "assign" }, "PATCH"),
 			);
 			setMessage(paperIds.length === 1 ? "已添加到分类" : `已将 ${paperIds.length} 篇论文添加到分类`);
 			await Promise.all([load(), loadCollectionData()]);
@@ -1281,7 +1220,7 @@ export function LibraryPage({
 			const next = collectionId ? [collectionId] : [];
 			await api(
 				`/api/papers/${encodeURIComponent(paperId)}/collections`,
-				jsonBody({ collectionIds: next, namespace }, "PATCH"),
+				jsonBody({ collectionIds: next }, "PATCH"),
 			);
 			setMessage(collectionId ? "已移动到分类" : "已移出分类(未分类)");
 			await Promise.all([load(), loadCollectionData()]);
@@ -1312,7 +1251,7 @@ export function LibraryPage({
 		try {
 			const payload = {
 				paperIds: Array.isArray(target) ? target : [target.id],
-				namespace,
+
 				mode,
 				...(mode === "remove-from-collection" ? { collectionId: activeCollection } : {}),
 			};
@@ -1366,7 +1305,7 @@ export function LibraryPage({
 		setError("");
 		setMessage("");
 		try {
-			const payload = { paperId: details.paper.id, sha256: version.sha256, namespace };
+			const payload = { paperId: details.paper.id, sha256: version.sha256 };
 			setVersionRemovalPayload(payload);
 			setVersionRemovalPending(
 				await api<PreparedOperation>("/api/library/pdf-versions/remove/prepare", jsonBody(payload)),
@@ -1665,24 +1604,6 @@ export function LibraryPage({
 					placeholder="搜索标题、作者、摘要、标签或笔记"
 				/>
 			</label>
-			<label className="library-namespace-control">
-				<span>Namespace</span>
-				<select
-					value={namespace}
-					disabled={localImportBusy}
-					onChange={(event) => {
-						if (localImportBatch) void cancelLocalImport(false);
-						setNamespace(event.target.value);
-						setActiveCollection("all");
-					}}
-				>
-					{namespaces.map((item) => (
-						<option value={item} key={item}>
-							{item}
-						</option>
-					))}
-				</select>
-			</label>
 			<label className="library-screening-control">
 				<span>筛选状态</span>
 				<select value={screeningFilter} onChange={(event) => setScreeningFilter(event.target.value)}>
@@ -1767,7 +1688,6 @@ export function LibraryPage({
 				<CollectionSidebar
 					collections={collections}
 					activeCollection={activeCollection}
-					namespace={namespace}
 					membershipPaperIds={membershipPaperIds}
 					membershipLoading={collectionMembershipsLoading}
 					selectedPaperIds={selected}
@@ -1856,7 +1776,7 @@ export function LibraryPage({
 								<span>
 									{localImportBatch.collection
 										? `目标分类：${localImportBatch.collection.name}`
-										: `目标空间：${localImportBatch.namespace} · 未分类`}
+										: `个人库 · 未分类`}
 								</span>
 							</div>
 							<button
@@ -2589,8 +2509,8 @@ export function LibraryPage({
 											deleteLabel="永久删除论文"
 											deleteBusy={libraryActionLocked}
 											researchNotes={noteIndex[paper.id] ?? []}
-											onOpenResearchNote={(noteId) => onOpenResearchNote({ namespace, noteId })}
-											onCreateResearchNote={() => onOpenResearchNote({ namespace, paperId: paper.id })}
+											onOpenResearchNote={(noteId) => onOpenResearchNote({ noteId })}
+											onCreateResearchNote={() => onOpenResearchNote({ paperId: paper.id })}
 											dragPaperIds={
 												libraryActionLocked
 													? undefined
@@ -2702,7 +2622,6 @@ export function LibraryPage({
 									paperId={details.paper.id}
 									paperTitle={details.paper.title}
 									versions={details.versions ?? []}
-									namespace={namespace}
 									busy={busy}
 									onPreparePdf={prepareDownloadForCurrentPaper}
 									onStart={startAutomatedResearch}
@@ -2717,10 +2636,10 @@ export function LibraryPage({
 												onClick={() =>
 													openReaderFromLibrary({
 														title: details.paper.title,
-														url: `/api/papers/${encodeURIComponent(details.paper.id)}/pdf/${version.sha256}?namespace=${encodeURIComponent(namespace)}`,
+														url: `/api/papers/${encodeURIComponent(details.paper.id)}/pdf/${version.sha256}`,
 														pdfPath: version.blobPath,
 														paperId: details.paper.id,
-														namespace,
+
 														sha256: version.sha256,
 														bytes: version.bytes,
 														retrievedAt: version.retrievedAt,
@@ -2773,9 +2692,8 @@ export function LibraryPage({
 									</p>
 								)}
 								<PaperDetailFieldsCard
-									key={`${namespace}:${details.paper.id}`}
+									key={`${details.paper.id}`}
 									paper={details.paper}
-									namespace={namespace}
 									onDirtyChange={updateDetailDirty}
 									onSaved={(paper) => {
 										setDetails((current: any) =>

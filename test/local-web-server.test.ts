@@ -148,7 +148,7 @@ describe("local Paper Agent web server", () => {
 			});
 			expect(annotationExecute.status).toBe(200);
 			expect(await annotationExecute.json()).toMatchObject({ count: 1 });
-			const annotatedDetails = await authenticated("/api/papers/paper-web?namespace=default");
+			const annotatedDetails = await authenticated("/api/papers/paper-web");
 			expect(await annotatedDetails.json()).toMatchObject({
 				paper: {
 					curation: {
@@ -180,7 +180,7 @@ describe("local Paper Agent web server", () => {
 				}),
 			});
 			expect(exportExecute.status).toBe(200);
-			const exported = await authenticated("/api/library/exports/web-library.json?namespace=default");
+			const exported = await authenticated("/api/library/exports/web-library.json");
 			expect(exported.status).toBe(200);
 			expect(JSON.parse(await exported.text())).toMatchObject({ records: [{ id: "paper-web" }] });
 			expect((await authenticated("/api/config")).status).toBe(200);
@@ -198,8 +198,8 @@ describe("local Paper Agent web server", () => {
 				]),
 			});
 			const namespaces = await authenticated("/api/namespaces");
-			expect(namespaces.status).toBe(200);
-			expect(await namespaces.json()).toMatchObject({ defaultNamespace: "default", personal: ["default"] });
+			expect(namespaces.status).toBe(404);
+			expect(await namespaces.json()).toHaveProperty("error");
 			const malformedSearch = await authenticated("/api/search", {
 				method: "POST",
 				body: JSON.stringify({
@@ -228,7 +228,11 @@ describe("local Paper Agent web server", () => {
 				}),
 			});
 			expect(mixedArxivDate.status).toBe(400);
-			expect(await mixedArxivDate.json()).toMatchObject({ error: expect.stringContaining("arXiv only") });
+			expect(await mixedArxivDate.json()).toMatchObject({ error: expect.stringContaining("Unsupported search filter") });
+			for (const payload of [{ query: "  " }, { query: "kernel", arxiv_submitted_from: "2026-01-01" }, { query: "kernel", unexpected: true }]) {
+				const rejected = await authenticated("/api/search", { method: "POST", body: JSON.stringify(payload) });
+				expect(rejected.status).toBe(400);
+			}
 			const unconstrainedAclSearch = await authenticated("/api/search", {
 				method: "POST",
 				body: JSON.stringify({ query: "language models", providers: ["acl_anthology"], filters: {} }),
@@ -248,7 +252,7 @@ describe("local Paper Agent web server", () => {
 
 			const writeJob = await application.jobs.enqueue("pdf-download", {
 				authorizationKey: "missing-confirmation",
-				namespace: "default",
+
 				request: { maxFiles: 1, maxBytesPerFile: 1, concurrency: 1 },
 			});
 			for (let attempt = 0; attempt < 100 && application.jobs.get(writeJob.id)?.status !== "failed"; attempt++) {
@@ -264,7 +268,7 @@ describe("local Paper Agent web server", () => {
 				error: expect.stringContaining("new review and confirmation"),
 			});
 
-			const folderPayload = { namespace: "default", name: "Security" };
+			const folderPayload = { name: "Security" };
 			const folderPrepared = (await (
 				await authenticated("/api/research/folders/create/prepare", {
 					method: "POST",
@@ -283,7 +287,7 @@ describe("local Paper Agent web server", () => {
 					body: JSON.stringify({ ...folderPayload, grant: folderGrant }),
 				})
 			).json()) as { folder: { id: string } };
-			expect(await (await authenticated("/api/research/folders?namespace=default")).json()).toMatchObject({
+			expect(await (await authenticated("/api/research/folders")).json()).toMatchObject({
 				folders: [{ id: folderCreated.folder.id, name: "Security" }],
 			});
 
@@ -313,22 +317,21 @@ describe("local Paper Agent web server", () => {
 			expect(saved.status).toBe(200);
 			const savedBody = (await saved.json()) as { note: { id: string; revision: number; contentHash: string } };
 			expect(savedBody.note.revision).toBe(1);
-			expect(await (await authenticated("/api/research/notes?namespace=default")).json()).toMatchObject({
+			expect(await (await authenticated("/api/research/notes")).json()).toMatchObject({
 				notes: [{ id: savedBody.note.id, title: "Web research note", folderId: folderCreated.folder.id }],
 			});
 			const syncedNotes = await authenticated("/api/research/notes/sync", {
 				method: "POST",
-				body: JSON.stringify({ namespace: "default" }),
+				body: JSON.stringify({}),
 			});
 			expect(syncedNotes.status).toBe(200);
 			expect(await syncedNotes.json()).toMatchObject({
-				namespace: "default",
 				result: { createdNotes: 0, updatedNotes: 0, deletedNotes: 0 },
 			});
-			expect(await (await authenticated("/api/research/note-index?namespace=default")).json()).toMatchObject({
+			expect(await (await authenticated("/api/research/note-index")).json()).toMatchObject({
 				byPaperId: { "paper-web": [{ id: savedBody.note.id }] },
 			});
-			const templateBody = (await (await authenticated("/api/research/templates?namespace=default")).json()) as {
+			const templateBody = (await (await authenticated("/api/research/templates")).json()) as {
 				templates: Array<{ id: string }>;
 			};
 			expect(templateBody.templates.map((template) => template.id)).toEqual([
@@ -340,7 +343,6 @@ describe("local Paper Agent web server", () => {
 			const updated = await authenticated(`/api/research/notes/${encodeURIComponent(savedBody.note.id)}`, {
 				method: "PATCH",
 				body: JSON.stringify({
-					namespace: "default",
 					title: "Updated research note",
 					markdown: "updated",
 					expectedRevision: savedBody.note.revision,
@@ -350,7 +352,7 @@ describe("local Paper Agent web server", () => {
 			expect(updated.status).toBe(200);
 			const deletePreparedResponse = await authenticated("/api/research/notes/delete/prepare", {
 				method: "POST",
-				body: JSON.stringify({ noteId: savedBody.note.id, namespace: "default", author: "tester" }),
+				body: JSON.stringify({ noteId: savedBody.note.id, author: "tester" }),
 			});
 			expect(deletePreparedResponse.status).toBe(200);
 			const deletePrepared = (await deletePreparedResponse.json()) as {
@@ -367,20 +369,20 @@ describe("local Paper Agent web server", () => {
 				method: "POST",
 				body: JSON.stringify({
 					noteId: savedBody.note.id,
-					namespace: "default",
+
 					author: "tester",
 					grant: deleteGrant,
 				}),
 			});
 			expect(deleted.status).toBe(200);
-			const afterResearchDelete = (await (await authenticated("/api/research/notes?namespace=default")).json()) as {
+			const afterResearchDelete = (await (await authenticated("/api/research/notes")).json()) as {
 				notes: unknown[];
 			};
 			expect(afterResearchDelete.notes).toEqual([]);
 			const folderDeletePrepared = (await (
 				await authenticated("/api/research/folders/delete/prepare", {
 					method: "POST",
-					body: JSON.stringify({ namespace: "default", folderId: folderCreated.folder.id }),
+					body: JSON.stringify({ folderId: folderCreated.folder.id }),
 				})
 			).json()) as { operationId: string; manifestFingerprint: string };
 			const folderDeleteGrant = await (
@@ -392,7 +394,6 @@ describe("local Paper Agent web server", () => {
 			const folderDeleted = await authenticated("/api/research/folders/delete/execute", {
 				method: "POST",
 				body: JSON.stringify({
-					namespace: "default",
 					folderId: folderCreated.folder.id,
 					grant: folderDeleteGrant,
 				}),
@@ -429,6 +430,7 @@ describe("local Paper Agent web server", () => {
 		await saveTeamAccess(root, {
 			serverUrl: teamUrl,
 			namespace: "security",
+
 			token: "team-search-token",
 			identity: "admin",
 		});
@@ -478,7 +480,6 @@ describe("local Paper Agent web server", () => {
 				nextCursor?: string;
 			};
 			expect(firstBody).toMatchObject({
-				namespace: "security",
 				hits: [{ record: { id: "web-team-2024" } }],
 				nextCursor: "1",
 			});

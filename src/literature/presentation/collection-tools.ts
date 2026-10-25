@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAuthorPapersTool } from "./author-papers-tool.ts";
+import { registerBrowserLiteratureTool } from "./browser-literature-tool.ts";
 import { registerCitationExpansionTool } from "./citation-expansion-tool.ts";
 import { registerCollectionQueryTools } from "./collection-query-tools.ts";
 import { registerCollectionSearchTools } from "./collection-search-tools.ts";
@@ -39,6 +40,7 @@ export function registerCollectionTools(pi: ExtensionAPI): void {
 	registerPersonalPaperDetailFieldsTool(pi);
 	registerCitationExpansionTool(pi);
 	registerAuthorPapersTool(pi);
+	registerBrowserLiteratureTool(pi);
 	registerLiteratureDownloadMemoryTools(pi);
 	registerLiteratureCollectionsTool(pi);
 	registerLiteratureCorpusTool(pi);

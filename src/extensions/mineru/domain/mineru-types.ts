@@ -1,6 +1,6 @@
 export interface MineruGenerationRequest {
 	paperId: string;
-	namespace: string;
+
 	force: boolean;
 }
 
@@ -51,27 +51,16 @@ export interface MineruPackageStatistics {
 }
 
 export interface MineruPackageManifest {
-	schemaVersion: 1 | 2;
+	schemaVersion: 2;
 	engine: "mineru";
 	sourceSha256: string;
 	modelVersion: "pipeline" | "vlm";
 	createdAt: string;
 	pageCount: number;
 	headings: Array<{ level: number; text: string; page: number }>;
-	assets: Array<{
-		id?: string;
-		type: string;
-		path?: string;
-		caption?: string;
-		footnote?: string;
-		page: number;
-		bbox?: number[];
-		hasImage?: boolean;
-		hasStructuredContent?: boolean;
-		blockIndex?: number;
-	}>;
-	sections?: MineruSectionIndex[];
-	statistics?: MineruPackageStatistics;
+	assets: MineruAssetIndex[];
+	sections: MineruSectionIndex[];
+	statistics: MineruPackageStatistics;
 	files: string[];
 }
 

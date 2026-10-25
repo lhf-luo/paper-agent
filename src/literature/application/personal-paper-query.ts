@@ -24,7 +24,6 @@ export interface PersonalPaperArtifactDetails {
 }
 
 export interface PersonalPaperDetails {
-	namespace: string;
 	record: PaperRecord;
 	collections: PersonalPaperCollectionPath[];
 	remotePdfLinks: PaperRecord["links"];
@@ -111,7 +110,6 @@ export async function buildPersonalPaperDetails(
 		}))
 		.sort((left, right) => left.path.join("/").localeCompare(right.path.join("/")));
 	return {
-		namespace: store.namespace,
 		record,
 		collections: paperCollections,
 		remotePdfLinks: record.links.filter((link) => link.kind === "pdf"),

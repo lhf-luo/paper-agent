@@ -1,3 +1,4 @@
+import { SEARCH_FILTER_KEYS } from "../../literature/domain/literature-search-filters.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ScreeningStatus, SearchFilters } from "../../literature/domain/literature-types.ts";
 import type { ConfirmationGrant } from "../../shared/application/operation-consent.ts";
@@ -36,7 +37,8 @@ export async function readJson(request: IncomingMessage, maxBytes = 2 * 1024 * 1
 		const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("object required");
 		return parsed as Record<string, unknown>;
-	} catch {
+	} catch (error) {
+		if (error instanceof ApiError) throw error;
 		throw new ApiError(400, "Request body must contain a JSON object");
 	}
 }
@@ -82,14 +84,6 @@ export function numberValue(value: unknown, fallback?: number): number | undefin
 	return number;
 }
 
-export function namespaceValue(value: unknown): string | undefined {
-	if (value === undefined || value === null || value === "") return undefined;
-	if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) {
-		throw new ApiError(400, "namespace must be a safe 1-64 character identifier");
-	}
-	return value;
-}
-
 export function boundedStringArray(
 	value: unknown,
 	label: string,
@@ -129,16 +123,7 @@ export function searchFilters(value: unknown): SearchFilters {
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		throw new ApiError(400, "filters must be a JSON object");
 	const source = value as Record<string, unknown>;
-	const allowed = new Set([
-		"yearFrom",
-		"yearTo",
-		"arxivSubmittedFrom",
-		"arxivSubmittedTo",
-		"venues",
-		"authors",
-		"openAccess",
-		"types",
-	]);
+	const allowed = new Set<string>(SEARCH_FILTER_KEYS);
 	const unknown = Object.keys(source).filter((key) => !allowed.has(key));
 	if (unknown.length) throw new ApiError(400, `Unsupported search filter(s): ${unknown.join(", ")}`);
 	const yearFrom = integerValue(source.yearFrom, "filters.yearFrom", 1000, 9999);
@@ -146,36 +131,12 @@ export function searchFilters(value: unknown): SearchFilters {
 	if (yearFrom !== undefined && yearTo !== undefined && yearFrom > yearTo) {
 		throw new ApiError(400, "filters.yearFrom cannot be later than filters.yearTo");
 	}
-	const arxivSubmittedDate = (field: "arxivSubmittedFrom" | "arxivSubmittedTo"): string | undefined => {
-		const date = source[field];
-		if (date === undefined) return undefined;
-		const timestamp = typeof date === "string" ? Date.parse(`${date}T00:00:00Z`) : NaN;
-		if (
-			typeof date !== "string" ||
-			!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-			!Number.isFinite(timestamp) ||
-			new Date(timestamp).toISOString().slice(0, 10) !== date
-		) {
-			throw new ApiError(400, `filters.${field} must be a valid YYYY-MM-DD date`);
-		}
-		return date;
-	};
-	const arxivSubmittedFrom = arxivSubmittedDate("arxivSubmittedFrom");
-	const arxivSubmittedTo = arxivSubmittedDate("arxivSubmittedTo");
-	if (Boolean(arxivSubmittedFrom) !== Boolean(arxivSubmittedTo)) {
-		throw new ApiError(400, "arXiv submission date range requires both start and end dates");
-	}
-	if (arxivSubmittedFrom && arxivSubmittedTo && arxivSubmittedFrom > arxivSubmittedTo) {
-		throw new ApiError(400, "filters.arxivSubmittedFrom cannot be later than filters.arxivSubmittedTo");
-	}
 	if (source.openAccess !== undefined && typeof source.openAccess !== "boolean") {
 		throw new ApiError(400, "filters.openAccess must be a boolean");
 	}
 	return {
 		yearFrom,
 		yearTo,
-		arxivSubmittedFrom,
-		arxivSubmittedTo,
 		venues: boundedStringArray(source.venues, "filters.venues", 100, 500),
 		authors: boundedStringArray(source.authors, "filters.authors", 100, 500),
 		openAccess: source.openAccess as boolean | undefined,

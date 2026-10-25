@@ -76,7 +76,6 @@ export interface ZoteroLibraryItem {
 }
 
 export interface ZoteroItemMapping {
-	namespace: string;
 	paperId: string;
 	serverId: string;
 	libraryId: string;
@@ -87,7 +86,6 @@ export interface ZoteroItemMapping {
 }
 
 export interface ZoteroCollectionMapping {
-	namespace: string;
 	collectionId: string;
 	serverId: string;
 	libraryId: string;
@@ -126,7 +124,6 @@ export interface ZoteroImportPreviewItem {
 }
 
 export interface ZoteroImportPreparation {
-	namespace: string;
 	serverId: string;
 	collections: ZoteroCollectionImportSpec[];
 	items: ZoteroImportPreviewItem[];
@@ -165,7 +162,6 @@ export interface ZoteroExportPreviewItem {
 }
 
 export interface ZoteroExportPreparation {
-	namespace: string;
 	serverId: string;
 	items: ZoteroExportPreviewItem[];
 	operation: ZoteroPreparedOperation;

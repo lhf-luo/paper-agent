@@ -45,7 +45,7 @@ export function TeamMembersPanel({
 	const open = (action: "create" | "rotate" | "rename" | "ban", member?: PublicTeamIdentity) => {
 		setName(member?.name ?? "");
 		setRoles(member?.roles ?? ["reader"]);
-		setNamespaces(member?.namespaces.join(", ") ?? namespace);
+
 		setExpires(localDate(member?.expiresAt));
 		setReason("");
 		setEditing({ action, member });
@@ -118,7 +118,9 @@ export function TeamMembersPanel({
 								<small>
 									空间：{member.roles.includes("admin") ? "全部空间" : member.namespaces.join(", ")} ·{" "}
 									{member.bannedAt ? `封禁原因：${member.banReason ?? "未注明"} · ` : ""}
-									{member.expiresAt ? `有效期至 ${new Date(member.expiresAt).toLocaleString()}` : "未设置有效期"}
+									{member.expiresAt
+										? `有效期至 ${new Date(member.expiresAt).toLocaleString()}`
+										: "未设置有效期"}
 								</small>
 							</div>
 							{member.id !== selfId && (

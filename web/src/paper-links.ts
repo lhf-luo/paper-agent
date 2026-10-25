@@ -36,7 +36,7 @@ export function paperPrimaryAction(paper: PaperRecord): { url: string; label: st
 			return { url, label: "打开 arXiv" };
 		}
 	} catch {
-		// Stored links are validated elsewhere; fall back to the generic label for legacy records.
+		// Stored links are validated elsewhere; fall back to the generic label when a label is unavailable.
 	}
 	return { url, label: "打开论文页" };
 }

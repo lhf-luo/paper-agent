@@ -4,6 +4,7 @@ import type {
 	CanvasChangeProposal,
 	CanvasResearchRecord,
 } from "../../src/canvas/domain/canvas-research";
+import { operationLabel } from "./canvas-proposal-label";
 import { useResearchAction } from "./canvas-research-action";
 import { type AnalysisView, type ResearchClient, type ResearchNode, researchStatus } from "./canvas-research-api";
 
@@ -22,12 +23,6 @@ export function proposalSelection(operations: CanvasChangeOperation[], selected:
 					}
 	}
 	return [...result];
-}
-function operationLabel(op: CanvasChangeOperation, nodes: ResearchNode[]) {
-	if (op.kind === "upsert_group") return `分组：${op.group.title}`;
-	if (op.kind === "add_node") return `新增${op.node.kind === "paper" ? "论文" : "总结卡"}：${op.node.title}`;
-	if (op.kind === "add_edge") return `关系：${op.edge.label || op.edge.research?.explanation || "连线"}`;
-	return `移动：${nodes.find((n) => n.id === op.nodeId)?.title || op.nodeId}`;
 }
 function previewNodes(operations: CanvasChangeOperation[], nodes: ResearchNode[]) {
 	const items = new Map(nodes.map((n) => [n.id, { ...n }]));
@@ -93,7 +88,7 @@ function ProposalMap({ operations, nodes }: { operations: CanvasChangeOperation[
 		</svg>
 	);
 }
-function ProposalSelection({
+export function ProposalSelection({
 	operations,
 	nodes,
 	selected,

@@ -29,9 +29,9 @@ export async function researchFixture(count = 3) {
 		await app.close();
 		await rm(root, { recursive: true, force: true });
 	});
-	const library = app.personalStore("research");
+	const library = app.personalStore();
 	await library.initialize();
-	const service = new CanvasResearchService(library, "research", "placeholder", "session-a");
+	const service = new CanvasResearchService(library, "placeholder", "session-a");
 	const board = service.canvases.create("研究方式");
 	const papers: PaperRecord[] = Array.from({ length: count }, (_, i) => ({
 		id: `p${i}`,
@@ -64,7 +64,7 @@ export async function researchFixture(count = 3) {
 		papers,
 		nodes,
 		agent,
-		service: new CanvasResearchService(library, "research", board.id, "session-a"),
+		service: new CanvasResearchService(library, board.id, "session-a"),
 	};
 }
 export function abstractCard(paperId: string): CanvasMethodCard {

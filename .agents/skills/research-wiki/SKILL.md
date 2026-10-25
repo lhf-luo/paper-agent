@@ -7,7 +7,7 @@ description: Build, query, and audit the user's curated Paper Agent research Wik
 
 Wiki 是经过主动沉淀的可复用知识层，不是论文全文、对话记录或个人笔记的复制件。Markdown 是正文唯一事实来源；SQLite 只保存可重建的证据、关系、分块和检索索引。
 
-每个 namespace 根目录包含自动生成的 `index.md` 导航和追加式 `log.md` 变更日志。二者都是管理文件，不是 Wiki page、证据来源或查询结果；不要把它们引用为 claim evidence。
+Wiki 根目录包含自动生成的 `index.md` 导航和追加式 `log.md` 变更日志。二者都是管理文件，不是 Wiki page、证据来源或查询结果；不要把它们引用为 claim evidence。
 
 个人笔记是工作材料，PDF/MinerU/Artifact 是证据材料。三者不能互相冒充：
 

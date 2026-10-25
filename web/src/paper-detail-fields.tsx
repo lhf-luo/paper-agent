@@ -67,12 +67,12 @@ function validateDraft(fields: PaperDetailFieldInput[]): string | undefined {
 
 export function PaperDetailFieldsCard({
 	paper,
-	namespace,
+
 	onDirtyChange,
 	onSaved,
 }: {
 	paper: PaperRecord;
-	namespace: string;
+
 	onDirtyChange: (dirty: boolean) => void;
 	onSaved: (paper: PaperRecord) => void;
 }) {
@@ -111,9 +111,7 @@ export function PaperDetailFieldsCard({
 		setError(message);
 		if (!message.includes("Research fields changed")) return;
 		try {
-			const current = await api<{ paper: PaperRecord }>(
-				`/api/papers/${encodeURIComponent(paper.id)}?namespace=${encodeURIComponent(namespace)}`,
-			);
+			const current = await api<{ paper: PaperRecord }>(`/api/papers/${encodeURIComponent(paper.id)}`);
 			setConflictPaper(current.paper);
 		} catch {
 			// Keep the unsaved draft and original conflict message even if comparison cannot load.
@@ -125,7 +123,7 @@ export function PaperDetailFieldsCard({
 			const grant = (await confirmOperation(operation)) as ConfirmationGrant;
 			const result = await api<{ paper: PaperRecord; revision: number }>(
 				"/api/library/detail-fields/execute",
-				jsonBody({ paperId: paper.id, namespace, grant }),
+				jsonBody({ paperId: paper.id, grant }),
 			);
 			const next = initialFields(result.paper);
 			setFields(next);
@@ -152,7 +150,7 @@ export function PaperDetailFieldsCard({
 		try {
 			const result = await api<{ status: "ready" | "unchanged"; prepared: PreparedOperation | null }>(
 				"/api/library/detail-fields/prepare",
-				jsonBody({ paperId: paper.id, namespace, expectedRevision: revision, fields }),
+				jsonBody({ paperId: paper.id, expectedRevision: revision, fields }),
 			);
 			if (result.status === "unchanged" || !result.prepared) {
 				setBaseline(JSON.stringify(fields));

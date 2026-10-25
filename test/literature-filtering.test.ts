@@ -31,7 +31,6 @@ function run(results: PaperRecord[]): SearchRun {
 		deduplicatedCount: 0,
 		scope: "personal",
 		mode: "once",
-		namespace: "default",
 	};
 }
 

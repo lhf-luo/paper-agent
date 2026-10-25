@@ -3,13 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { PiModelsView, PiProviderView } from "../../src/agent/domain/pi-models";
 import { api, jsonBody } from "./api";
 import { PiCredentialDialog } from "./pi-credential-dialog";
-import type { PaperAgentConfigView } from "./types";
 
 export interface ModelProvidersPanelProps {
-	config: PaperAgentConfigView;
-	saveNow: (recipe: (next: PaperAgentConfigView) => void) => Promise<void>;
 	onSaved: () => Promise<void>;
-	busy: boolean;
 }
 
 function usePiModelSettings(onSaved: () => Promise<void>) {

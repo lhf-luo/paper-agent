@@ -2,10 +2,10 @@ import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { collectLiterature } from "../src/literature/presentation/collection-tools.ts";
+import type { PaperRecord, ProviderPage } from "../src/literature/domain/literature-types.ts";
 import { LiteratureProviderHttpError } from "../src/literature/infrastructure/literature-providers.ts";
 import { LiteratureSearchCheckpoint } from "../src/literature/infrastructure/literature-search-checkpoint.ts";
-import type { PaperRecord, ProviderPage } from "../src/literature/domain/literature-types.ts";
+import { collectLiterature } from "../src/literature/presentation/collection-tools.ts";
 
 function paper(id: string, title: string): PaperRecord {
 	return {
@@ -73,7 +73,7 @@ describe("literature search checkpoint", () => {
 			maxResultsPerProvider: 2,
 			scope: "personal" as const,
 			mode: "once" as const,
-			namespace: "default",
+
 			cwd: root,
 			reuseCorpus: false,
 			checkpointPath,
@@ -117,7 +117,7 @@ describe("literature search checkpoint", () => {
 			maxResultsPerProvider: 10,
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
+
 			cwd: root,
 			reuseCorpus: false,
 			providerPageSearch: (async (_provider: "dblp", options: { cursor?: string }) => {
@@ -134,5 +134,4 @@ describe("literature search checkpoint", () => {
 		expect(cursors).toEqual([undefined, "same"]);
 		expect(result.run.results).toHaveLength(2);
 	});
-
 });

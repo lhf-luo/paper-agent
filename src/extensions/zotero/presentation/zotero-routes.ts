@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { PaperAgentApplication } from "../../../app/application/paper-agent-application.ts";
-import { ApiError, grantFromBody, json, namespaceValue, readJson } from "../../../app/presentation/web-http.ts";
+import { ApiError, grantFromBody, json, readJson } from "../../../app/presentation/web-http.ts";
 
 export async function handleZoteroRoutes(
 	application: PaperAgentApplication,
@@ -27,20 +27,12 @@ export async function handleZoteroRoutes(
 	}
 	if (request.method === "POST" && url.pathname === "/api/zotero/imports/prepare") {
 		const body = await readJson(request);
-		json(
-			response,
-			200,
-			await application.prepareZoteroImport({ ...body, namespace: namespaceValue(body.namespace) }),
-		);
+		json(response, 200, await application.prepareZoteroImport({ ...body }));
 		return true;
 	}
 	if (request.method === "POST" && url.pathname === "/api/zotero/exports/prepare") {
 		const body = await readJson(request);
-		json(
-			response,
-			200,
-			await application.prepareZoteroExport({ ...body, namespace: namespaceValue(body.namespace) }),
-		);
+		json(response, 200, await application.prepareZoteroExport({ ...body }));
 		return true;
 	}
 	const importItem = /^\/api\/zotero\/imports\/([^/]+)\/items\/([^/]+)$/.exec(url.pathname);

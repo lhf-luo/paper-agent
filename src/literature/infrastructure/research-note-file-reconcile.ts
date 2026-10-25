@@ -48,15 +48,15 @@ function titleFromDiskNote(note: DiskResearchNote, matched?: NoteRow): string {
 
 function reconcileFolders(
 	database: DatabaseSync,
-	namespace: string,
+
 	scan: ResearchNoteFileScan,
 	result: ResearchNoteSyncResult,
 	now: string,
 ): { folders: FolderRow[]; folderByPath: Map<string, FolderRow>; diskFolderKeys: Set<string> } {
 	const folders = database
 		.prepare(`SELECT folder_id, name, parent_id, relative_path, created_at, updated_at
-			FROM research_note_folders WHERE namespace_id = ?`)
-		.all(namespace) as unknown as FolderRow[];
+			FROM research_note_folders`)
+		.all() as unknown as FolderRow[];
 	const folderByPath = new Map(folders.map((folder) => [pathKey(folder.relative_path), folder]));
 	const diskFolderKeys = new Set(scan.folderRelativePaths.map(pathKey));
 	const orderedPaths = [...scan.folderRelativePaths].sort(
@@ -101,11 +101,11 @@ function reconcileFolders(
 		};
 		database
 			.prepare(`INSERT INTO research_note_folders(
-				folder_id, namespace_id, name, normalized_name, parent_id, relative_path, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+				folder_id, name, normalized_name, parent_id, relative_path, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 			.run(
 				folder.folder_id,
-				namespace,
+
 				folder.name,
 				folder.name.normalize("NFKC").toLocaleLowerCase(),
 				folder.parent_id,
@@ -132,7 +132,7 @@ function noteIndexes(rows: NoteRow[]) {
 
 export function reconcileResearchNoteFiles(
 	database: DatabaseSync,
-	namespace: string,
+
 	scan: ResearchNoteFileScan,
 ): ResearchNoteSyncResult {
 	const result: ResearchNoteSyncResult = {
@@ -144,11 +144,11 @@ export function reconcileResearchNoteFiles(
 		warnings: [...scan.warnings],
 	};
 	const now = new Date().toISOString();
-	const { folders, folderByPath, diskFolderKeys } = reconcileFolders(database, namespace, scan, result, now);
+	const { folders, folderByPath, diskFolderKeys } = reconcileFolders(database, scan, result, now);
 	const rows = database
 		.prepare(`SELECT row_id, note_id, title, relative_path, content_hash, folder_id
-			FROM research_notes WHERE namespace_id = ?`)
-		.all(namespace) as unknown as NoteRow[];
+			FROM research_notes`)
+		.all() as unknown as NoteRow[];
 	const unmatchedRows = new Set(rows);
 	const rowsByPath = new Map(rows.map((row) => [pathKey(row.relative_path), row]));
 	const { rowsBySuffix, rowsByHash } = noteIndexes(rows);
@@ -181,12 +181,10 @@ export function reconcileResearchNoteFiles(
 		}
 		if (!row) {
 			database
-				.prepare(`INSERT INTO research_notes(
-					namespace_id, note_id, title, relative_path, template_id, revision,
+				.prepare(`INSERT INTO research_notes( note_id, title, relative_path, template_id, revision,
 					content_hash, created_at, updated_at, folder_id
-				) VALUES (?, ?, ?, ?, NULL, 1, ?, ?, ?, ?)`)
+				) VALUES ( ?, ?, ?, NULL, 1, ?, ?, ?, ?)`)
 				.run(
-					namespace,
 					`note-${randomUUID()}`,
 					title,
 					note.relativePath,

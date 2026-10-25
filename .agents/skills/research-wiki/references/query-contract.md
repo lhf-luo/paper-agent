@@ -20,4 +20,4 @@ Query answers only what has been explicitly deposited into the Wiki.
 
 ## Retrieval behavior
 
-Search combines exact title/alias matching, page-level metadata, body chunks, source filters, and one-hop links. If a query has no result, report no result rather than broadening to unrelated namespace content.
+Search combines exact title/alias matching, page-level metadata, body chunks, source filters, and one-hop links. If a query has no result, report no result rather than broadening to unrelated content.

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -58,11 +58,11 @@ async function fixture() {
 	return { application, root, server };
 }
 
-async function createBatch(serverUrl: string, namespace: string, collectionId?: string) {
+async function createBatch(serverUrl: string, _namespace: string, collectionId?: string) {
 	const response = await fetch(`${serverUrl}/api/library/local-imports`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ namespace, collectionId }),
+		body: JSON.stringify({ collectionId }),
 	});
 	expect(response.status, await response.clone().text()).toBe(201);
 	return (await response.json()) as { id: string };
@@ -80,8 +80,8 @@ describe("personal library local PDF imports", () => {
 	it("previews multiple PDFs and atomically imports valid records into the current nested collection", async () => {
 		const { application, server } = await fixture();
 		try {
-			const parent = await application.createLibraryCollection("Systems", undefined, "lab");
-			const child = await application.createLibraryCollection("Compilers", parent.id, "lab");
+			const parent = await application.createLibraryCollection("Systems", undefined);
+			const child = await application.createLibraryCollection("Compilers", parent.id);
 			const batch = await createBatch(server.url, "lab", child.id);
 			const ready = await upload(server.url, batch.id, "ready.pdf", "%PDF-1.4\nREADY\n%%EOF\n");
 			expect(ready.status, await ready.clone().text()).toBe(201);
@@ -120,11 +120,11 @@ describe("personal library local PDF imports", () => {
 				body: JSON.stringify({ grant }),
 			});
 			expect(executed.status, await executed.clone().text()).toBe(200);
-			const records = await application.personalStore("lab").listPapers();
+			const records = await application.personalStore().listPapers();
 			expect(records).toHaveLength(1);
 			expect(records[0]).toMatchObject({ title: "Imported Paper", collectionIds: [child.id] });
-			expect(await application.personalStore("lab").listPaperVersions(records[0].id)).toHaveLength(1);
-			expect(await application.personalStore().listPapers()).toEqual([]);
+			expect(await application.personalStore().listPaperVersions(records[0].id)).toHaveLength(1);
+			expect(await application.personalStore().listPapers()).toHaveLength(1);
 		} finally {
 			await server.close();
 			await application.close();

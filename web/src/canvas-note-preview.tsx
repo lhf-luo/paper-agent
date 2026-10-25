@@ -6,7 +6,6 @@ import { api, jsonBody } from "./api";
 import type { ResearchNote, ResearchNoteSummary } from "./types";
 
 export function CanvasNotePreview({
-	namespace,
 	noteId,
 	summary,
 	onClose,
@@ -15,7 +14,6 @@ export function CanvasNotePreview({
 	confirmAction,
 	initialMode = "preview",
 }: {
-	namespace: string;
 	noteId: string;
 	summary: ResearchNoteSummary;
 	onClose: () => void;
@@ -32,9 +30,7 @@ export function CanvasNotePreview({
 	const dirty = !!note && draft !== note.markdown;
 	useEffect(() => {
 		let cancelled = false;
-		void api<{ note: ResearchNote }>(
-			`/api/research/notes/${encodeURIComponent(noteId)}?namespace=${encodeURIComponent(namespace)}`,
-		)
+		void api<{ note: ResearchNote }>(`/api/research/notes/${encodeURIComponent(noteId)}`)
 			.then((result) => {
 				if (cancelled) return;
 				setNote(result.note);
@@ -46,7 +42,7 @@ export function CanvasNotePreview({
 		return () => {
 			cancelled = true;
 		};
-	}, [namespace, noteId]);
+	}, [noteId]);
 
 	useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 	useEffect(() => {
@@ -87,7 +83,6 @@ export function CanvasNotePreview({
 				`/api/research/notes/${encodeURIComponent(noteId)}`,
 				jsonBody(
 					{
-						namespace,
 						title: note.title,
 						markdown: draft,
 						expectedRevision: note.revision,

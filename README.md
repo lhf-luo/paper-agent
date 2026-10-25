@@ -60,7 +60,7 @@ paper-agent
 
 `paper-agent` opens the local Web workspace on port `43127` by default so the Browser Connector can detect it. The installer creates a user-level command that points to this checkout; rerun `install` if the repository is moved.
 
-To enable browser capture, open `chrome://extensions` or `edge://extensions`, enable developer mode, choose **Load unpacked**, and select this repository's `browser-extension/` directory. While Paper Agent is running, every completed browser PDF download is imported into the current default namespace. After a successful import, the original browser download is removed; failed imports keep it. Downloads made while Paper Agent is stopped are ignored rather than queued.
+To enable browser capture, open `chrome://extensions` or `edge://extensions`, enable developer mode, choose **Load unpacked**, and select this repository's `browser-extension/` directory. While Paper Agent is running, every completed browser PDF download is imported into the personal library. After a successful import, the original browser download is removed; failed imports keep it. Downloads made while Paper Agent is stopped are ignored rather than queued.
 
 ### macOS / Linux
 
@@ -121,7 +121,7 @@ The default interface groups the project around user tasks:
 1. **Dashboard** — personal-library and background-job status.
 2. **Search papers** — select providers, apply year filters, inspect partial failures, and save chosen results after an exact-plan confirmation.
 3. **Agent chat** — configure a model endpoint, create `once` or `persistent` in-memory sessions, stream answers, stop generation, inspect tool calls, and answer confirmation cards.
-4. **Personal library** — search and filter reusable records, add private tags/notes/screening decisions, inspect versions, export a selection or namespace, and download selected PDFs.
+4. **Personal library** — search and filter reusable records, add private tags/notes/screening decisions, inspect versions, export a selection or the whole personal library, and download selected PDFs.
 5. **Task center** — follow long-running work, pause/cancel jobs, and retry read-only failures from checkpoints.
 6. **PDF & Artifact workspace** — analyze a local PDF, inspect linked evidence, correct crop boxes, discover artifact candidates, and explicitly approve acquisition.
 7. **Team knowledge base** — search paginated shared records, propose private records after privacy scrubbing, review shared content according to role, inspect audit events, and administer tokens or backups.

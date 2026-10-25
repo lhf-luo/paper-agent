@@ -15,7 +15,7 @@ import type {
 	TeamWithdrawInput,
 } from "../application/paper-agent-application.ts";
 import { handleTeamContentRoutes } from "./team-content-routes.ts";
-import { ApiError, grantFromBody, json, namespaceValue, numberValue, readJson, stringArray } from "./web-http.ts";
+import { ApiError, grantFromBody, json, numberValue, readJson, stringArray } from "./web-http.ts";
 
 export async function handleTeamRoutes(
 	application: PaperAgentApplication,
@@ -117,7 +117,7 @@ async function handleRoutes(
 		const body = await readJson(request);
 		const input: TeamPullInput = {
 			paperIds: stringArray(body.paperIds) ?? [],
-			personalNamespace: namespaceValue(body.personalNamespace),
+
 			includePdf: body.includePdf === true,
 		};
 		json(
@@ -130,13 +130,7 @@ async function handleRoutes(
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/team/derived/personal") {
-		json(
-			response,
-			200,
-			await application.listPersonalDerived(
-				namespaceValue(url.searchParams.get("namespace")) ?? application.defaultNamespace,
-			),
-		);
+		json(response, 200, await application.listPersonalDerived());
 		return;
 	}
 	if (
@@ -146,7 +140,6 @@ async function handleRoutes(
 		const body = await readJson(request);
 		const input: TeamDerivedProposalInput = {
 			keys: stringArray(body.keys) ?? [],
-			personalNamespace: namespaceValue(body.personalNamespace),
 		};
 		json(
 			response,
@@ -180,7 +173,6 @@ async function handleRoutes(
 		const sources = body.sources.map((entry) => ({ kind: entry.kind as "note" | "wiki", id: entry.id as string }));
 		const input: TeamPagesProposalInput = {
 			sources,
-			personalNamespace: namespaceValue(body.personalNamespace),
 		};
 		json(
 			response,
@@ -192,11 +184,7 @@ async function handleRoutes(
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/team/pages/personal") {
-		const namespace = namespaceValue(url.searchParams.get("namespace")) ?? application.defaultNamespace;
-		const [notes, wiki] = await Promise.all([
-			application.listResearchNotes(namespace),
-			application.listWikiPages(namespace),
-		]);
+		const [notes, wiki] = await Promise.all([application.listResearchNotes(), application.listWikiPages()]);
 		json(response, 200, {
 			notes,
 			wikiPages: wiki.pages.slice(0, 200),
@@ -226,7 +214,7 @@ async function handleRoutes(
 			200,
 			await application.prepareTeamPaperProposal({
 				paperIds: stringArray(body.paperIds) ?? [],
-				personalNamespace: typeof body.personalNamespace === "string" ? body.personalNamespace : undefined,
+
 				topicIds: stringArray(body.topicIds),
 			}),
 		);
@@ -240,7 +228,7 @@ async function handleRoutes(
 			await application.proposeTeamPapers(
 				{
 					paperIds: stringArray(body.paperIds) ?? [],
-					personalNamespace: typeof body.personalNamespace === "string" ? body.personalNamespace : undefined,
+
 					topicIds: stringArray(body.topicIds),
 				},
 				grantFromBody(body),
@@ -263,7 +251,6 @@ async function handleRoutes(
 			artifactJobId: typeof body.artifactJobId === "string" ? body.artifactJobId : undefined,
 			manifestSha256: typeof body.manifestSha256 === "string" ? body.manifestSha256 : undefined,
 			paperId: body.paperId,
-			personalNamespace: namespaceValue(body.personalNamespace),
 		};
 		json(
 			response,
@@ -285,7 +272,6 @@ async function handleRoutes(
 		const input: TeamBlobUploadInput = {
 			paperId: body.paperId,
 			sha256: body.sha256,
-			personalNamespace: namespaceValue(body.personalNamespace),
 		};
 		json(
 			response,

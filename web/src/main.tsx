@@ -1,10 +1,7 @@
 // pdfjs-dist 使用了较新的 Map#getOrInsertComputed(ES2025, Chrome 123+/Safari 17.4+)。
 // 在不支持的环境里先打补丁, 避免 "getOrInsertComputed is not a function"。
 type ExtendedMap = Map<unknown, unknown> & {
-	getOrInsertComputed?(
-		key: unknown,
-		callback: (key: unknown, map: Map<unknown, unknown>) => unknown,
-	): unknown;
+	getOrInsertComputed?(key: unknown, callback: (key: unknown, map: Map<unknown, unknown>) => unknown): unknown;
 	getOrInsert?(key: unknown, value: unknown): unknown;
 };
 

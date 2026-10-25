@@ -9,14 +9,13 @@ import { useResearchAction } from "./canvas-research-action";
 import { type ResearchClient, type ResearchNode, researchClient, researchStatus } from "./canvas-research-api";
 import { ResearchProposals } from "./canvas-research-proposals";
 import { ResearchResults } from "./canvas-research-results";
-import { ResearchSearch } from "./canvas-research-search";
 import { ResearchSettings } from "./canvas-research-settings";
 import { useResearchRecords } from "./canvas-research-state";
 import "./canvas-research.css";
 
 interface PanelProps {
 	canvasId: string;
-	namespace: string;
+
 	sessionId?: string;
 	agentNodeId?: string;
 	nodes: ResearchNode[];
@@ -32,7 +31,6 @@ const tabs = [
 	["coverage", "覆盖"],
 	["matrix", "方法矩阵"],
 	["relations", "关系建议"],
-	["search", "补搜"],
 	["proposals", "变更预览"],
 ] as const;
 function TabBar({ tab, setTab, records }: { tab: string; setTab: (t: string) => void; records: Records }) {
@@ -42,7 +40,6 @@ function TabBar({ tab, setTab, records }: { tab: string; setTab: (t: string) => 
 				<button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>
 					{label}
 					{id === "proposals" && records.proposals.some((p) => p.value.status === "pending") ? " ·" : ""}
-					{id === "search" && records.plans.some((p) => p.value.status === "pending") ? " ·" : ""}
 				</button>
 			))}
 		</nav>
@@ -85,7 +82,6 @@ function ResearchContent({
 					onAdopt={adopt}
 				/>
 			)}
-			{tab === "search" && <ResearchSearch client={client} plans={records.plans} refresh={records.refresh} />}
 			{tab === "proposals" && (
 				<ResearchProposals
 					client={client}
@@ -103,10 +99,10 @@ function ResearchContent({
 	);
 }
 export function CanvasResearchPanel(props: PanelProps) {
-	const { canvasId, namespace, sessionId, beforePreview } = props;
+	const { canvasId, sessionId, beforePreview } = props;
 	const beforePreviewRef = useRef(beforePreview);
 	beforePreviewRef.current = beforePreview;
-	const client = useMemo(() => researchClient(canvasId, namespace, sessionId), [canvasId, namespace, sessionId]);
+	const client = useMemo(() => researchClient(canvasId, sessionId), [canvasId, sessionId]);
 	const records = useResearchRecords(client),
 		action = useResearchAction();
 	const [tab, setTab] = useState("settings"),

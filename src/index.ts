@@ -81,7 +81,7 @@ function paperKickoff(absolutePath: string, instructions: string): string {
 interface CollectCommandArguments {
 	query: string;
 	mode: "once" | "persistent";
-	namespace: string;
+
 	maxResults?: number;
 }
 
@@ -89,7 +89,7 @@ function parseCollectCommandArguments(value: string): CollectCommandArguments | 
 	const tokens = value.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
 	if (!tokens.length) return undefined;
 	let mode: "once" | "persistent" = "once";
-	let namespace = "default";
+
 	let maxResults: number | undefined;
 	let index = 0;
 	while (index < tokens.length && tokens[index].startsWith("--")) {
@@ -104,11 +104,6 @@ function parseCollectCommandArguments(value: string): CollectCommandArguments | 
 			index += 1;
 			continue;
 		}
-		if (option === "--namespace" && tokens[index + 1]) {
-			namespace = tokens[index + 1].replace(/^["']|["']$/g, "");
-			index += 2;
-			continue;
-		}
 		if (option === "--max" && /^\d+$/.test(tokens[index + 1] ?? "")) {
 			maxResults = Number(tokens[index + 1]);
 			index += 2;
@@ -121,7 +116,7 @@ function parseCollectCommandArguments(value: string): CollectCommandArguments | 
 		.map((token) => token.replace(/^(["'])([\s\S]*)\1$/, "$2"))
 		.join(" ")
 		.trim();
-	return query ? { query, mode, namespace, maxResults } : undefined;
+	return query ? { query, mode, maxResults } : undefined;
 }
 
 export default function paperAgentExtension(pi: ExtensionAPI): void {
@@ -193,7 +188,7 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 			}
 			const commandArguments = parseCollectCommandArguments(args);
 			if (!commandArguments) {
-				ctx.ui.notify("Usage: /collect [--save] [--namespace name] [--max N] <research query>", "warning");
+				ctx.ui.notify("Usage: /collect [--save] [--max N] <research query>", "warning");
 				return;
 			}
 			pi.setSessionName(`collect: ${commandArguments.query.slice(0, 60)}`);
@@ -201,7 +196,7 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 				[
 					`Build a literature collection for this focused query: ${commandArguments.query}`,
 					"First propose explicit query variants and inclusion filters, then use collect_literature.",
-					`Use scope=personal, mode=${commandArguments.mode}, namespace=${commandArguments.namespace}.`,
+					`Use scope=personal, mode=${commandArguments.mode}.`,
 					commandArguments.maxResults
 						? `Keep the final candidate set near ${commandArguments.maxResults} papers; use controlled provider limits.`
 						: "Use conservative provider limits and avoid an unnecessarily broad search.",
@@ -209,7 +204,7 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 					"Report provider failures and provenance. Search metadata is discovery evidence, not proof.",
 					commandArguments.mode === "once"
 						? "After reporting results, offer to save them to the personal library, download selected PDFs, or create a screening table. Do not persist without confirmation."
-						: "Persist the collection to the selected personal namespace and report the resulting corpus path and audit counts.",
+						: "Persist the collection to the selected personal report the resulting corpus path and audit counts.",
 				].join("\n"),
 			);
 		},
@@ -228,8 +223,8 @@ export default function paperAgentExtension(pi: ExtensionAPI): void {
 				[
 					`Handle this literature-library request: ${request}`,
 					"Use search_literature_corpus and manage_literature_corpus for personal data; use manage_team_literature_server only when a team service is configured.",
-					"Default to scope=personal and namespace=default unless the request names another namespace.",
-					"For a bare overview, audit the personal corpus and report namespaces, record counts, recent activity, and useful next actions.",
+					"Use scope=personal for the local personal library.",
+					"For a bare overview, audit the personal corpus and report record counts, recent activity, and useful next actions.",
 					"Never expose credentials or copy personal notes and screening opinions into the team corpus.",
 				].join("\n"),
 			);

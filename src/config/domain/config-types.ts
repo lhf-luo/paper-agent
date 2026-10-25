@@ -68,7 +68,6 @@ export interface PaperAgentConfig {
 	storage: {
 		dataRoot?: string;
 		corpusRoot?: string;
-		defaultNamespace: string;
 	};
 	externalTools: {
 		commandDirectories: string[];

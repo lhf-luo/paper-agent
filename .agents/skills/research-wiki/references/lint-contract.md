@@ -14,7 +14,6 @@ Lint is read-only. It rebuilds the Markdown-derived index and reports determinis
 ## Warning classes
 
 - stale paper version, note revision/hash, or Artifact snapshot;
-- legacy page-level sources without declaration-level locators;
 - unused evidence entries;
 - empty pages, missing source lists, self-links, or broken Wiki links;
 - near-duplicate pages with the same type;

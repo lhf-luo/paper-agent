@@ -34,7 +34,7 @@ async function testWorkspace() {
 		root,
 		papers,
 		notes,
-		workspace: new WikiWorkspace(root, "default", {
+		workspace: new WikiWorkspace(root, {
 			resolvePaper: async (id) => papers.get(id),
 			resolveNote: async (id) => notes.get(id),
 		}),
@@ -142,37 +142,7 @@ describe("WikiWorkspace", () => {
 		expect((await workspace.search({ query: "Synthesis" })).pages).toHaveLength(1);
 	});
 
-	it("keeps legacy page-level sources readable with warnings instead of errors", async () => {
-		const { workspace } = await testWorkspace();
-		await workspace.initialize();
-		await writeFile(
-			join(workspace.directory, "legacy.md"),
-			[
-				"---",
-				"id: wiki-legacy",
-				"title: Legacy knowledge",
-				"type: concept",
-				"status: draft",
-				"aliases: []",
-				"tags: []",
-				"source_notes: []",
-				"paper_ids:",
-				"  - paper-1",
-				"created_at: 2026-01-01T00:00:00.000Z",
-				"updated_at: 2026-01-01T00:00:00.000Z",
-				"---",
-				"# Legacy",
-				"",
-				"Page-level source only.",
-			].join("\n"),
-			"utf8",
-		);
-		const lint = await workspace.lint();
-		expect(lint.issues).toContainEqual(
-			expect.objectContaining({ code: "legacy-source-granularity", severity: "warning" }),
-		);
-		expect(lint.issues.filter((item) => item.severity === "error")).toEqual([]);
-	});
+
 
 	it("keeps malformed pages out of the index and rejects invalid evidence locators", async () => {
 		const { workspace } = await testWorkspace();
@@ -243,7 +213,7 @@ describe("WikiWorkspace", () => {
 		expect((await workspace.search({ query: "Note synthesis" })).pages).toEqual([]);
 	});
 
-	it("previews and deletes paper, artifact, legacy, and explicitly included mixed-source pages", async () => {
+	it("previews and deletes paper, artifact, and explicitly included mixed-source pages", async () => {
 		const { workspace } = await testWorkspace();
 		const created = await workspace.previewIngest({
 			summary: "Create deletion fixtures",
@@ -269,44 +239,22 @@ describe("WikiWorkspace", () => {
 			],
 		});
 		await workspace.applyIngest(created);
-		await writeFile(
-			join(workspace.directory, "legacy.md"),
-			[
-				"---",
-				"id: wiki-delete-legacy",
-				"title: Legacy deletion page",
-				"type: concept",
-				"status: draft",
-				"aliases: []",
-				"tags: []",
-				"source_notes: []",
-				"paper_ids:",
-				"  - paper-1",
-				"created_at: 2026-01-01T00:00:00.000Z",
-				"updated_at: 2026-01-01T00:00:00.000Z",
-				"---",
-				"# Legacy deletion page",
-			].join("\n"),
-			"utf8",
-		);
-
 		const initial = await workspace.previewSourcePageDeletion("paper-1");
 		expect(initial.deletablePages.map((page) => page.title).sort()).toEqual([
 			"Artifact-backed page",
-			"Legacy deletion page",
 			"Use-after-free detection",
 		]);
 		expect(initial.mixedPages).toHaveLength(1);
-		expect(initial.targetPages).toHaveLength(3);
+		expect(initial.targetPages).toHaveLength(2);
 		await expect(workspace.previewSourcePageDeletion("paper-1", [initial.deletablePages[0].id])).rejects.toThrow(
 			"not mixed",
 		);
 
 		const preview = await workspace.previewSourcePageDeletion("paper-1", [initial.mixedPages[0].id]);
-		expect(preview.targetPages).toHaveLength(4);
+		expect(preview.targetPages).toHaveLength(3);
 		expect(preview.blocked).toBe(false);
 		const result = await workspace.applySourcePageDeletion(preview);
-		expect(result.deletedPages).toHaveLength(4);
+		expect(result.deletedPages).toHaveLength(3);
 		expect(result.lint.pageCount).toBe(0);
 		expect(await readFile(join(workspace.directory, "log.md"), "utf8")).toContain("| delete |");
 		expect((await workspace.search({ paperId: "paper-1" })).pages).toEqual([]);

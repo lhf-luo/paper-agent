@@ -31,7 +31,7 @@ paper-agent --doctor
 paper-agent
 ```
 
-`init` is optional. It asks for storage paths, the default personal namespace, local Web behavior, and model endpoint names. Team access is configured separately by pasting a `pateam1.` string in Settings.
+`init` is optional. It asks for storage paths, local Web behavior, and model endpoint names. Team access is configured separately by pasting a `pateam1.` string in Settings.
 
 To persist a model key without hand-editing JSON, run `paper-agent models add`. The command fetches all models from the provider's `/models` endpoint, writes model metadata to `.paper-agent/config/models.json`, and writes authentication to `.paper-agent/config/auth.json`. New models default to `reasoning: true`; existing declarations are preserved when the same endpoint is refreshed. Use `--no-reasoning` to turn it off for all newly discovered models. Adding a provider does not pick an active model: select one in Agent chat. A previously selected model remains active if it still exists.
 

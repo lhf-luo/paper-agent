@@ -1,7 +1,6 @@
 export interface PaperRecord {
 	id: string;
 	title: string;
-	firstSubmittedAt?: string;
 	abstract?: string;
 	authors: string[];
 	year?: number;
@@ -84,7 +83,6 @@ export interface PaperCollection {
 }
 
 export interface CollectionMembershipIndex {
-	namespace: string;
 	allPaperIds: string[];
 	uncategorizedPaperIds: string[];
 	collectionPaperIds: Record<string, string[]>;
@@ -130,7 +128,6 @@ export interface ResearchNoteTemplate {
 }
 
 export interface ResearchNoteNavigation {
-	namespace: string;
 	noteId?: string;
 	paperId?: string;
 }
@@ -161,7 +158,7 @@ export interface PdfTranslationEngineStatus {
 
 export interface PdfTranslationResult {
 	paperId: string;
-	namespace: string;
+
 	sourceSha256: string;
 	version: {
 		sha256: string;
@@ -202,7 +199,7 @@ export interface PaperVersionView {
 
 export interface PdfMaterialRecord {
 	id: string;
-	namespace: string;
+
 	paperId: string;
 	sourceSha256: string;
 	path: string;
@@ -225,7 +222,7 @@ export interface MineruStatus {
 
 export interface MineruMaterialView {
 	paperId: string;
-	namespace: string;
+
 	material?: PdfMaterialRecord;
 	preferredSha256?: string;
 	stale: boolean;
@@ -244,7 +241,6 @@ export interface AgentSearchRunSummary {
 	failures: Array<{ provider: string; message: string }>;
 	scope: string;
 	mode: string;
-	namespace: string;
 }
 
 export interface AgentSearchRun {
@@ -302,7 +298,6 @@ export interface WikiSourcePageDeletionEntry {
 }
 
 export interface WikiSourcePageDeletionPreview {
-	namespace: string;
 	paperId: string;
 	includeMixedPageIds: string[];
 	fingerprint: string;
@@ -331,7 +326,6 @@ export interface WikiEvidence {
 		path?: string;
 		line?: number;
 	};
-	legacy?: boolean;
 }
 
 export interface WikiClaim {
@@ -397,11 +391,12 @@ export interface ConfirmationGrant {
 }
 
 export interface TeamAccessStatus {
+	namespace?: string;
 	configured: boolean;
 	connected: boolean;
 	source: "access-file" | null;
 	serverUrl?: string;
-	namespace?: string;
+
 	hasLocalAccess?: boolean;
 	reason?: string;
 	identity?: {
@@ -409,6 +404,7 @@ export interface TeamAccessStatus {
 		name: string;
 		roles: Array<"reader" | "contributor" | "reviewer" | "admin">;
 		namespaces: string[];
+
 		expiresAt?: string;
 	};
 }
@@ -440,7 +436,7 @@ export interface LocalPdfImportFilePreview {
 
 export interface LocalPdfImportBatchView {
 	id: string;
-	namespace: string;
+
 	collection?: PaperCollection;
 	expiresAt: string;
 	files: LocalPdfImportFilePreview[];
@@ -486,7 +482,6 @@ export interface ZoteroLibraryItem {
 }
 
 export interface ZoteroImportPreparation {
-	namespace: string;
 	serverId: string;
 	acceptedCount: number;
 	items: Array<{
@@ -511,7 +506,6 @@ export interface ZoteroImportResult {
 }
 
 export interface ZoteroExportPreparation {
-	namespace: string;
 	serverId: string;
 	items: Array<{
 		paperId: string;
@@ -561,7 +555,7 @@ export interface PaperAgentConfigView {
 	path: string;
 	interface: { port: number; openBrowser: boolean };
 	readerTranslation: { defaultProvider: "google" | "deepl" | "youdao" | "baidu" };
-	storage: { dataRoot?: string; corpusRoot?: string; defaultNamespace: string };
+	storage: { dataRoot?: string; corpusRoot?: string };
 	externalTools: { commandDirectories: string[] };
 	confirmations: OperationConfirmationSettingsView;
 	pdfTranslation: {
@@ -673,9 +667,7 @@ export interface AgentUIRequestView {
 	expiresAt: string;
 }
 
-export type AgentSessionContext =
-	| { kind: "paper"; namespace: string; paperId: string }
-	| { kind: "canvas"; namespace: string; canvasId: string };
+export type AgentSessionContext = { kind: "paper"; paperId: string } | { kind: "canvas"; canvasId: string };
 
 export interface AgentSessionSummary {
 	id: string;
@@ -736,6 +728,7 @@ export type Page =
 	| "pdf"
 	| "team"
 	| "research"
+	| "quick-notes"
 	| "canvas"
 	| "wiki"
 	| "settings"
@@ -746,9 +739,8 @@ export interface ApplicationStatus {
 	projectRoot: string;
 	dataRoot: string;
 	corpusRoot: string;
-	defaultNamespace: string;
-	personalNamespaces: string[];
-	defaultRecordCount: number;
+
+	recordCount: number;
 	confirmations: OperationConfirmationSettingsView;
 	jobs: { queued: number; running: number; failed: number };
 }
@@ -758,7 +750,7 @@ export interface ReaderState {
 	url: string;
 	pdfPath?: string;
 	paperId?: string;
-	namespace?: string;
+
 	sha256?: string;
 	bytes?: number;
 	retrievedAt?: string;
@@ -769,6 +761,7 @@ export interface ReaderState {
 
 export type ReaderWorkspaceTab =
 	| { id: "agent"; kind: "agent"; title: string }
+	| { id: "quick-notes"; kind: "quick-notes"; title: string }
 	| { id: string; kind: "note"; noteId: string; title: string }
 	| { id: "new-note"; kind: "new-note"; title: string };
 

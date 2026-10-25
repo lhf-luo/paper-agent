@@ -5,20 +5,9 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 		PRAGMA foreign_keys = ON;
 		PRAGMA journal_mode = WAL;
 		PRAGMA busy_timeout = 15000;
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version INTEGER PRIMARY KEY,
-			name TEXT NOT NULL,
-			checksum TEXT NOT NULL,
-			applied_at TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS namespaces (
-			id TEXT PRIMARY KEY,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
 		CREATE TABLE IF NOT EXISTS papers (
 			row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			paper_id TEXT NOT NULL,
 			title TEXT NOT NULL,
 			normalized_title TEXT NOT NULL,
@@ -39,11 +28,11 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			record_json TEXT NOT NULL CHECK(json_valid(record_json)),
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
-			UNIQUE(namespace_id, paper_id)
+			UNIQUE(paper_id)
 		);
-		CREATE UNIQUE INDEX IF NOT EXISTS papers_namespace_doi ON papers(namespace_id, doi) WHERE doi IS NOT NULL;
-		CREATE UNIQUE INDEX IF NOT EXISTS papers_namespace_arxiv ON papers(namespace_id, arxiv_id) WHERE arxiv_id IS NOT NULL;
-		CREATE INDEX IF NOT EXISTS papers_namespace_year ON papers(namespace_id, year);
+		CREATE UNIQUE INDEX IF NOT EXISTS papers_doi ON papers(doi) WHERE doi IS NOT NULL;
+		CREATE UNIQUE INDEX IF NOT EXISTS papers_arxiv ON papers(arxiv_id) WHERE arxiv_id IS NOT NULL;
+		CREATE INDEX IF NOT EXISTS papers_year ON papers(year);
 		CREATE TABLE IF NOT EXISTS paper_authors (
 			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
 			position INTEGER NOT NULL,
@@ -97,14 +86,14 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 		CREATE INDEX IF NOT EXISTS paper_merges_alias ON paper_merges(merged_from_id);
 		CREATE TABLE IF NOT EXISTS collections (
 			id TEXT PRIMARY KEY,
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			name TEXT NOT NULL,
 			parent_id TEXT REFERENCES collections(id) ON DELETE SET NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
 		CREATE UNIQUE INDEX IF NOT EXISTS collections_sibling_name
-			ON collections(namespace_id, COALESCE(parent_id, ''), name);
+			ON collections(COALESCE(parent_id, ''), name);
 		CREATE TABLE IF NOT EXISTS paper_collections (
 			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
 			collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
@@ -143,7 +132,7 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 		);
 		CREATE TABLE IF NOT EXISTS stored_files (
 			id TEXT PRIMARY KEY,
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			relative_path TEXT NOT NULL UNIQUE,
 			filename TEXT NOT NULL,
 			original_filename TEXT NOT NULL,
@@ -184,7 +173,7 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 		);
 		CREATE TABLE IF NOT EXISTS pdf_materials (
 			id TEXT PRIMARY KEY,
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			paper_row_id INTEGER NOT NULL UNIQUE REFERENCES papers(row_id) ON DELETE CASCADE,
 			paper_version_id TEXT NOT NULL REFERENCES paper_versions(id) ON DELETE CASCADE,
 			source_sha256 TEXT NOT NULL,
@@ -212,7 +201,7 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			completed_at TEXT
 		);
 		CREATE TABLE IF NOT EXISTS zotero_item_mappings (
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
 			server_id TEXT NOT NULL,
 			library_id TEXT NOT NULL DEFAULT '0',
@@ -220,11 +209,11 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			item_version INTEGER NOT NULL,
 			last_direction TEXT NOT NULL,
 			last_synced_at TEXT NOT NULL,
-			PRIMARY KEY(namespace_id, paper_row_id, server_id, library_id),
-			UNIQUE(namespace_id, server_id, library_id, zotero_item_key)
+			PRIMARY KEY(paper_row_id, server_id, library_id),
+			UNIQUE(server_id, library_id, zotero_item_key)
 		);
 		CREATE TABLE IF NOT EXISTS zotero_collection_mappings (
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
 			server_id TEXT NOT NULL,
 			library_id TEXT NOT NULL DEFAULT '0',
@@ -232,12 +221,12 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			collection_version INTEGER NOT NULL,
 			path_json TEXT NOT NULL CHECK(json_valid(path_json)),
 			last_synced_at TEXT NOT NULL,
-			PRIMARY KEY(namespace_id, collection_id, server_id, library_id),
-			UNIQUE(namespace_id, server_id, library_id, zotero_collection_key)
+			PRIMARY KEY(collection_id, server_id, library_id),
+			UNIQUE(server_id, library_id, zotero_collection_key)
 		);
 		CREATE TABLE IF NOT EXISTS paper_agent_sessions (
 			id TEXT PRIMARY KEY,
-			namespace_id TEXT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+
 			paper_row_id INTEGER NOT NULL REFERENCES papers(row_id) ON DELETE CASCADE,
 			title TEXT NOT NULL,
 			mode TEXT NOT NULL CHECK(mode IN ('once', 'persistent')),
@@ -246,7 +235,7 @@ export function ensurePersonalCoreSchema(database: DatabaseSync): void {
 			last_opened_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS paper_agent_sessions_paper_updated
-			ON paper_agent_sessions(namespace_id, paper_row_id, updated_at DESC);
+			ON paper_agent_sessions(paper_row_id, updated_at DESC);
 		CREATE TABLE IF NOT EXISTS paper_agent_messages (
 			row_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT NOT NULL REFERENCES paper_agent_sessions(id) ON DELETE CASCADE,

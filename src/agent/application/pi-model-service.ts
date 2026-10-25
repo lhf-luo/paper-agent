@@ -1,13 +1,11 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ApiKeyCredential } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { ModelRuntime, readStoredCredential, SettingsManager } from "@earendil-works/pi-coding-agent";
-import type { PaperAgentConfig } from "../../config/domain/config-types.ts";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import type { PiAuthPrompt, PiModelsView, PiModelView } from "../domain/pi-models.ts";
-import { importLegacyPiModels } from "../infrastructure/pi-model-migration.ts";
 
 class PromptRequired extends Error {
 	readonly prompt: PiAuthPrompt;
@@ -28,8 +26,12 @@ export class PiModelService {
 		this.projectRoot = projectRoot;
 	}
 
-	async initialize(config: PaperAgentConfig): Promise<void> {
-		await importLegacyPiModels(this.directory, this.projectRoot, config);
+	async initialize(): Promise<void> {
+		await mkdir(this.directory, { recursive: true });
+		for (const [name, value] of [["auth.json", {}], ["models.json", { providers: {} }]] as const) {
+			await writeFile(join(this.directory, name), JSON.stringify(value, null, 2), { flag: "wx", mode: 0o600 })
+				.catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
+		}
 	}
 
 	async stamp(): Promise<string> {

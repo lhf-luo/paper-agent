@@ -3,9 +3,8 @@ import {
 	validateArxivNewsCategories,
 	validateArxivNewsDate,
 	validateArxivNewsPull,
-} from "../../literature/application/arxiv-news.ts";
+} from "../../literature/domain/arxiv-news.ts";
 import { validateNewsFilterGroups } from "../../literature/application/arxiv-news-screening.ts";
-import { ARXIV_NEWS_NAMESPACE } from "../../literature/infrastructure/arxiv-news-store.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import { ApiError, json, readJson, stringArray } from "./web-http.ts";
 
@@ -34,11 +33,7 @@ export async function handleArxivNewsRoutes(
 								throw new Error("nextStartDate must be a UTC date");
 							})();
 			const filterGroups = body.filterGroups === undefined ? undefined : validateNewsFilterGroups(body.filterGroups);
-			json(
-				response,
-				200,
-				await application.saveArxivNewsSettings(ARXIV_NEWS_NAMESPACE, normalized, nextStartDate, filterGroups),
-			);
+			json(response, 200, await application.saveArxivNewsSettings(normalized, nextStartDate, filterGroups));
 		} catch (error) {
 			throw new ApiError(400, error instanceof Error ? error.message : String(error));
 		}
@@ -52,7 +47,6 @@ export async function handleArxivNewsRoutes(
 		}
 		try {
 			const input = validateArxivNewsPull({
-				namespace: ARXIV_NEWS_NAMESPACE,
 				categories,
 				startDate: body.startDate,
 				endDate: body.endDate,
@@ -65,16 +59,15 @@ export async function handleArxivNewsRoutes(
 	}
 	const match = /^\/api\/arxiv-news\/batches\/([^/]+)$/.exec(url.pathname);
 	if (match) {
-		const namespace = ARXIV_NEWS_NAMESPACE;
 		const id = decodeURIComponent(match[1]);
 		if (request.method === "GET") {
-			const batch = await application.arxivNewsBatch(namespace, id);
+			const batch = await application.arxivNewsBatch(id);
 			if (!batch) throw new ApiError(404, "News folder not found");
 			json(response, 200, batch);
 			return;
 		}
 		if (request.method === "DELETE") {
-			if (!(await application.deleteArxivNewsBatch(namespace, id))) throw new ApiError(404, "News folder not found");
+			if (!(await application.deleteArxivNewsBatch(id))) throw new ApiError(404, "News folder not found");
 			json(response, 200, { ok: true });
 			return;
 		}

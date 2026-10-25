@@ -1,4 +1,6 @@
-import type { CanvasEdge, CanvasGroup, CanvasNode } from "./research-canvas.ts";
+import type { CanvasEdge, CanvasGroup, CanvasNode, CanvasEvidence, CanvasResearchRelation } from "./canvas-document.ts";
+
+export type { CanvasEvidence, CanvasResearchRelation } from "./canvas-document.ts";
 
 export type CanvasResearchScope = "canvas" | "selected" | "neighbors";
 export interface CanvasResearchContext {
@@ -34,26 +36,6 @@ export const defaultResearchSettings: CanvasResearchSettings = {
 	searchCallBudget: 4,
 	resultsPerProvider: 100,
 };
-export interface CanvasEvidence {
-	paperId: string;
-	sourceSha256?: string;
-	page?: number;
-	section?: string;
-	quote?: string;
-	noteId?: string;
-	noteRevision?: number;
-	level: "abstract" | "text" | "pdf" | "inference";
-}
-export interface CanvasResearchRelation {
-	type: "cites" | "adopts" | "extends" | "similar" | "complements" | "disagrees";
-	explanation: string;
-	conditions: string;
-	evidence: CanvasEvidence[];
-	evidenceStatus: "candidate" | "supported" | "needs_review";
-	reviewStatus: "pending" | "accepted" | "rejected";
-	createdBy: string;
-	analysisId?: string;
-}
 export interface CanvasMethodCard {
 	paperId: string;
 	family: string;
@@ -90,27 +72,15 @@ export interface CanvasResearchAnalysis {
 	reusedDeepPaperIds?: string[];
 	candidates?: Array<{ searchRunId: string; paperId: string; dimensions: string[]; reason: string }>;
 }
-export interface CanvasSearchPlan {
-	analysisId: string;
-	gap: string;
-	reason: string;
-	queries: string[];
-	providers: string[];
-	strategy: "keywords" | "citations" | "author";
-	dateFrom: string;
-	dateTo: string;
-	callBudget: number;
-	resultsPerProvider: number;
-	status: "pending" | "approved" | "rejected";
-	callsUsed: number;
-	searchRunIds: string[];
-}
 export type CanvasChangeOperation =
 	| { id: string; kind: "add_node"; node: CanvasNode; dependsOn?: string[] }
 	| { id: string; kind: "move_node"; nodeId: string; x: number; y: number; groupId?: string; dependsOn?: string[] }
 	| { id: string; kind: "add_edge"; edge: CanvasEdge; dependsOn?: string[] }
 	| { id: string; kind: "upsert_group"; group: CanvasGroup; dependsOn?: string[] };
 export interface CanvasChangeProposal {
+	purpose?: "research" | "editing";
+	focusId?: string;
+	editRequest?: { requestId: string; fingerprint: string; nodeIds: Record<string, string> };
 	baseRevision: number;
 	analysisId?: string;
 	reason: string;

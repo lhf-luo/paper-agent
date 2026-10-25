@@ -6,9 +6,9 @@ The research workspace is a Markdown notebook connected to the personal paper li
 
 ## Storage model
 
-- Markdown under `.paper-agent/notes/{namespace}/` is the only source of truth for note content. Nested note folders are real directories.
+- Markdown under `.paper-agent/notes/` is the only source of truth for note content. Nested note folders are real directories.
 - SQLite stores the folder tree plus each note ID, title, path, folder, template used at creation, revision, content hash, and paper relationships.
-- A note can reference zero, one, or many papers in the same namespace.
+- A note can reference zero, one, or many papers in the personal workspace.
 - Deleting a paper removes only its note relationship. Deleting a note removes its Markdown file and all relationships.
 - Paper Agent reconciles this directory when the workspace opens, regains focus, is refreshed manually, or an Agent queries notes. New Markdown files and folders are indexed automatically.
 - Moving or renaming an indexed file preserves its stable note ID and paper relationships when its `--{short-note-id}` filename suffix remains intact. An unchanged file can also be recognized by its unique content hash.
@@ -23,7 +23,7 @@ A template is copied only when the note is created. Later template edits do not 
 
 ## Editing and conflicts
 
-The editor saves after input pauses. Open tabs and expanded folders are remembered per namespace in the current browser. Switching or closing the active tab first saves its draft. Each save sends the expected revision and content hash. If the Markdown file was changed outside Paper Agent while an older draft remains open, the server returns a conflict instead of overwriting either version.
+The editor saves after input pauses. Open tabs and expanded folders are remembered for this workspace in the current browser. Switching or closing the active tab first saves its draft. Each save sends the expected revision and content hash. If the Markdown file was changed outside Paper Agent while an older draft remains open, the server returns a conflict instead of overwriting either version.
 
 The refresh button in the note sidebar performs the same reconciliation on demand. Symlinks are ignored, and Markdown files larger than 2 MB stop that reconciliation with an error instead of causing partial index deletion.
 

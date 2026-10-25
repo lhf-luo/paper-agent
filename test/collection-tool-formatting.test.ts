@@ -88,7 +88,6 @@ describe("collect_literature output formatting", () => {
 			],
 			scope: "personal",
 			mode: "once",
-			namespace: "default",
 		};
 		const result: CollectionResult = { run, cached: false, corpusPath: "D:/corpus" };
 

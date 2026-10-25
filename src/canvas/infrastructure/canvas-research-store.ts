@@ -6,7 +6,7 @@ import { type ResearchCanvas, validateCanvasDocument } from "../domain/research-
 import { emitCanvasResearchChange } from "./canvas-research-events.ts";
 import { CanvasRevisionConflict } from "./research-canvas-store.ts";
 
-export type ResearchRecordKind = "settings" | "scope" | "analysis" | "proposal" | "search";
+export type ResearchRecordKind = "settings" | "scope" | "analysis" | "proposal";
 interface RecordRow {
 	id: string;
 	revision: number;
@@ -25,11 +25,11 @@ interface BoardRow {
 }
 export class CanvasResearchStore {
 	readonly databasePath: string;
-	readonly namespace: string;
+
 	readonly canvasId: string;
-	constructor(databasePath: string, namespace: string, canvasId: string) {
+	constructor(databasePath: string, canvasId: string) {
 		this.databasePath = databasePath;
-		this.namespace = namespace;
+
 		this.canvasId = canvasId;
 	}
 	private database<T>(fn: (db: DatabaseSync) => T): T {
@@ -37,9 +37,9 @@ export class CanvasResearchStore {
 		try {
 			db.exec("PRAGMA busy_timeout = 5000");
 			db.exec(`CREATE TABLE IF NOT EXISTS canvas_research_records (
-				namespace_id TEXT NOT NULL, canvas_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+				 canvas_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
 				revision INTEGER NOT NULL, session_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-				value_json TEXT NOT NULL, PRIMARY KEY(namespace_id, canvas_id, kind, id))`);
+				value_json TEXT NOT NULL, PRIMARY KEY(canvas_id, kind, id))`);
 			return fn(db);
 		} finally {
 			db.close();
@@ -57,8 +57,8 @@ export class CanvasResearchStore {
 	}
 	private read<T>(db: DatabaseSync, kind: ResearchRecordKind, id: string): CanvasResearchRecord<T> | undefined {
 		const row = db
-			.prepare("SELECT * FROM canvas_research_records WHERE namespace_id=? AND canvas_id=? AND kind=? AND id=?")
-			.get(this.namespace, this.canvasId, kind, id) as RecordRow | undefined;
+			.prepare("SELECT * FROM canvas_research_records WHERE canvas_id=? AND kind=? AND id=?")
+			.get(this.canvasId, kind, id) as RecordRow | undefined;
 		return row ? this.decode<T>(row) : undefined;
 	}
 	get<T>(kind: ResearchRecordKind, id: string): CanvasResearchRecord<T> | undefined {
@@ -69,9 +69,9 @@ export class CanvasResearchStore {
 			(
 				db
 					.prepare(
-						"SELECT * FROM canvas_research_records WHERE namespace_id=? AND canvas_id=? AND kind=? ORDER BY updated_at DESC,id",
+						"SELECT * FROM canvas_research_records WHERE canvas_id=? AND kind=? ORDER BY updated_at DESC,id",
 					)
-					.all(this.namespace, this.canvasId, kind) as unknown as RecordRow[]
+					.all(this.canvasId, kind) as unknown as RecordRow[]
 			).map((r) => this.decode<T>(r)),
 		);
 	}
@@ -98,18 +98,8 @@ export class CanvasResearchStore {
 			value,
 		};
 		db.prepare(
-			`INSERT INTO canvas_research_records VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(namespace_id,canvas_id,kind,id) DO UPDATE SET revision=excluded.revision, session_id=excluded.session_id, updated_at=excluded.updated_at, value_json=excluded.value_json`,
-		).run(
-			this.namespace,
-			this.canvasId,
-			kind,
-			id,
-			record.revision,
-			sessionId,
-			record.createdAt,
-			now,
-			JSON.stringify(value),
-		);
+			`INSERT INTO canvas_research_records VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(canvas_id,kind,id) DO UPDATE SET revision=excluded.revision, session_id=excluded.session_id, updated_at=excluded.updated_at, value_json=excluded.value_json`,
+		).run(this.canvasId, kind, id, record.revision, sessionId, record.createdAt, now, JSON.stringify(value));
 		return record;
 	}
 	save<T>(
@@ -125,7 +115,7 @@ export class CanvasResearchStore {
 				this.board(db);
 				const result = this.write(db, kind, value, sessionId, id, expectedRevision);
 				db.exec("COMMIT");
-				emitCanvasResearchChange(this.databasePath, this.namespace, this.canvasId);
+				emitCanvasResearchChange(this.databasePath, this.canvasId);
 				return result;
 			} catch (error) {
 				db.exec("ROLLBACK");
@@ -134,9 +124,7 @@ export class CanvasResearchStore {
 		});
 	}
 	private board(db: DatabaseSync): ResearchCanvas {
-		const row = db
-			.prepare("SELECT * FROM research_canvases WHERE namespace_id=? AND id=?")
-			.get(this.namespace, this.canvasId) as BoardRow | undefined;
+		const row = db.prepare("SELECT * FROM research_canvases WHERE id=?").get(this.canvasId) as BoardRow | undefined;
 		if (!row) throw new Error("画布不存在");
 		return {
 			id: row.id,
@@ -152,7 +140,7 @@ export class CanvasResearchStore {
 			try {
 				const result = this.change(db, id, selectedIds, expectedRevision, undo);
 				db.exec("COMMIT");
-				emitCanvasResearchChange(this.databasePath, this.namespace, this.canvasId);
+				emitCanvasResearchChange(this.databasePath, this.canvasId);
 				return result;
 			} catch (error) {
 				db.exec("ROLLBACK");
@@ -181,11 +169,18 @@ export class CanvasResearchStore {
 		const now = new Date().toISOString();
 		const canvas = { ...current, ...document, revision: revision + 1, updatedAt: now };
 		db.prepare(
-			"UPDATE research_canvases SET document_json=?,title=?,revision=?,updated_at=? WHERE namespace_id=? AND id=? AND revision=?",
-		).run(JSON.stringify(document), document.title, canvas.revision, now, this.namespace, this.canvasId, revision);
+			"UPDATE research_canvases SET document_json=?,title=?,revision=?,updated_at=? WHERE id=? AND revision=?",
+		).run(JSON.stringify(document), document.title, canvas.revision, now, this.canvasId, revision);
 		const value: CanvasChangeProposal = undo
 			? { ...p, status: "undone" }
-			: { ...p, status: "applied", selectedIds, before: current, after: canvas, appliedRevision: canvas.revision };
+			: {
+					...p,
+					status: "applied",
+					selectedIds,
+					before: current,
+					after: canvas,
+					appliedRevision: canvas.revision,
+				};
 		const proposal = this.write(db, "proposal", value, record.sessionId, record.id, record.revision);
 		return { canvas, proposal, replayed: false };
 	}
@@ -199,9 +194,9 @@ export class CanvasResearchStore {
 		return this.database((db) => {
 			const row = db
 				.prepare(
-					"SELECT MAX(updated_at) AS stamp, SUM(revision) AS revisions, COUNT(*) AS count FROM canvas_research_records WHERE namespace_id=? AND canvas_id=?",
+					"SELECT MAX(updated_at) AS stamp, SUM(revision) AS revisions, COUNT(*) AS count FROM canvas_research_records WHERE canvas_id=?",
 				)
-				.get(this.namespace, this.canvasId);
+				.get(this.canvasId);
 			return JSON.stringify([row, this.board(db).revision]);
 		});
 	}

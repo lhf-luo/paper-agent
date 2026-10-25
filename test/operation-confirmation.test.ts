@@ -50,7 +50,7 @@ describe("operation confirmation policy", () => {
 		const config = {
 			version: 1 as const,
 			interface: { port: 0, openBrowser: false },
-			storage: { defaultNamespace: "default" },
+			storage: {},
 			agent: { builtinTools: [] },
 			confirmations: {
 				...defaultOperationConfirmationSettings(),

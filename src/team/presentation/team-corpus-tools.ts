@@ -1,18 +1,18 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { dirname, resolve } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { absolutePathLocations, createWikiWorkspaceForStore } from "../application/team-personal-sources.ts";
 import { requestInteractiveOperationAuthorization } from "../../app/presentation/interactive-operation-consent.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../../literature/application/literature-store.ts";
 import type { DerivedRecord, PaperRecord } from "../../literature/domain/literature-types.ts";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
+import { resolveTeamConnection } from "../application/team-connection.ts";
 import { configuredTeamCorpusClient, sanitizePaperRecordForTeamProposal } from "../application/team-corpus-client.ts";
+import { absolutePathLocations, createWikiWorkspaceForStore } from "../application/team-personal-sources.ts";
 import { executeTeamPull, previewTeamPull } from "../application/team-pull.ts";
 import { resolveRequestedTopics } from "../application/team-topic-membership.ts";
 import type { TeamPageSnapshot } from "../domain/team-corpus-types.ts";
 import { teamNamespacePattern, validateTeamNamespace } from "../domain/team-corpus-validation.ts";
 import { handleTeamCollaborationTool } from "./team-collaboration-tools.ts";
-import { resolveTeamConnection } from "../application/team-connection.ts";
 
 export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -86,7 +86,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 			note_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 200 })),
 			wiki_page_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 200 })),
 			include_pdf: Type.Optional(Type.Boolean()),
-			personal_namespace: Type.Optional(Type.String()),
+
 			personal_corpus_root: Type.Optional(Type.String()),
 			review_decision: Type.Optional(Type.Union([Type.Literal("team-approved"), Type.Literal("team-rejected")])),
 			review_resource: Type.Optional(
@@ -169,11 +169,9 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 			}
 
 			if (params.action === "propose") {
-				const personalNamespace = params.personal_namespace ?? "default";
 				const store = new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", personalNamespace, params.personal_corpus_root),
+					resolveCorpusRoot(ctx.cwd, "personal", params.personal_corpus_root),
 					"personal",
-					personalNamespace,
 				);
 				const requested = params.paper_ids
 					? await Promise.all(params.paper_ids.map(async (id) => ({ id, record: await store.getPaper(id) })))
@@ -199,7 +197,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					})),
 					details: {
 						namespace,
-						personalNamespace,
+
 						privacy:
 							"Personal notes, screening decisions, and previous team review state are removed before transfer.",
 						...(requestedTopicIds ? { requestedTopicIds } : {}),
@@ -224,11 +222,10 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 
 			if (params.action === "propose_derived") {
 				if (!params.derived_keys?.length) throw new Error("propose_derived requires derived_keys");
-				const personalNamespace = params.personal_namespace ?? "default";
+
 				const store = new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", personalNamespace, params.personal_corpus_root),
+					resolveCorpusRoot(ctx.cwd, "personal", params.personal_corpus_root),
 					"personal",
-					personalNamespace,
 				);
 				await store.initialize();
 				const records: DerivedRecord[] = [];
@@ -257,7 +254,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					})),
 					details: {
 						namespace,
-						personalNamespace,
+
 						keys: records.map((record) => record.key),
 						warnings,
 						preview: records,
@@ -276,18 +273,17 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 				if (!noteIds.length && !wikiPageIds.length) {
 					throw new Error("propose_pages requires note_ids or wiki_page_ids");
 				}
-				const personalNamespace = params.personal_namespace ?? "default";
+
 				const store = new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", personalNamespace, params.personal_corpus_root),
+					resolveCorpusRoot(ctx.cwd, "personal", params.personal_corpus_root),
 					"personal",
-					personalNamespace,
 				);
 				await store.initialize();
 				// The wiki lives next to the corpus under the shared data root.
 				const corpusBase = params.personal_corpus_root
 					? resolve(ctx.cwd, params.personal_corpus_root)
 					: resolve(ctx.cwd, ".paper-agent", "corpus");
-				const workspace = createWikiWorkspaceForStore(dirname(corpusBase), personalNamespace, store);
+				const workspace = createWikiWorkspaceForStore(dirname(corpusBase), store);
 				const records: TeamPageSnapshot[] = [];
 				const warnings: string[] = [];
 				const now = new Date().toISOString();
@@ -297,7 +293,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					records.push({
 						key: `note.${id}`,
 						sourceId: id,
-						sourceNamespace: personalNamespace,
+						sourceNamespace: "personal",
 						kind: "note",
 						title: note.title,
 						markdown: note.markdown,
@@ -314,7 +310,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					records.push({
 						key: `wiki.${id}`,
 						sourceId: id,
-						sourceNamespace: personalNamespace,
+						sourceNamespace: "personal",
 						kind: "wiki",
 						title: page.title,
 						markdown: page.markdown,
@@ -345,7 +341,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					})),
 					details: {
 						namespace,
-						personalNamespace,
+
 						keys: records.map((record) => record.key),
 						warnings,
 						preview: records,
@@ -360,18 +356,17 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 
 			if (params.action === "pull") {
 				if (!params.paper_ids?.length) throw new Error("pull requires paper_ids");
-				const personalNamespace = params.personal_namespace ?? "default";
+
 				const includePdf = params.include_pdf ?? false;
 				const store = new LiteratureStore(
-					resolveCorpusRoot(ctx.cwd, "personal", personalNamespace, params.personal_corpus_root),
+					resolveCorpusRoot(ctx.cwd, "personal", params.personal_corpus_root),
 					"personal",
-					personalNamespace,
 				);
 				await store.initialize();
 				const previews = await previewTeamPull(client, namespace, params.paper_ids);
 				await authorize({
 					kind: "personal-corpus-write",
-					summary: `Pull ${previews.length} team paper record(s) into personal namespace ${personalNamespace}`,
+					summary: `Pull ${previews.length} team paper record(s) into personal library`,
 					actor: "interactive-user",
 					targets: previews.map((preview) => ({
 						label: preview.record.title.slice(0, 120),
@@ -380,7 +375,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 					})),
 					details: {
 						namespace,
-						personalNamespace,
+
 						includePdf,
 						papers: previews.map((preview) => ({
 							id: preview.record.id,
@@ -397,7 +392,7 @@ export function registerTeamCorpusClientTool(pi: ExtensionAPI): void {
 						{
 							type: "text",
 							text:
-								`Pulled ${result.pulled} paper(s) into ${personalNamespace}: ${result.created.length} created, ` +
+								`Pulled ${result.pulled} paper(s) into the personal library: ${result.created.length} created, ` +
 								`${result.updated.length} updated, ${result.unchanged.length} unchanged` +
 								(includePdf ? `; PDFs failed: ${failedPdfs}` : ""),
 						},

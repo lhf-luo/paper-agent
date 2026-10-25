@@ -1,3 +1,7 @@
+import {CanvasExpansion} from "./canvas-expansion";
+import { SearchGraphManager } from "./canvas-search-graphs";
+import { useSearchGraphs } from "./use-search-graphs";
+import { CanvasGraphView } from "./canvas-graph-view";
 import {
 	ArrowRight,
 	BookOpen,
@@ -13,6 +17,7 @@ import {
 	Folder,
 	Hand,
 	Link2,
+ Network,
 	ListTree,
 	Maximize,
 	Maximize2,
@@ -41,7 +46,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { CanvasEvidence, CanvasResearchRelation } from "../../src/canvas/domain/canvas-research";
 import {
 	type CanvasRichContent,
@@ -56,6 +61,8 @@ import { CanvasGroups } from "./canvas-groups";
 import { CanvasNoteCreate } from "./canvas-note-create";
 import { CanvasNotePreview } from "./canvas-note-preview";
 import { type CanvasPaperDetails, CanvasPaperPreview } from "./canvas-paper-preview";
+import { canvasPaperBatch, loadCanvasCollectionPapers, type SelectedCanvasPaper } from "./canvas-paper-batch";
+import { CanvasPaperCollectionCheckbox } from "./canvas-paper-collection-checkbox";
 import { CanvasResearchPanel } from "./canvas-research-panel";
 import { CanvasResearchReader } from "./canvas-research-reader";
 import { CanvasTextView, canvasTextDocument } from "./canvas-rich-text";
@@ -65,6 +72,7 @@ import { readerVersionState } from "./reader-state";
 import { useRouterContext } from "./router";
 import type {
 	AgentSessionSummary,
+	CollectionMembershipIndex,
 	PaperCollection,
 	PaperRecord,
 	PaperVersionView,
@@ -77,7 +85,7 @@ import { useElementWidth } from "./use-element-width";
 import "./canvas-page.css";
 
 const AgentPage = lazy(() => import("./agent-page").then((module) => ({ default: module.AgentPage })));
-type NodeKind = "paper" | "note" | "text" | "author" | "team" | "agent";
+type NodeKind = "paper" | "note" | "text" | "author" | "team" | "agent" | "search_graph";
 type LinkSide = "left" | "right";
 type ResizeEdge = "left" | "right" | "top" | "bottom" | "corner";
 interface LinkOrigin {
@@ -107,6 +115,7 @@ interface CanvasNode {
 		members?: string[];
 	};
 	entityId?: string;
+	candidateVersion?: string;
 }
 interface CanvasEdge {
 	research?: CanvasResearchRelation;
@@ -163,10 +172,11 @@ const nodeNames: Record<NodeKind, string> = {
 	author: "作者",
 	team: "研究团队",
 	agent: "Agent 对话",
+ search_graph: "搜索图谱",
 };
 const defaultNodeCaptions: Record<NodeKind, string> = { ...nodeNames, team: "团队" };
-const nodeManagerKinds: NodeKind[] = ["text", "paper", "note", "author", "team", "agent"];
-const nodeIcons = { paper: BookOpen, note: FileText, text: FileText, author: Users, team: Users, agent: Bot };
+const nodeManagerKinds: NodeKind[] = ["text", "paper", "note", "author", "team", "agent", "search_graph"];
+const nodeIcons = { paper: BookOpen, note: FileText, text: FileText, author: Users, team: Users, agent: Bot, search_graph: Network };
 const teamRelationLabel = (from?: CanvasNode, to?: CanvasNode) => {
 	if (!from || !to) return "";
 	if ((from.kind === "team" && to.kind === "author") || (from.kind === "author" && to.kind === "team")) return "成员";
@@ -225,13 +235,13 @@ interface PaperPickerMemory {
 	resultsScrollTop: number;
 }
 
-function paperPickerMemoryKey(namespace: string, boardId: string): string {
-	return `paper-agent:canvas-paper-picker:${encodeURIComponent(namespace)}:${encodeURIComponent(boardId)}`;
+function paperPickerMemoryKey(boardId: string): string {
+	return `paper-agent:canvas-paper-picker:${encodeURIComponent(boardId)}`;
 }
 
-function readPaperPickerMemory(namespace: string, boardId: string): PaperPickerMemory | undefined {
+function readPaperPickerMemory(boardId: string): PaperPickerMemory | undefined {
 	try {
-		const raw = window.localStorage.getItem(paperPickerMemoryKey(namespace, boardId));
+		const raw = window.localStorage.getItem(paperPickerMemoryKey(boardId));
 		if (!raw) return undefined;
 		const value: unknown = JSON.parse(raw);
 		if (!value || typeof value !== "object") return undefined;
@@ -343,20 +353,18 @@ function Connection({
 	);
 }
 
-export default function CanvasPage({
-	defaultNamespace,
-	onOpenReader,
-}: {
-	defaultNamespace: string;
-	onOpenReader: (reader: ReaderState) => void;
-}) {
+export default function CanvasPage({ onOpenReader }: { onOpenReader: (reader: ReaderState) => void }) {
 	const router = useRouterContext();
-	const namespace = router.params.namespace || defaultNamespace;
+
 	const [boards, setBoards] = useState<BoardSummary[]>([]);
 	const [board, setBoard] = useState<Board>();
 	const boardRef = useRef<Board | undefined>(undefined);
 	const [selectedNode, setSelectedNode] = useState<string>();
-	const [researchOpen, setResearchOpen] = useState(false);
+	const [activeCanvasPanel, setActiveCanvasPanel] = useState<"add" | "nodes" | "research" | "graphs">();
+	const researchOpen = activeCanvasPanel === "research";
+	const graphManagerOpen = activeCanvasPanel === "graphs";
+	const fullscreenAddOpen = activeCanvasPanel === "add";
+	const fullscreenNodesOpen = activeCanvasPanel === "nodes";
 	const [researchPrompt, setResearchPrompt] = useState("");
 	const [researchReader, setResearchReader] = useState<ReaderState>();
 	const [selectedEdge, setSelectedEdge] = useState<string>();
@@ -395,8 +403,18 @@ export default function CanvasPage({
 		targetSide?: LinkSide;
 	}>();
 	const [picker, setPicker] = useState<"paper" | "note">();
+	const [pickedPapers, setPickedPapers] = useState<Map<string, SelectedCanvasPaper>>(new Map());
+	const [paperPickerError, setPaperPickerError] = useState("");
+	const [pickerMemberships, setPickerMemberships] = useState<CollectionMembershipIndex>();
+	const [selectingCollection, setSelectingCollection] = useState<string>();
+	const collectionSelectionRequest = useRef<AbortController | undefined>(undefined);
+	const pickerMembershipIds: Record<string, string[] | undefined> = {
+		all: pickerMemberships?.allPaperIds,
+		__uncategorized__: pickerMemberships?.uncategorizedPaperIds,
+		...(pickerMemberships?.collectionPaperIds ?? {}),
+	};
 	const [contextMenu, setContextMenu] = useState<CanvasContextMenu>();
-	const [nodeClipboard, setNodeClipboard] = useState<{ namespace: string; boardId?: string; node: CanvasNode }>();
+	const [nodeClipboard, setNodeClipboard] = useState<{ boardId?: string; node: CanvasNode }>();
 	const pendingNodePosition = useRef<{ x: number; y: number } | undefined>(undefined);
 	const pendingLinkFrom = useRef<LinkOrigin | undefined>(undefined);
 	const [pickerQuery, setPickerQuery] = useState("");
@@ -411,7 +429,6 @@ export default function CanvasPage({
 	const [pickerFolderExpanded, setPickerFolderExpanded] = useState<Set<string>>(new Set());
 	const [pickerFoldersError, setPickerFoldersError] = useState("");
 	const [pickerNoteResults, setPickerNoteResults] = useState<{
-		namespace: string;
 		notes: ResearchNoteSummary[];
 		error?: string;
 	}>();
@@ -422,6 +439,14 @@ export default function CanvasPage({
 		error?: string;
 	}>();
 	const [papers, setPapers] = useState<PaperRecord[]>([]);
+	const [canvasView, setCanvasView] = useState<"cards" | "graph" | `search:${string}`>("cards");
+ const [expansion,setExpansion]=useState<{paperId?:string;kind:"citation"|"author"}>();
+ const openSearchGraph = useCallback((id: string) => { setCanvasView(`search:${id}`); setActiveCanvasPanel((current) => current === "graphs" ? undefined : current); }, []);
+ const searchGraphs = useSearchGraphs(board?.id, openSearchGraph);
+
+ const activeSearchRun = canvasView.startsWith("search:") ? canvasView.slice(7) : undefined;
+	const [graphFocus, setGraphFocus] = useState<string>();
+	const [graphSelection, setGraphSelection] = useState<string>();
 	const [paperDetails, setPaperDetails] = useState<Record<string, CanvasPaperDetails>>({});
 	const [paperDetailErrors, setPaperDetailErrors] = useState<Record<string, string>>({});
 	const paperDetailRequests = useRef(new Set<string>());
@@ -462,11 +487,13 @@ export default function CanvasPage({
 	const [panelOpen, setPanelOpen] = useState(true);
 	const [listOpen, setListOpen] = useState(true);
 	const [isFullscreen, setIsFullscreen] = useState(false);
-	const [fullscreenAddOpen, setFullscreenAddOpen] = useState(false);
-	const [fullscreenNodesOpen, setFullscreenNodesOpen] = useState(false);
 	const [fullscreenNodeFilter, setFullscreenNodeFilter] = useState<NodeKind | "all">("all");
 	const [fullscreenNodeQuery, setFullscreenNodeQuery] = useState("");
 	const [fullscreenNodeMenuId, setFullscreenNodeMenuId] = useState<string>();
+	const toggleCanvasPanel = useCallback((panel: NonNullable<typeof activeCanvasPanel>) => {
+		setActiveCanvasPanel((current) => current === panel ? undefined : panel);
+		setFullscreenNodeMenuId(undefined);
+	}, []);
 	const { ref: layoutRef, width: layoutWidth } = useElementWidth<HTMLDivElement>();
 	const layoutBand = useRef<"wide" | "medium" | "narrow" | undefined>(undefined);
 	const [, setHistoryTick] = useState(0);
@@ -540,7 +567,8 @@ export default function CanvasPage({
 	const saving = useRef<Promise<boolean> | null>(null);
 	const saveNowRef = useRef<() => Promise<boolean>>(async () => true);
 	const activeId = router.params.canvas || boards[0]?.id;
-	const paperPickerScopeKey = activeId ? paperPickerMemoryKey(namespace, activeId) : undefined;
+	useEffect(() => { setCanvasView("cards"); setActiveCanvasPanel((current) => current === "graphs" ? undefined : current); setExpansion(undefined); }, []);
+	const paperPickerScopeKey = activeId ? paperPickerMemoryKey(activeId) : undefined;
 	const savePaperPickerMemory = useCallback(() => {
 		const snapshot = paperPickerMemoryRef.current;
 		if (!snapshot) return;
@@ -562,7 +590,7 @@ export default function CanvasPage({
 	}, [paperPickerScopeKey, savePaperPickerMemory]);
 	useEffect(() => {
 		if (picker !== "paper" || !activeId || boardRef.current?.id !== activeId) return;
-		const key = paperPickerMemoryKey(namespace, activeId);
+		const key = paperPickerMemoryKey(activeId);
 		const previous = paperPickerMemoryRef.current;
 		paperPickerMemoryRef.current = {
 			key,
@@ -575,16 +603,18 @@ export default function CanvasPage({
 			},
 		};
 		schedulePaperPickerMemorySave();
-	}, [activeId, namespace, picker, pickerCollection, pickerExpanded, pickerQuery, schedulePaperPickerMemorySave]);
+	}, [activeId, picker, pickerCollection, pickerExpanded, pickerQuery, schedulePaperPickerMemorySave]);
 	const openLibraryPicker = (kind: "paper" | "note") => {
 		if (kind === "paper") {
-			const memory = activeId ? readPaperPickerMemory(namespace, activeId) : undefined;
+			setPickedPapers(new Map());
+			setPaperPickerError("");
+			const memory = activeId ? readPaperPickerMemory(activeId) : undefined;
 			paperPickerRestoreRef.current = memory;
 			paperPickerCollectionRestoredRef.current = false;
 			paperPickerResultsRestoredRef.current = false;
 			paperPickerMemoryRef.current = activeId
 				? {
-						key: paperPickerMemoryKey(namespace, activeId),
+						key: paperPickerMemoryKey(activeId),
 						value: memory ?? {
 							collectionId: "all",
 							query: "",
@@ -625,11 +655,11 @@ export default function CanvasPage({
 	const refreshAgentSessions = useCallback(async () => {
 		if (!activeId) return [];
 		const result = await api<{ sessions: AgentSessionSummary[] }>(
-			`/api/agent/sessions?scope=canvas&namespace=${encodeURIComponent(namespace)}&canvasId=${encodeURIComponent(activeId)}`,
+			`/api/agent/sessions?scope=canvas&canvasId=${encodeURIComponent(activeId)}`,
 		);
 		setAgentSessions(result.sessions);
 		return result.sessions;
-	}, [activeId, namespace]);
+	}, [activeId]);
 	useEffect(() => {
 		setAgentSessions([]);
 		setOpenedAgentId(undefined);
@@ -639,7 +669,7 @@ export default function CanvasPage({
 		const refresh = async () => {
 			try {
 				const result = await api<{ sessions: AgentSessionSummary[] }>(
-					`/api/agent/sessions?scope=canvas&namespace=${encodeURIComponent(namespace)}&canvasId=${encodeURIComponent(activeId)}`,
+					`/api/agent/sessions?scope=canvas&canvasId=${encodeURIComponent(activeId)}`,
 				);
 				if (!cancelled) setAgentSessions(result.sessions);
 			} catch {
@@ -654,7 +684,7 @@ export default function CanvasPage({
 			cancelled = true;
 			window.clearInterval(timer);
 		};
-	}, [activeId, namespace]);
+	}, [activeId]);
 	const editingAuthorId = editingAuthor?.id;
 	const editingTeamId = editingTeam?.id;
 	useEffect(() => {
@@ -708,8 +738,8 @@ export default function CanvasPage({
 			const fullscreen = document.fullscreenElement === page;
 			setIsFullscreen(fullscreen);
 			if (!fullscreen) {
-				setFullscreenAddOpen(false);
-				setFullscreenNodesOpen(false);
+				setActiveCanvasPanel((current) => current === "add" ? undefined : current);
+				setActiveCanvasPanel((current) => current === "nodes" ? undefined : current);
 				setFullscreenNodeMenuId(undefined);
 			}
 			window.cancelAnimationFrame(frame);
@@ -760,12 +790,10 @@ export default function CanvasPage({
 		}
 	}, [layoutWidth]);
 	const refreshBoards = useCallback(async () => {
-		const result = await api<{ canvases: BoardSummary[] }>(
-			`/api/canvases?namespace=${encodeURIComponent(namespace)}`,
-		);
+		const result = await api<{ canvases: BoardSummary[] }>(`/api/canvases`);
 		setBoards(result.canvases);
 		return result.canvases;
-	}, [namespace]);
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -795,9 +823,10 @@ export default function CanvasPage({
 			const { canvas, references } = await api<{
 				canvas: Board;
 				references: { papers: PaperRecord[]; notes: ResearchNoteSummary[] };
-			}>(`/api/canvases/${encodeURIComponent(activeId)}?namespace=${encodeURIComponent(namespace)}`);
+			}>(`/api/canvases/${encodeURIComponent(activeId)}`);
 			if (cancelled) return;
 			setPapers(references.papers);
+			setGraphFocus(undefined); setGraphSelection(undefined);
 			setPaperDetails({});
 			setPaperDetailErrors({});
 			setOpenedPaper(undefined);
@@ -824,7 +853,7 @@ export default function CanvasPage({
 			setLinkPreview(undefined);
 			setContextMenu(undefined);
 			setPicker(undefined);
-			setFullscreenAddOpen(false);
+			setActiveCanvasPanel((current) => current === "add" ? undefined : current);
 			setFullscreenNodeMenuId(undefined);
 			pendingNodePosition.current = undefined;
 			pendingLinkFrom.current = undefined;
@@ -835,7 +864,7 @@ export default function CanvasPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [activeId, namespace]);
+	}, [activeId]);
 
 	const saveNow = useCallback(async (): Promise<boolean> => {
 		if (saving.current) return saving.current;
@@ -853,7 +882,7 @@ export default function CanvasPage({
 				const result = await api<{ canvas: Board }>(`/api/canvases/${encodeURIComponent(current.id)}`, {
 					method: "PUT",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ namespace, expectedRevision: revision.current, document: documentOf(current) }),
+					body: JSON.stringify({ expectedRevision: revision.current, document: documentOf(current) }),
 				});
 				revision.current = result.canvas.revision;
 				savedVersion.current = sentVersion;
@@ -883,7 +912,7 @@ export default function CanvasPage({
 		const okay = await promise;
 		saving.current = null;
 		return okay;
-	}, [namespace, saveState]);
+	}, [saveState]);
 	const flush = useCallback(async (): Promise<boolean> => {
 		for (let attempt = 0; attempt < 20 && savedVersion.current < changeVersion.current; attempt++) {
 			if (!(await saveNow())) return false;
@@ -892,17 +921,13 @@ export default function CanvasPage({
 	}, [saveNow]);
 	useEffect(() => {
 		if (!activeId) return;
-		const events = new EventSource(
-			`/api/canvases/${encodeURIComponent(activeId)}/research/events?namespace=${encodeURIComponent(namespace)}`,
-		);
+		const events = new EventSource(`/api/canvases/${encodeURIComponent(activeId)}/research/events`);
 		let timer: ReturnType<typeof setTimeout>;
 		let active = true;
 		const sync = async () => {
 			try {
 				if (saving.current) await saving.current;
-				const result = await api<{ canvas: Board }>(
-					`/api/canvases/${encodeURIComponent(activeId)}?namespace=${encodeURIComponent(namespace)}`,
-				);
+				const result = await api<{ canvas: Board }>(`/api/canvases/${encodeURIComponent(activeId)}`);
 				const current = boardRef.current;
 				if (!active || current?.id !== activeId || result.canvas.revision <= revision.current) return;
 				if (savedVersion.current < changeVersion.current) {
@@ -930,7 +955,7 @@ export default function CanvasPage({
 			clearTimeout(timer);
 			events.close();
 		};
-	}, [activeId, namespace]);
+	}, [activeId]);
 
 	useEffect(() => {
 		if (busy || !board || savedVersion.current >= changeVersion.current || saveState === "conflict") return;
@@ -983,7 +1008,7 @@ export default function CanvasPage({
 					`/api/canvases/${encodeURIComponent(current.id)}/research/proposals/${encodeURIComponent(id)}/${undo ? "undo" : "apply"}`,
 					{
 						method: "POST",
-						body: JSON.stringify({ namespace, selectedIds, expectedRevision: revision.current }),
+						body: JSON.stringify({ selectedIds, expectedRevision: revision.current }),
 					},
 				);
 				if (boardRef.current?.id !== current.id) return;
@@ -1002,7 +1027,7 @@ export default function CanvasPage({
 				setBusy(false);
 			}
 		},
-		[flush, namespace],
+		[flush],
 	);
 	const changeResearchGroup = (group: CanvasGroup) =>
 		edit((current) => {
@@ -1078,10 +1103,12 @@ export default function CanvasPage({
 				return;
 			}
 			if (event.key === "Escape") {
-				if (fullscreenNodeMenuId || fullscreenAddOpen || fullscreenNodesOpen) {
+				if (fullscreenNodeMenuId) {
 					setFullscreenNodeMenuId(undefined);
-					setFullscreenAddOpen(false);
-					if (!fullscreenNodeMenuId && !fullscreenAddOpen) setFullscreenNodesOpen(false);
+					return;
+				}
+				if (activeCanvasPanel) {
+					setActiveCanvasPanel(undefined);
 					return;
 				}
 				setContextMenu(undefined);
@@ -1122,8 +1149,7 @@ export default function CanvasPage({
 		boardMenu,
 		editingEdge,
 		researchReader,
-		fullscreenAddOpen,
-		fullscreenNodesOpen,
+		activeCanvasPanel,
 		fullscreenNodeMenuId,
 	]);
 	useEffect(() => {
@@ -1138,9 +1164,9 @@ export default function CanvasPage({
 		return () => window.removeEventListener("pointerdown", closeOnOutsideClick, true);
 	}, [contextMenu]);
 
-	const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper])), [papers]);
+    const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper])), [papers]);
 	const agentById = useMemo(() => new Map(agentSessions.map((session) => [session.id, session])), [agentSessions]);
-	const paperDetailKey = (paperId: string) => `${namespace}/${paperId}`;
+	const paperDetailKey = (paperId: string) => `${paperId}`;
 	const loadPaperDetails = (paperId: string) => {
 		const key = paperDetailKey(paperId);
 		const sourceBoardId = boardRef.current?.id;
@@ -1152,9 +1178,7 @@ export default function CanvasPage({
 			delete next[key];
 			return next;
 		});
-		void api<CanvasPaperDetails>(
-			`/api/papers/${encodeURIComponent(paperId)}?namespace=${encodeURIComponent(namespace)}`,
-		)
+		void api<CanvasPaperDetails>(`/api/papers/${encodeURIComponent(paperId)}`)
 			.then((details) => {
 				if (boardRef.current?.id === sourceBoardId) setPaperDetails((current) => ({ ...current, [key]: details }));
 			})
@@ -1230,7 +1254,7 @@ export default function CanvasPage({
 		setPickerCollections([]);
 		setPickerCollectionsReady(false);
 		setPickerCollectionsError("");
-		void api<PaperCollection[]>(`/api/library/collections?namespace=${encodeURIComponent(namespace)}`)
+		void api<PaperCollection[]>(`/api/library/collections`)
 			.then((collections) => {
 				if (cancelled) return;
 				setPickerCollections(collections);
@@ -1272,7 +1296,7 @@ export default function CanvasPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [picker, namespace]);
+	}, [picker]);
 	useEffect(() => {
 		if (picker !== "note") setNoteCreateOpen(false);
 	}, [picker]);
@@ -1282,7 +1306,7 @@ export default function CanvasPage({
 		setPickerFolders([]);
 		setPickerFoldersError("");
 		setPickerNoteResults(undefined);
-		void api<{ folders: ResearchNoteFolder[] }>(`/api/research/folders?namespace=${encodeURIComponent(namespace)}`)
+		void api<{ folders: ResearchNoteFolder[] }>(`/api/research/folders`)
 			.then(({ folders }) => {
 				if (cancelled) return;
 				setPickerFolders(folders);
@@ -1295,16 +1319,15 @@ export default function CanvasPage({
 			.catch((reason) => {
 				if (!cancelled) setPickerFoldersError(reason instanceof Error ? reason.message : String(reason));
 			});
-		void api<{ notes: ResearchNoteSummary[] }>(`/api/research/notes?namespace=${encodeURIComponent(namespace)}`)
+		void api<{ notes: ResearchNoteSummary[] }>(`/api/research/notes`)
 			.then(({ notes: records }) => {
 				if (cancelled) return;
-				setPickerNoteResults({ namespace, notes: records });
+				setPickerNoteResults({ notes: records });
 				setNotes((current) => mergeById(current, records));
 			})
 			.catch((reason) => {
 				if (!cancelled)
 					setPickerNoteResults({
-						namespace,
 						notes: [],
 						error: reason instanceof Error ? reason.message : String(reason),
 					});
@@ -1312,13 +1335,30 @@ export default function CanvasPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [picker, namespace]);
-	const pickerPaperKey = `${namespace}\u0000${pickerCollection}\u0000${pickerQuery}`;
+	}, [picker]);
+	const pickerPaperKey = `${pickerCollection}\u0000${pickerQuery}`;
+	useEffect(() => {
+		if (picker !== "paper" || !activeId) return;
+		const controller = new AbortController();
+		setPickerMemberships(undefined);
+		setSelectingCollection(undefined);
+		void api<CollectionMembershipIndex>("/api/library/collection-memberships", { signal: controller.signal })
+			.then((memberships) => {
+				if (!controller.signal.aborted) setPickerMemberships(memberships);
+			})
+			.catch((reason) => {
+				if (!controller.signal.aborted) setPaperPickerError(`分类全选暂不可用：${String(reason)}`);
+			});
+		return () => {
+			controller.abort();
+			collectionSelectionRequest.current?.abort();
+		};
+	}, [picker, activeId]);
 	useEffect(() => {
 		if (picker !== "paper") return;
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
-			const params = new URLSearchParams({ namespace, limit: "300", q: pickerQuery });
+			const params = new URLSearchParams({ limit: "300", q: pickerQuery });
 			if (pickerCollection !== "all") params.set("collection", pickerCollection);
 			void api<{ hits: Array<{ record: PaperRecord }>; total: number }>(`/api/library?${params.toString()}`)
 				.then((result) => {
@@ -1337,7 +1377,7 @@ export default function CanvasPage({
 			cancelled = true;
 			window.clearTimeout(timer);
 		};
-	}, [picker, pickerQuery, pickerCollection, pickerPaperKey, namespace]);
+	}, [picker, pickerQuery, pickerCollection, pickerPaperKey]);
 
 	const selected = board?.nodes.find((node) => node.id === selectedNode);
 	const edgeSelected = board?.edges.find((edge) => edge.id === selectedEdge);
@@ -1350,12 +1390,12 @@ export default function CanvasPage({
 						nodes: board.nodes,
 						edges: board.edges,
 						sessionId: openedAgentId,
-						namespace,
+
 						papers: paperById,
 						notes: noteById,
 					})
 				: [],
-		[board, openedAgentId, namespace, paperById, noteById],
+		[board, openedAgentId, paperById, noteById],
 	);
 	const teamLeaderNames = (teamId: string) => getTeamLeaderNames(board?.nodes ?? [], board?.edges ?? [], teamId);
 	const teamMemberNames = (node: CanvasNode) =>
@@ -1369,7 +1409,9 @@ export default function CanvasPage({
 	const contextNode = contextMenu?.nodeId ? nodeMap.get(contextMenu.nodeId) : undefined;
 	const contextEdge = contextMenu?.edgeId ? board?.edges.find((edge) => edge.id === contextMenu.edgeId) : undefined;
 	const nodeCaption = (node: CanvasNode) => node.alias?.trim() || defaultNodeCaptions[node.kind];
+	const cardPaper = (node: CanvasNode) => paperById.get(node.entityId ?? "");
 	const nodeTitle = (node: CanvasNode) =>
+ node.kind === "search_graph" ? (searchGraphs.graphs.find(g=>g.runId===node.entityId)?.title ?? node.title) :
 		node.kind === "paper"
 			? (paperById.get(node.entityId ?? "")?.title ?? node.title)
 			: node.kind === "note"
@@ -1536,6 +1578,83 @@ export default function CanvasPage({
 		setEditingText(undefined);
 	};
 
+	const toggleCollectionPapers = async (collectionId: string, checked: boolean) => {
+		const ids = pickerMembershipIds[collectionId];
+		if (!ids || selectingCollection) return;
+		setPaperPickerError("");
+		if (!checked) {
+			setPickedPapers((current) => {
+				const next = new Map(current);
+				for (const id of ids) next.delete(id);
+				return next;
+			});
+			return;
+		}
+		const controller = new AbortController();
+		collectionSelectionRequest.current = controller;
+		const canvasId = boardRef.current?.id;
+		setSelectingCollection(collectionId);
+		try {
+			const records = ids.every((id) => paperById.has(id)) ? [] : await loadCanvasCollectionPapers(
+				collectionId, (path) => api(path, { signal: controller.signal }),
+			);
+			if (controller.signal.aborted || boardRef.current?.id !== canvasId) return;
+			const available = new Map([...paperById, ...records.map((paper) => [paper.id, paper] as const)]);
+			if (ids.some((id) => !available.has(id))) throw new Error("分类内容已变化，请重新打开窗口后全选");
+			setPapers((current) => mergeById(current, records));
+			setPickedPapers((current) => {
+				const next = new Map(current);
+				for (const id of ids) next.set(id, { id, title: available.get(id)!.title });
+				return next;
+			});
+		} catch (reason) {
+			if (!controller.signal.aborted) setPaperPickerError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			if (collectionSelectionRequest.current === controller) {
+				collectionSelectionRequest.current = undefined;
+				setSelectingCollection(undefined);
+			}
+		}
+	};
+	const collectionCheckbox = (id: string, label: string) => (
+		<CanvasPaperCollectionCheckbox label={label} ids={pickerMembershipIds[id]} selected={pickedPapers}
+			disabled={selectingCollection !== undefined} onToggle={(checked) => void toggleCollectionPapers(id, checked)} />
+	);
+	const togglePickedPaper = (paper: SelectedCanvasPaper) => {
+		setPaperPickerError("");
+		setPickedPapers((current) => {
+			const next = new Map(current);
+			if (next.has(paper.id)) next.delete(paper.id);
+			else next.set(paper.id, { id: paper.id, title: paper.title });
+			return next;
+		});
+	};
+	const addPickedPapers = () => {
+		const current = boardRef.current;
+		const rect = canvasRef.current?.getBoundingClientRect();
+		if (!current || !rect || !pickedPapers.size) return;
+		try {
+			const center = pendingNodePosition.current ?? {
+				x: (rect.width / 2 - current.viewport.x) / current.viewport.scale,
+				y: (rect.height / 2 - current.viewport.y) / current.viewport.scale,
+			};
+			const added = canvasPaperBatch(current, [...pickedPapers.values()], center, pendingLinkFrom.current);
+			edit((value) => ({ ...value, nodes: [...value.nodes, ...added.nodes], edges: [...value.edges, ...added.edges] }));
+			setSelectedNode(added.nodes[0].id);
+			setSelectedEdge(undefined);
+			savePaperPickerMemory();
+			setPicker(undefined);
+			setPickedPapers(new Map());
+			setContextMenu(undefined);
+			pendingNodePosition.current = undefined;
+			pendingLinkFrom.current = undefined;
+			setConnectingFrom(undefined);
+			setConnectingSide(undefined);
+			setLinkPreview(undefined);
+		} catch (reason) {
+			setPaperPickerError(reason instanceof Error ? reason.message : String(reason));
+		}
+	};
 	const addNode = (
 		kind: NodeKind,
 		entity?: { id: string; title: string },
@@ -1613,7 +1732,7 @@ export default function CanvasPage({
 				body: JSON.stringify({
 					mode: "persistent",
 					title: "Agent 对话",
-					context: { kind: "canvas", namespace, canvasId },
+					context: { kind: "canvas", canvasId },
 				}),
 			});
 			setAgentSessions((current) => [session, ...current]);
@@ -1645,7 +1764,7 @@ export default function CanvasPage({
 		try {
 			const result = await api<{ canvas: Board }>(
 				`/api/canvases/${encodeURIComponent(current.id)}/agent-sessions/${encodeURIComponent(session.id)}`,
-				{ method: "DELETE", body: JSON.stringify({ namespace, expectedRevision: revision.current }) },
+				{ method: "DELETE", body: JSON.stringify({ expectedRevision: revision.current }) },
 			);
 			revision.current = result.canvas.revision;
 			setBoard(result.canvas);
@@ -1671,7 +1790,7 @@ export default function CanvasPage({
 		}
 	};
 	const copyNode = (node: CanvasNode) => {
-		setNodeClipboard({ namespace, boardId: boardRef.current?.id, node: structuredClone(node) });
+		setNodeClipboard({ boardId: boardRef.current?.id, node: structuredClone(node) });
 		setContextMenu(undefined);
 	};
 	const placeNodeCopy = async (node: CanvasNode, x: number, y: number) => {
@@ -1685,7 +1804,7 @@ export default function CanvasPage({
 					body: JSON.stringify({
 						mode: "persistent",
 						title: nodeTitle(node),
-						context: { kind: "canvas", namespace, canvasId },
+						context: { kind: "canvas", canvasId },
 					}),
 				});
 				entityId = session.id;
@@ -1780,12 +1899,14 @@ export default function CanvasPage({
 		setFullscreenNodeMenuId(undefined);
 	};
 	const addNodeFromFullscreen = (kind: NodeKind) => {
-		setFullscreenAddOpen(false);
-		setFullscreenNodesOpen(false);
+		setActiveCanvasPanel((current) => current === "add" ? undefined : current);
+		setActiveCanvasPanel((current) => current === "nodes" ? undefined : current);
 		setFullscreenNodeMenuId(undefined);
 		pendingNodePosition.current = undefined;
 		pendingLinkFrom.current = undefined;
-		if (kind === "agent") {
+		if (kind === "search_graph") {
+ setActiveCanvasPanel("graphs");
+ } else if (kind === "agent") {
 			void createAgentNode();
 		} else if (kind === "paper" || kind === "note") {
 			openLibraryPicker(kind);
@@ -1819,8 +1940,8 @@ export default function CanvasPage({
 		if (!fullscreenAddOpen && !fullscreenNodesOpen && !fullscreenNodeMenuId) return;
 		const closeMenus = (event: PointerEvent) => {
 			if (event.target instanceof Element && event.target.closest(".research-canvas-fullscreen-ui")) return;
-			setFullscreenAddOpen(false);
-			setFullscreenNodesOpen(false);
+			setActiveCanvasPanel((current) => current === "add" ? undefined : current);
+			setActiveCanvasPanel((current) => current === "nodes" ? undefined : current);
 			setFullscreenNodeMenuId(undefined);
 		};
 		window.addEventListener("pointerdown", closeMenus);
@@ -1862,7 +1983,9 @@ export default function CanvasPage({
 		const position = { x: contextMenu.worldX, y: contextMenu.worldY };
 		const linkFrom = contextMenu.linkFrom;
 		setContextMenu(undefined);
-		if (kind === "agent") {
+		if (kind === "search_graph") {
+ pendingNodePosition.current=position;pendingLinkFrom.current=linkFrom;setActiveCanvasPanel("graphs");
+ } else if (kind === "agent") {
 			void createAgentNode(position, linkFrom);
 		} else if (kind === "paper" || kind === "note") {
 			pendingNodePosition.current = position;
@@ -2218,7 +2341,7 @@ export default function CanvasPage({
 	const openBoard = async (id: string) => {
 		if (id === boardRef.current?.id) return;
 		if (!(await flush())) return;
-		router.updateParams({ canvas: id, namespace });
+		router.updateParams({ canvas: id });
 	};
 	const createBoard = async () => {
 		if (!newTitle.trim()) return;
@@ -2228,11 +2351,11 @@ export default function CanvasPage({
 			const result = await api<{ canvas: Board }>("/api/canvases", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace, title: newTitle.trim() }),
+				body: JSON.stringify({ title: newTitle.trim() }),
 			});
 			setNewTitle("");
 			await refreshBoards();
-			router.updateParams({ canvas: result.canvas.id, namespace });
+			router.updateParams({ canvas: result.canvas.id });
 		} catch (reason) {
 			setError(String(reason));
 		} finally {
@@ -2254,7 +2377,6 @@ export default function CanvasPage({
 				method: "PATCH",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					namespace,
 					expectedRevision: item.id === boardRef.current?.id ? revision.current : item.revision,
 					title: title.trim(),
 				}),
@@ -2267,7 +2389,7 @@ export default function CanvasPage({
 			}
 			setBoardDialog(undefined);
 			// Renaming reorders the list; retain the currently open canvas when the URL used the default item.
-			if (!router.params.canvas && boardRef.current) router.updateParams({ canvas: boardRef.current.id, namespace });
+			if (!router.params.canvas && boardRef.current) router.updateParams({ canvas: boardRef.current.id });
 			await refreshBoards();
 		} catch (reason) {
 			setError(String(reason));
@@ -2285,12 +2407,11 @@ export default function CanvasPage({
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					namespace,
 					expectedRevision: item.id === boardRef.current?.id ? revision.current : item.revision,
 				}),
 			});
 			await refreshBoards();
-			router.updateParams({ canvas: result.canvas.id, namespace });
+			router.updateParams({ canvas: result.canvas.id });
 		} catch (reason) {
 			setError(String(reason));
 		} finally {
@@ -2313,7 +2434,7 @@ export default function CanvasPage({
 			await api(`/api/canvases/${encodeURIComponent(item.id)}`, {
 				method: "DELETE",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ namespace, expectedRevision: deletingActive ? revision.current : item.revision }),
+				body: JSON.stringify({ expectedRevision: deletingActive ? revision.current : item.revision }),
 			});
 			if (deletingActive) {
 				boardRef.current = undefined;
@@ -2352,7 +2473,7 @@ export default function CanvasPage({
 			setBoardDialog(undefined);
 			setBoards((items) => items.filter((candidate) => candidate.id !== item.id));
 			const next = await refreshBoards();
-			if (deletingActive || activeId === item.id) router.updateParams({ canvas: next[0]?.id ?? null, namespace });
+			if (deletingActive || activeId === item.id) router.updateParams({ canvas: next[0]?.id ?? null });
 		} catch (reason) {
 			setError(String(reason));
 		} finally {
@@ -2370,7 +2491,7 @@ export default function CanvasPage({
 		if (!(await flush())) return;
 		try {
 			const details = await api<{ paper: PaperRecord; versions: PaperVersionView[] }>(
-				`/api/papers/${encodeURIComponent(paperId)}?namespace=${encodeURIComponent(namespace)}`,
+				`/api/papers/${encodeURIComponent(paperId)}`,
 			);
 			const version =
 				(evidence?.sourceSha256
@@ -2381,7 +2502,7 @@ export default function CanvasPage({
 			if (!version) throw new Error("这篇论文尚无本地 PDF 版本");
 			if (evidence?.sourceSha256 && version.sha256 !== evidence.sourceSha256)
 				throw new Error("证据对应的 PDF 版本已不可用，请重新核验");
-			const reader = readerVersionState(details.paper, namespace, version);
+			const reader = readerVersionState(details.paper, version);
 			if (evidence?.page) reader.url += `#page=${evidence.page}`;
 			if (isFullscreen) setResearchReader(reader);
 			else onOpenReader(reader);
@@ -2399,7 +2520,7 @@ export default function CanvasPage({
 		[pickerFolders, pickerFolderExpanded],
 	);
 	const pickerPaperPage = pickerPaperResults?.key === pickerPaperKey ? pickerPaperResults : undefined;
-	const pickerNotePage = pickerNoteResults?.namespace === namespace ? pickerNoteResults : undefined;
+	const pickerNotePage = pickerNoteResults;
 	const noteQuery = pickerQuery.trim().toLocaleLowerCase();
 	const pickerItems =
 		picker === "paper"
@@ -2441,7 +2562,7 @@ export default function CanvasPage({
 
 	return (
 		<div className="research-canvas-page" ref={layoutRef}>
-			{listOpen && (
+			{listOpen && canvasView === "cards" && (
 				<aside className="research-canvas-list" inert={busy || !!boardDialog || !!actionDialog}>
 					<div className="research-canvas-list-heading">
 						<strong>关系画布</strong>
@@ -2506,15 +2627,16 @@ export default function CanvasPage({
 							</div>
 						))}
 					</div>
-					<small className="research-canvas-namespace">个人库：{namespace}</small>
 				</aside>
 			)}
 			<div className="research-canvas-main" inert={busy || !!boardDialog || !!actionDialog}>
 				<header className="research-canvas-toolbar">
+                    {board && <fieldset className="canvas-view-switch" aria-label="画布视图"><button type="button" aria-pressed={canvasView === "cards"} onClick={() => { setCanvasView("cards"); setGraphFocus(undefined); setGraphSelection(undefined); }}>卡片</button><button type="button" aria-pressed={canvasView === "graph"} onClick={() => setCanvasView("graph")}>图谱</button><button type="button" className="canvas-graph-manager-toggle" aria-label="图谱管理" title="图谱管理" aria-expanded={graphManagerOpen} onClick={() => toggleCanvasPanel("graphs")}><Network size={18}/></button></fieldset>}
+
 					{board && (
 						<button
 							type="button"
-							onClick={() => setResearchOpen((v) => !v)}
+							onClick={() => toggleCanvasPanel("research")}
 							title="画布研究"
 							aria-pressed={researchOpen}
 						>
@@ -2522,11 +2644,11 @@ export default function CanvasPage({
 							画布研究
 						</button>
 					)}
-					{!listOpen && (
+					{(!listOpen || canvasView !== "cards") && (
 						<button
 							type="button"
 							className="research-canvas-list-toggle"
-							onClick={() => setListOpen(true)}
+							onClick={() => { setListOpen(true); setCanvasView("cards"); }}
 							title="展开画布列表"
 						>
 							<BookOpen size={18} />
@@ -2570,6 +2692,26 @@ export default function CanvasPage({
 						</button>
 					)}
 				</header>
+ {board && expansion && <CanvasExpansion key={board.id} canvasId={board.id}
+ papers={papers.filter(p=>board.nodes.some(n=>n.kind==="paper"&&n.entityId===p.id))}
+ initialPaperId={expansion.paperId} initialKind={expansion.kind} onClose={()=>setExpansion(undefined)} onReady={searchGraphs.open}/>}
+ {board && graphManagerOpen && <SearchGraphManager key={board.id} canvasId={board.id} graphs={searchGraphs.graphs}
+ nodeRunIds={new Set(board.nodes.filter(n=>n.kind==="search_graph").map(n=>n.entityId!))}
+ onOpen={searchGraphs.open} onRename={searchGraphs.rename} onHide={searchGraphs.close}
+ onClose={()=>setActiveCanvasPanel((current) => current === "graphs" ? undefined : current)} onAdd={graph=>{
+ const canvasId = board.id;
+ flushSync(()=>{setCanvasView("cards"); setActiveCanvasPanel((current) => current === "graphs" ? undefined : current);});
+ {
+ if(boardRef.current?.id !== canvasId) return;
+ const existing=boardRef.current.nodes.find(n=>n.kind==="search_graph" && n.entityId===graph.runId);
+ if(existing) {chooseNode(existing.id);jumpToNode(existing,false);}
+ else addNode("search_graph", {id:graph.runId,title:graph.title});
+ }
+ }} />}
+
+ {activeSearchRun && <div className="search-graph-heading"><button type="button" onClick={()=>setCanvasView("cards")}>返回画布</button><strong>{searchGraphs.graphs.find(g=>g.runId===activeSearchRun)?.title ?? "搜索图谱"}</strong></div>}
+
+ {searchGraphs.error && <div className="research-canvas-error" role="alert">{searchGraphs.error}</div>}
 				{error && (
 					<div className="research-canvas-error" role="alert">
 						{error}
@@ -2584,9 +2726,11 @@ export default function CanvasPage({
 						<h2>{boards.length ? "正在打开画布…" : "把论文、人物和想法放在一张画布上"}</h2>
 						<p>先在左侧创建一张画布，再添加节点并建立关系。</p>
 					</div>
-				) : (
-					<div
-						className="research-canvas-stage"
+				) : canvasView !== "cards" ? (
+                    <CanvasGraphView key={`${board.id}:${activeSearchRun ?? "canvas"}`} canvasId={board.id} runId={activeSearchRun} refreshKey={searchGraphs.graphs.find(t => t.runId === activeSearchRun)?.openedAt} revision={board.revision} initialFocus={activeSearchRun ? undefined : graphFocus} initialSelection={activeSearchRun ? undefined : graphSelection} onRead={(id) => void openPaper(id)} />
+                ) : (
+                    <div
+                        className="research-canvas-stage"
 						ref={canvasRef}
 						onPointerDown={onCanvasPointerDown}
 						onPointerMove={onCanvasPointerMove}
@@ -2926,6 +3070,7 @@ export default function CanvasPage({
 													chooseNode(node.id);
 													if (node.kind === "paper") openPaperPreview(node, event.currentTarget);
 													if (node.kind === "note") openNotePreview(node);
+ if (node.kind === "search_graph" && node.entityId) openSearchGraph(node.entityId);
 													if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
 												}}
 												onKeyDown={(event) => {
@@ -2936,12 +3081,13 @@ export default function CanvasPage({
 														suppressNodeClick.current = undefined;
 														if (node.kind === "paper") openPaperPreview(node, event.currentTarget);
 														if (node.kind === "note") openNotePreview(node);
+ if (node.kind === "search_graph" && node.entityId) openSearchGraph(node.entityId);
 														if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
 													} else if (event.key === "F2") {
 														event.preventDefault();
 														if (node.kind === "text") startTextEditing(node, event.currentTarget);
 														else if (node.kind === "team") startTeamEditing(node);
-														else if (node.kind === "agent") renameNode(node);
+														else if (node.kind === "agent" || node.kind === "search_graph") renameNode(node);
 														else startAuthorEditing(node);
 													}
 												}}
@@ -2951,6 +3097,7 @@ export default function CanvasPage({
 													if (node.kind === "text") startTextEditing(node, event.currentTarget);
 													else if (node.kind === "team") startTeamEditing(node);
 													else if (node.kind === "agent" && node.entityId) openCanvasAgent(node.entityId);
+ else if (node.kind === "search_graph" && node.entityId) openSearchGraph(node.entityId);
 													else startAuthorEditing(node);
 												}}
 											>
@@ -3029,10 +3176,10 @@ export default function CanvasPage({
 												) : (
 													<strong>{nodeTitle(node)}</strong>
 												)}
+												{node.kind === "search_graph" && <small>点击打开搜索图谱</small>}
 												{node.kind === "paper" && (
 													<small>
-														{paperById
-															.get(node.entityId ?? "")
+														{cardPaper(node)
 															?.authors.slice(0, 3)
 															.join("、") ?? ""}
 													</small>
@@ -3166,7 +3313,7 @@ export default function CanvasPage({
 										<button
 											type="button"
 											role="menuitem"
-											disabled={!nodeClipboard || nodeClipboard.namespace !== namespace}
+											disabled={!nodeClipboard}
 											onClick={() => {
 												if (!nodeClipboard || !contextMenu) return;
 												placeNodeCopy(
@@ -3227,6 +3374,10 @@ export default function CanvasPage({
 													阅读
 												</button>
 											)}
+ {contextNode.kind==="paper"&&paperById.has(contextNode.entityId??"")&&<>
+ <button type="button" role="menuitem" onClick={()=>{setContextMenu(undefined);setExpansion({paperId:contextNode.entityId,kind:"citation"});}}><Network size={16}/>生成引用图谱</button>
+ <button type="button" role="menuitem" onClick={()=>{setContextMenu(undefined);setExpansion({paperId:contextNode.entityId,kind:"author"});}}><Network size={16}/>生成作者图谱</button>
+ </>}
 											<button type="button" role="menuitem" onClick={() => copyNode(contextNode)}>
 												<Copy size={16} />
 												复制节点
@@ -3314,7 +3465,7 @@ export default function CanvasPage({
 										</div>
 										{(contextMenu.linkFrom
 											? (["text", "author", "team", "paper", "note", "agent"] as NodeKind[])
-											: (["paper", "note", "text", "author", "team", "agent"] as NodeKind[])
+											: (["paper", "note", "text", "author", "team", "agent", "search_graph"] as NodeKind[])
 										).map((kind) => {
 											const Icon = nodeIcons[kind];
 											return (
@@ -3372,7 +3523,7 @@ export default function CanvasPage({
 						</div>
 					</div>
 				)}
-				{isFullscreen && board && (
+				{isFullscreen && board && canvasView === "cards" && (
 					<div className="research-canvas-fullscreen-ui">
 						<nav className="research-canvas-fullscreen-rail" aria-label="全屏画布工具">
 							<button
@@ -3381,11 +3532,7 @@ export default function CanvasPage({
 								aria-label="添加节点"
 								title="添加节点"
 								aria-expanded={fullscreenAddOpen}
-								onClick={() => {
-									setFullscreenAddOpen((open) => !open);
-									setFullscreenNodesOpen(false);
-									setFullscreenNodeMenuId(undefined);
-								}}
+								onClick={() => toggleCanvasPanel("add")}
 							>
 								<Plus size={26} />
 							</button>
@@ -3395,28 +3542,32 @@ export default function CanvasPage({
 								aria-label="节点管理"
 								title="节点管理"
 								aria-expanded={fullscreenNodesOpen}
-								onClick={() => {
-									setFullscreenNodesOpen((open) => !open);
-									setFullscreenAddOpen(false);
-									setFullscreenNodeMenuId(undefined);
-								}}
+								onClick={() => toggleCanvasPanel("nodes")}
 							>
 								<ListTree size={22} />
 							</button>
 							<button
 								type="button"
+								className={researchOpen ? "active" : ""}
 								title="画布研究"
 								aria-label="画布研究"
 								aria-pressed={researchOpen}
-								onClick={() => setResearchOpen((v) => !v)}
+								onClick={() => toggleCanvasPanel("research")}
 							>
 								<FlaskConical size={22} />
 							</button>
+
+                            <button type="button" className={graphManagerOpen ? "active" : ""}
+                                aria-label="图谱管理" title="图谱管理" aria-expanded={graphManagerOpen}
+                                onClick={() => toggleCanvasPanel("graphs")}>
+                                <Network size={22}/>
+                            </button>
+
 						</nav>
 						{fullscreenAddOpen && (
 							<div className="research-canvas-fullscreen-add-menu" role="menu" aria-label="添加节点类型">
 								<strong>添加节点</strong>
-								{(["paper", "note", "text", "author", "team", "agent"] as NodeKind[]).map((kind) => {
+								{(["paper", "note", "text", "author", "team", "agent", "search_graph"] as NodeKind[]).map((kind) => {
 									const Icon = nodeIcons[kind];
 									return (
 										<button
@@ -3434,7 +3585,7 @@ export default function CanvasPage({
 									type="button"
 									role="menuitem"
 									onClick={() => {
-										setFullscreenAddOpen(false);
+										setActiveCanvasPanel((current) => current === "add" ? undefined : current);
 										setAgentPickerOpen(true);
 										void refreshAgentSessions();
 									}}
@@ -3454,7 +3605,7 @@ export default function CanvasPage({
 									<button
 										type="button"
 										aria-label="关闭节点管理"
-										onClick={() => setFullscreenNodesOpen(false)}
+										onClick={() => setActiveCanvasPanel((current) => current === "nodes" ? undefined : current)}
 									>
 										<X size={18} />
 									</button>
@@ -3560,7 +3711,7 @@ export default function CanvasPage({
 					</div>
 				)}
 			</div>
-			{board && panelOpen && !openedAgentId && (
+			{board && panelOpen && !openedAgentId && canvasView === "cards" && (
 				<aside className="research-canvas-inspector" inert={busy || !!boardDialog || !!actionDialog}>
 					<div className="research-canvas-inspector-heading">
 						<strong>{selected ? nodeCaption(selected) : edgeSelected ? "关系" : "画布详情"}</strong>
@@ -3829,11 +3980,9 @@ export default function CanvasPage({
 								selected.kind !== "note" &&
 								selected.kind !== "text" &&
 								selected.kind !== "agent" &&
-								(selected.kind !== "author" || !!selected.content) && (
+								selected.kind !== "author" && (
 									<label>
-										{selected.kind === "author"
-											? "旧版补充内容"
-											: selected.kind === "team"
+										{selected.kind === "team"
 												? "团队简介"
 												: "内容"}
 										<textarea
@@ -3855,13 +4004,13 @@ export default function CanvasPage({
 							{selected.kind === "paper" && (
 								<>
 									<p className="research-canvas-detail-note">
-										{paperById.get(selected.entityId ?? "")?.authors.join("、") ?? "个人库中已找不到这篇论文"}
+										{paperById.get(selected.entityId ?? "")?.authors.join("、") ?? "来源记录不可用"}
 									</p>
 									<button
 										type="button"
 										className="research-canvas-action"
 										disabled={!paperById.has(selected.entityId ?? "")}
-										onClick={() => void openPaper(selected.entityId ?? "")}
+										onClick={() => { void openPaper(selected.entityId ?? ""); }}
 									>
 										阅读论文 <ArrowRight size={15} />
 									</button>
@@ -3871,7 +4020,7 @@ export default function CanvasPage({
 								<button
 									type="button"
 									className="research-canvas-action"
-									onClick={() => router.navigate("research", { namespace, noteId: selected.entityId ?? "" })}
+									onClick={() => router.navigate("research", { noteId: selected.entityId ?? "" })}
 								>
 									打开个人笔记 <ArrowRight size={15} />
 								</button>
@@ -3964,15 +4113,14 @@ export default function CanvasPage({
 					)}
 				</aside>
 			)}
-			{board && researchOpen && (
+            {board && researchOpen && (
 				<CanvasResearchPanel
 					key={`${board.id}:${openedAgentId ?? "user"}`}
 					canvasId={board.id}
-					namespace={namespace}
 					sessionId={openedAgentId}
 					agentNodeId={board.nodes.find((n) => n.kind === "agent" && n.entityId === openedAgentId)?.id}
 					nodes={board.nodes}
-					onClose={() => setResearchOpen(false)}
+					onClose={() => setActiveCanvasPanel((current) => current === "research" ? undefined : current)}
 					onRead={(e) => void openPaper(e.paperId, e)}
 					apply={applyResearchProposal}
 					beforePreview={flush}
@@ -3983,7 +4131,7 @@ export default function CanvasPage({
 									setResearchPrompt(
 										"请使用 canvas-research 流程，围绕已保存的研究目标总结当前画布论文的方法、审计覆盖并提出有证据的关系和编排建议。从有效检查点继续；补搜先提出计划，所有修改先预览。完成已批准检索后更新研究检查点。",
 									);
-									setResearchOpen(false);
+									setActiveCanvasPanel((current) => current === "research" ? undefined : current);
 								}
 							: undefined
 					}
@@ -4025,7 +4173,6 @@ export default function CanvasPage({
 						{openedNote && nodeMap.has(openedNote.nodeId) && noteById.has(openedNote.noteId) && (
 							<CanvasNotePreview
 								key={openedNote.nodeId}
-								namespace={namespace}
 								noteId={openedNote.noteId}
 								initialMode={openedNote.edit ? "edit" : "preview"}
 								summary={noteById.get(openedNote.noteId)!}
@@ -4059,7 +4206,6 @@ export default function CanvasPage({
 									key={`${board.id}:${openedAgentId}`}
 									embedded
 									canvasContext={{
-										namespace,
 										canvasId: board.id,
 										agentNodeId: board.nodes.find((n) => n.kind === "agent" && n.entityId === openedAgentId)
 											?.id,
@@ -4444,8 +4590,7 @@ export default function CanvasPage({
 						</div>
 						{picker === "note" && noteCreateOpen ? (
 							<CanvasNoteCreate
-								key={`${namespace}:${board?.id}`}
-								namespace={namespace}
+								key={`${board?.id}`}
 								folders={pickerFolders}
 								initialTitle={pickerQuery}
 								initialFolderId={pickerFolders.some((folder) => folder.id === pickerFolder) ? pickerFolder : ""}
@@ -4483,6 +4628,8 @@ export default function CanvasPage({
 												recordPaperPickerScroll("collection", event.currentTarget.scrollTop)
 											}
 										>
+											<div className="research-canvas-picker-collection-row">
+												{collectionCheckbox("all", "全部论文")}
 											<button
 												type="button"
 												className={pickerCollection === "all" ? "active" : ""}
@@ -4491,6 +4638,9 @@ export default function CanvasPage({
 											>
 												<BookOpen size={15} /> 全部论文
 											</button>
+											</div>
+											<div className="research-canvas-picker-collection-row">
+												{collectionCheckbox("__uncategorized__", "未分类")}
 											<button
 												type="button"
 												className={pickerCollection === "__uncategorized__" ? "active" : ""}
@@ -4499,6 +4649,7 @@ export default function CanvasPage({
 											>
 												<Folder size={15} /> 未分类
 											</button>
+											</div>
 											{pickerCollectionRows.map(({ collection, depth, hasChildren }) => (
 												<div
 													className="research-canvas-picker-collection-row"
@@ -4528,6 +4679,7 @@ export default function CanvasPage({
 													) : (
 														<span className="research-canvas-picker-collection-spacer" />
 													)}
+													{collectionCheckbox(collection.id, collection.name)}
 													<button
 														type="button"
 														className={pickerCollection === collection.id ? "active" : ""}
@@ -4649,13 +4801,18 @@ export default function CanvasPage({
 										{picker === "note" && pickerNotePage?.error ? (
 											<p role="alert">加载笔记失败：{pickerNotePage.error}</p>
 										) : null}
-										{pickerItems.map((item) => (
-											<button key={item.id} type="button" onClick={() => addNode(picker, item)}>
+									{pickerItems.map((item) => picker === "paper" ? (
+										<label key={item.id} className={`research-canvas-picker-paper${pickedPapers.has(item.id) ? " is-selected" : ""}`}>
+											<input type="checkbox" disabled={selectingCollection !== undefined} checked={pickedPapers.has(item.id)} onChange={() => togglePickedPaper(item)} aria-label={`选择论文：${item.title}`} />
+											<span><strong>{item.title}</strong>{"authors" in item && <small>{item.authors.slice(0, 3).join("、")}</small>}</span>
+										</label>
+									) : (
+										<button key={item.id} type="button" onClick={() => addNode("note", item)}>
 												<strong>{item.title}</strong>
 												{"authors" in item && <small>{item.authors.slice(0, 3).join("、")}</small>}
 												{"folderPath" in item && item.folderPath && <small>{item.folderPath}</small>}
 											</button>
-										))}
+									))}
 										{pickerItems.length === 0 &&
 											(picker === "paper"
 												? pickerPaperPage && !pickerPaperPage.error
@@ -4666,6 +4823,59 @@ export default function CanvasPage({
 								</div>
 							</div>
 						)}
+						{picker === "paper" && (
+							<div className="research-canvas-picker-footer">
+								{paperPickerError && <p role="alert">{paperPickerError}</p>}
+								<div className="research-canvas-picker-selection">
+									<label>
+										<input
+											type="checkbox"
+												disabled={!pickerItems.length || selectingCollection !== undefined}
+											checked={pickerItems.length > 0 && pickerItems.every((item) => pickedPapers.has(item.id))}
+											onChange={(event) => {
+												const checked = event.target.checked;
+												setPaperPickerError("");
+												setPickedPapers((current) => {
+													const next = new Map(current);
+													for (const item of pickerItems) {
+														if (checked) next.set(item.id, { id: item.id, title: item.title });
+														else next.delete(item.id);
+													}
+													return next;
+												});
+											}}
+											ref={(input) => {
+												if (input)
+													input.indeterminate =
+														pickerItems.some((item) => pickedPapers.has(item.id)) &&
+														!pickerItems.every((item) => pickedPapers.has(item.id));
+											}}
+										/>
+										全选当前结果
+									</label>
+									<span aria-live="polite">已选 {pickedPapers.size} 篇</span>
+									<button
+										type="button"
+										disabled={!pickedPapers.size || selectingCollection !== undefined}
+										onClick={() => {
+											setPickedPapers(new Map());
+											setPaperPickerError("");
+										}}
+									>
+										清空
+									</button>
+								</div>
+								<button
+									type="button"
+									className="research-canvas-picker-add"
+									disabled={!pickedPapers.size || busy || selectingCollection !== undefined}
+									onClick={addPickedPapers}
+								>
+									{selectingCollection !== undefined ? "正在全选…" : `添加所选 ${pickedPapers.size ? `${pickedPapers.size} 篇` : "论文"}`}
+								</button>
+							</div>
+						)}
+							
 					</section>
 				</div>
 			)}

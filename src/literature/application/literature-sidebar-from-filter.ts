@@ -47,9 +47,9 @@ export async function writeSidebarFromFilter(input: {
 		throw new Error("filter_result_id and search_run_id do not match");
 	}
 	if (snapshot.entries.length === 0) throw new Error("Filter result has no retained papers");
-	const store = new LiteratureStore(snapshot.corpusRoot, "personal", snapshot.namespace);
+	const store = new LiteratureStore(snapshot.corpusRoot, "personal");
 	const run = await store.getSearchRun(snapshot.searchRunId);
-	if (!run || run.namespace !== snapshot.namespace) {
+	if (!run) {
 		throw new Error("Filter result source search run is unavailable; run filter_search_run_results again");
 	}
 	const byId = new Map(run.results.map((record) => [record.id, record]));
@@ -99,7 +99,7 @@ export async function writeSidebarFromFilter(input: {
 		rows.push(
 			sidebarMetadataFromRecord(record, {
 				searchRunId: run.id,
-				namespace: snapshot.namespace,
+
 				screeningStatus: entry.status,
 				preserved: {
 					...annotationValues,

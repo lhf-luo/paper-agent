@@ -30,7 +30,7 @@ export interface StoredFilterResult {
 	searchRunId: string;
 	parentFilterResultId?: string;
 	runFingerprint: string;
-	namespace: string;
+
 	corpusRoot: string;
 	rules: StoredFilterGroup[];
 	sourceCount: number;
@@ -94,7 +94,6 @@ export async function readFilterResult(
 		result?.version !== 2 ||
 		typeof result.searchRunId !== "string" ||
 		typeof result.runFingerprint !== "string" ||
-		typeof result.namespace !== "string" ||
 		typeof result.corpusRoot !== "string" ||
 		!Array.isArray(result.rules) ||
 		!Number.isInteger(result.sourceCount) ||

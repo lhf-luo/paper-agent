@@ -22,7 +22,6 @@ import {
 	boundedStringArray,
 	grantFromBody,
 	json,
-	namespaceValue,
 	numberValue,
 	readBinary,
 	readJson,
@@ -42,7 +41,7 @@ export async function handleLibraryRoutes(
 	) {
 		const body = await readJson(request);
 		if (typeof body.paperId !== "string" || !body.paperId.trim()) throw new ApiError(400, "paperId is required");
-		const namespace = namespaceValue(body.namespace);
+
 		if (url.pathname.endsWith("/prepare")) {
 			if (!Number.isSafeInteger(body.expectedRevision) || (body.expectedRevision as number) < 0)
 				throw new ApiError(400, "expectedRevision must be a non-negative integer");
@@ -54,7 +53,7 @@ export async function handleLibraryRoutes(
 			}
 			const input: PersonalPaperDetailFieldsInput = {
 				paperId: body.paperId,
-				namespace,
+
 				expectedRevision: body.expectedRevision as number,
 				fields,
 			};
@@ -70,10 +69,7 @@ export async function handleLibraryRoutes(
 				json(
 					response,
 					200,
-					await application.savePersonalPaperDetailFields(
-						{ paperId: body.paperId, namespace },
-						grantFromBody(body),
-					),
+					await application.savePersonalPaperDetailFields({ paperId: body.paperId }, grantFromBody(body)),
 				);
 			} catch (error) {
 				if (error instanceof Error && error.message.includes("Research fields changed"))
@@ -96,7 +92,6 @@ export async function handleLibraryRoutes(
 					response,
 					201,
 					await application.createLocalPdfImportBatch(
-						namespaceValue(body.namespace),
 						typeof body.collectionId === "string" ? body.collectionId : undefined,
 					),
 				);
@@ -147,20 +142,16 @@ export async function handleLibraryRoutes(
 	}
 	if (request.method === "GET" && url.pathname === "/api/library/pdfs") {
 		json(response, 200, {
-			pdfs: await application.listAvailablePdfs(url.searchParams.get("namespace") ?? undefined),
+			pdfs: await application.listAvailablePdfs(),
 		});
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/library/collections") {
-		json(response, 200, await application.listLibraryCollections(url.searchParams.get("namespace") ?? undefined));
+		json(response, 200, await application.listLibraryCollections());
 		return;
 	}
 	if (request.method === "GET" && url.pathname === "/api/library/collection-memberships") {
-		json(
-			response,
-			200,
-			await application.libraryCollectionMemberships(url.searchParams.get("namespace") ?? undefined),
-		);
+		json(response, 200, await application.libraryCollectionMemberships());
 		return;
 	}
 	if (request.method === "POST" && url.pathname === "/api/library/collections") {
@@ -172,7 +163,6 @@ export async function handleLibraryRoutes(
 			await application.createLibraryCollection(
 				body.name,
 				typeof body.parentId === "string" ? body.parentId : undefined,
-				typeof body.namespace === "string" ? body.namespace : undefined,
 			),
 		);
 		return;
@@ -183,7 +173,7 @@ export async function handleLibraryRoutes(
 			200,
 			await application.searchPersonalLibrary({
 				query: url.searchParams.get("q") ?? undefined,
-				namespace: url.searchParams.get("namespace") ?? undefined,
+
 				yearFrom: numberValue(url.searchParams.get("yearFrom")),
 				yearTo: numberValue(url.searchParams.get("yearTo")),
 				collectionId: url.searchParams.get("collection") ?? undefined,
@@ -213,7 +203,7 @@ export async function handleLibraryRoutes(
 	const collectionRoute = /^\/api\/library\/collections\/([^/]+)$/.exec(url.pathname);
 	if (collectionRoute) {
 		const id = decodeURIComponent(collectionRoute[1]);
-		const namespace = url.searchParams.get("namespace") ?? undefined;
+
 		if (request.method === "PATCH") {
 			const body = await readJson(request);
 			const hasName = Object.hasOwn(body, "name");
@@ -228,19 +218,15 @@ export async function handleLibraryRoutes(
 			json(
 				response,
 				200,
-				await application.updateLibraryCollection(
-					id,
-					{
-						name: hasName ? (body.name as string) : undefined,
-						parentId: hasParentId ? (body.parentId as string | null) : undefined,
-					},
-					namespace,
-				),
+				await application.updateLibraryCollection(id, {
+					name: hasName ? (body.name as string) : undefined,
+					parentId: hasParentId ? (body.parentId as string | null) : undefined,
+				}),
 			);
 			return;
 		}
 		if (request.method === "DELETE") {
-			const deletedCollectionIds = await application.deleteLibraryCollection(id, namespace);
+			const deletedCollectionIds = await application.deleteLibraryCollection(id);
 			json(response, 200, { ok: true, deletedCollectionIds });
 			return;
 		}
@@ -258,7 +244,6 @@ export async function handleLibraryRoutes(
 				decodeURIComponent(collectionPapersRoute[1]),
 				paperIds,
 				"assign",
-				typeof body.namespace === "string" ? body.namespace : undefined,
 			),
 		);
 		return;
@@ -272,11 +257,7 @@ export async function handleLibraryRoutes(
 		json(
 			response,
 			200,
-			await application.setPaperCollections(
-				decodeURIComponent(paperCollectionsRoute[1]),
-				collectionIds,
-				typeof body.namespace === "string" ? body.namespace : undefined,
-			),
+			await application.setPaperCollections(decodeURIComponent(paperCollectionsRoute[1]), collectionIds),
 		);
 		return;
 	}
@@ -293,7 +274,7 @@ export async function handleLibraryRoutes(
 		const input: PersonalPaperRemovalInput = {
 			paperIds,
 			mode: body.mode,
-			namespace: namespaceValue(body.namespace),
+
 			collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 			author: typeof body.author === "string" ? body.author : undefined,
 		};
@@ -318,7 +299,7 @@ export async function handleLibraryRoutes(
 		const input: PersonalPdfVersionRemovalInput = {
 			paperId: body.paperId,
 			sha256: body.sha256,
-			namespace: namespaceValue(body.namespace),
+
 			author: typeof body.author === "string" ? body.author : undefined,
 		};
 		json(
@@ -332,14 +313,7 @@ export async function handleLibraryRoutes(
 	}
 	const artifactFolderRoute = /^\/api\/papers\/([^/]+)\/artifacts\/open$/.exec(url.pathname);
 	if (request.method === "POST" && artifactFolderRoute) {
-		json(
-			response,
-			200,
-			await application.openPaperArtifactFolder(
-				decodeURIComponent(artifactFolderRoute[1]),
-				url.searchParams.get("namespace") ?? undefined,
-			),
-		);
+		json(response, 200, await application.openPaperArtifactFolder(decodeURIComponent(artifactFolderRoute[1])));
 		return;
 	}
 	const pdfFolderRoute = /^\/api\/papers\/([^/]+)\/pdf\/([a-f0-9]{64})\/folder\/open$/.exec(url.pathname);
@@ -347,20 +321,13 @@ export async function handleLibraryRoutes(
 		json(
 			response,
 			200,
-			await application.openPaperPdfFolder(
-				decodeURIComponent(pdfFolderRoute[1]),
-				pdfFolderRoute[2],
-				url.searchParams.get("namespace") ?? undefined,
-			),
+			await application.openPaperPdfFolder(decodeURIComponent(pdfFolderRoute[1]), pdfFolderRoute[2]),
 		);
 		return;
 	}
 	const paperRoute = /^\/api\/papers\/([^/]+)$/.exec(url.pathname);
 	if (request.method === "GET" && paperRoute) {
-		const details = await application.paperDetails(
-			decodeURIComponent(paperRoute[1]),
-			url.searchParams.get("namespace") ?? undefined,
-		);
+		const details = await application.paperDetails(decodeURIComponent(paperRoute[1]));
 		json(response, details ? 200 : 404, details ?? { error: "Paper not found" });
 		return;
 	}
@@ -368,9 +335,9 @@ export async function handleLibraryRoutes(
 	const pdfUploadRoute = /^\/api\/papers\/([^/]+)\/pdf$/.exec(url.pathname);
 	if ((request.method === "GET" || request.method === "HEAD") && pdfBlobRoute) {
 		const paperId = decodeURIComponent(pdfBlobRoute[1]);
-		const namespace = url.searchParams.get("namespace") ?? undefined;
-		const body = await application.readPdfVersionBlob(paperId, pdfBlobRoute[2], namespace);
-		const details = await application.paperDetails(paperId, namespace);
+
+		const body = await application.readPdfVersionBlob(paperId, pdfBlobRoute[2]);
+		const details = await application.paperDetails(paperId);
 		sendPdfResponse({
 			request,
 			response,
@@ -389,11 +356,7 @@ export async function handleLibraryRoutes(
 		if (data.length < 3 || data.subarray(0, 5).toString("latin1") !== "%PDF-") {
 			throw new ApiError(400, "上传的文件不是有效的 PDF");
 		}
-		json(
-			response,
-			200,
-			await application.addLocalPdfToPaper(paperId, data, url.searchParams.get("namespace") ?? undefined),
-		);
+		json(response, 200, await application.addLocalPdfToPaper(paperId, data));
 		return;
 	}
 	if (request.method === "POST" && url.pathname === "/api/library/import/prepare") {
@@ -415,7 +378,7 @@ export async function handleLibraryRoutes(
 				newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 				sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 				paperIds: stringArray(body.paperIds),
-				namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 				collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 			}),
 		);
@@ -431,7 +394,7 @@ export async function handleLibraryRoutes(
 		}
 		const input: PersonalMetadataEnrichmentInput = {
 			paperId: body.paperId,
-			namespace: namespaceValue(body.namespace),
+
 			author: typeof body.author === "string" ? body.author : undefined,
 		};
 		json(
@@ -450,7 +413,7 @@ export async function handleLibraryRoutes(
 		const body = await readJson(request);
 		const input: PersonalCorpusAnnotationInput = {
 			paperIds: boundedStringArray(body.paperIds, "paperIds", 500, 500) ?? [],
-			namespace: namespaceValue(body.namespace),
+
 			author: typeof body.author === "string" ? body.author : undefined,
 			tags: boundedStringArray(body.tags, "tags", 50, 100),
 			note: typeof body.note === "string" ? body.note : undefined,
@@ -473,7 +436,7 @@ export async function handleLibraryRoutes(
 		const body = await readJson(request);
 		const input: PersonalTitleRepairInput = {
 			paperIds: boundedStringArray(body.paperIds, "paperIds", 5_000, 500),
-			namespace: namespaceValue(body.namespace),
+
 			author: typeof body.author === "string" ? body.author : undefined,
 		};
 		if (url.pathname.endsWith("/prepare")) {
@@ -495,7 +458,7 @@ export async function handleLibraryRoutes(
 		}
 		const input: PersonalCorpusExportInput = {
 			format: body.format as PersonalCorpusExportInput["format"],
-			namespace: namespaceValue(body.namespace),
+
 			paperIds: boundedStringArray(body.paperIds, "paperIds", 1000, 500),
 			filename: typeof body.filename === "string" ? body.filename : undefined,
 		};
@@ -511,7 +474,7 @@ export async function handleLibraryRoutes(
 	const personalExportRoute = /^\/api\/library\/exports\/([^/]+)$/.exec(url.pathname);
 	if (request.method === "GET" && personalExportRoute) {
 		const filename = decodeURIComponent(personalExportRoute[1]);
-		const body = await application.readPersonalExport(filename, url.searchParams.get("namespace") ?? undefined);
+		const body = await application.readPersonalExport(filename);
 		const extension = extname(filename).toLowerCase();
 		response.writeHead(200, {
 			"content-type":
@@ -547,7 +510,7 @@ export async function handleLibraryRoutes(
 				newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 				sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 				paperIds: stringArray(body.paperIds),
-				namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 				collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 			}),
 		);
@@ -573,7 +536,7 @@ export async function handleLibraryRoutes(
 					newsBatchId: typeof body.newsBatchId === "string" ? body.newsBatchId : undefined,
 					sidebarResultUrl: typeof body.sidebarResultUrl === "string" ? body.sidebarResultUrl : undefined,
 					paperIds: stringArray(body.paperIds),
-					namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 					collectionId: typeof body.collectionId === "string" ? body.collectionId : undefined,
 				},
 				grantFromBody(body),

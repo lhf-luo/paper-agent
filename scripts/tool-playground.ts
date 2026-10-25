@@ -5,10 +5,7 @@ import { parseArgs } from "node:util";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Check, Errors } from "typebox/value";
 import paperAgentExtension from "../src/index.ts";
-import {
-	collectRegisteredTools,
-	type RegisteredAgentTool,
-} from "../src/shared/presentation/agent-tool-catalog.ts";
+import { collectRegisteredTools, type RegisteredAgentTool } from "../src/shared/presentation/agent-tool-catalog.ts";
 
 const usage = `
 临时 Agent 工具调试器
@@ -26,7 +23,7 @@ const usage = `
   --details-only     只输出工具返回的 details JSON
 
 PowerShell 示例：
-  node scripts/tool-playground.ts run get_personal_library_paper --arg "query=Binary-level Directed Fuzzing for Use-After-Free Vulnerabilities" --arg namespace=default
+  node scripts/tool-playground.ts run get_personal_library_paper --arg "query=Binary-level Directed Fuzzing for Use-After-Free Vulnerabilities"
 `;
 
 async function confirm(title: string, message: string): Promise<boolean> {

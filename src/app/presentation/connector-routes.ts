@@ -5,7 +5,7 @@ import {
 } from "../../literature/application/local-literature-import.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import type { ConnectorCaptureInput } from "../application/paper-agent-connector.ts";
-import { ApiError, json, namespaceValue, readJson } from "./web-http.ts";
+import { ApiError, json, readJson } from "./web-http.ts";
 
 function connectorHeaders(response: ServerResponse): void {
 	response.setHeader("access-control-allow-origin", "*");
@@ -47,7 +47,7 @@ function pageMetadata(value: unknown): CapturedPageMetadata {
 function captureInput(value: Record<string, unknown>, signal?: AbortSignal): ConnectorCaptureInput {
 	return {
 		metadata: pageMetadata(value.metadata),
-		namespace: namespaceValue(value.namespace),
+
 		collection: optionalString(value.collection, "collection", 500),
 		signal,
 	};

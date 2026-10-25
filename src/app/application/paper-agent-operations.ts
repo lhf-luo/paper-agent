@@ -152,7 +152,6 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 						value: resolvePaperAgentConfigPaths(this.projectRoot).directory,
 						risk: "medium" as const,
 					},
-					{ label: "Personal namespace", value: config.storage.defaultNamespace, risk: "low" as const },
 					...(config.model
 						? [
 								{
@@ -186,7 +185,6 @@ export abstract class PaperAgentOperations extends PaperAgentResearch {
 			restartRequired:
 				saved.config.storage.dataRoot !== this.dataRoot ||
 				saved.config.storage.corpusRoot !== this.corpusRoot ||
-				saved.config.storage.defaultNamespace !== this.defaultNamespace ||
 				JSON.stringify(saved.config.network ?? null) !== this.runtimeNetworkSnapshot,
 		};
 	}

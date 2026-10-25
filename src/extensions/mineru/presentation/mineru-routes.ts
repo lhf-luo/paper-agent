@@ -6,10 +6,6 @@ import { grantFromBody, json, readJson } from "../../../app/presentation/web-htt
 const materialRoute =
 	/^\/api\/papers\/([^/]+)\/mineru(?:\/(content|asset|open|prepare|execute|delete\/prepare|delete\/execute))?$/;
 
-function namespace(url: URL): string | undefined {
-	return url.searchParams.get("namespace")?.trim() || undefined;
-}
-
 function pages(value: string | null): number[] | undefined {
 	if (!value) return undefined;
 	const result = new Set<number>();
@@ -43,9 +39,9 @@ export async function handleMineruRoutes(
 	if (!match) return false;
 	const paperId = decodeURIComponent(match[1]);
 	const action = match[2];
-	const targetNamespace = namespace(url) ?? application.defaultNamespace;
+
 	if (request.method === "GET" && !action) {
-		json(response, 200, await application.mineruMaterial(paperId, targetNamespace));
+		json(response, 200, await application.mineruMaterial(paperId));
 		return true;
 	}
 	if (request.method === "GET" && action === "content") {
@@ -61,7 +57,7 @@ export async function handleMineruRoutes(
 		json(
 			response,
 			200,
-			await application.mineru.read(paperId, targetNamespace, {
+			await application.mineru.read(paperId, {
 				mode,
 				pages: pages(url.searchParams.get("pages")),
 				sectionIds: url.searchParams.get("section_ids")?.split(",").filter(Boolean),
@@ -73,7 +69,7 @@ export async function handleMineruRoutes(
 		return true;
 	}
 	if (request.method === "GET" && action === "asset") {
-		const asset = await application.mineru.readAsset(paperId, targetNamespace, url.searchParams.get("path") ?? "");
+		const asset = await application.mineru.readAsset(paperId, url.searchParams.get("path") ?? "");
 		const mime =
 			(
 				{ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" } as Record<
@@ -91,11 +87,7 @@ export async function handleMineruRoutes(
 	}
 	if (request.method === "POST" && action === "prepare") {
 		const body = await readJson(request);
-		json(
-			response,
-			200,
-			await application.prepareMineru({ paperId, namespace: targetNamespace, force: body.force === true }),
-		);
+		json(response, 200, await application.prepareMineru({ paperId, force: body.force === true }));
 		return true;
 	}
 	if (request.method === "POST" && action === "execute") {
@@ -103,11 +95,11 @@ export async function handleMineruRoutes(
 		return true;
 	}
 	if (request.method === "POST" && action === "open") {
-		json(response, 200, await application.mineru.openFolder(paperId, targetNamespace));
+		json(response, 200, await application.mineru.openFolder(paperId));
 		return true;
 	}
 	if (request.method === "POST" && action === "delete/prepare") {
-		json(response, 200, await application.mineru.prepareDelete(paperId, targetNamespace));
+		json(response, 200, await application.mineru.prepareDelete(paperId));
 		return true;
 	}
 	if (request.method === "POST" && action === "delete/execute") {

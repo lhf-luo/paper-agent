@@ -36,7 +36,7 @@ describe("PaperAgentSessionRepository", () => {
 	it("stores paper conversations and queues runtime cleanup when the paper is deleted", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-reader-session-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.upsertPaper({
 			id: "paper-reader",
 			title: "Reader paper",
@@ -52,7 +52,7 @@ describe("PaperAgentSessionRepository", () => {
 				id: "reader-session",
 				title: "阅读：Reader paper",
 				mode: "persistent",
-				context: { kind: "paper", namespace: "default", paperId: "paper-reader" },
+				context: { kind: "paper", paperId: "paper-reader" },
 				createdAt: "2026-09-06T00:00:00.000Z",
 				updatedAt: "2026-09-06T00:01:00.000Z",
 				messages: [
@@ -81,7 +81,7 @@ describe("PaperAgentSessionRepository", () => {
 			expect(repository.restore()).toEqual([
 				expect.objectContaining({
 					id: "reader-session",
-					context: { kind: "paper", namespace: "default", paperId: "paper-reader" },
+					context: { kind: "paper", paperId: "paper-reader" },
 					messages: [expect.objectContaining({ id: "assistant-message" })],
 					tools: [expect.objectContaining({ id: "tool-call", assistantMessageId: "assistant-message" })],
 				}),

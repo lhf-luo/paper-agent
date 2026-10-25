@@ -34,7 +34,7 @@ export function registerLiteratureImportTool(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			input_path: Type.String(),
-			namespace: Type.Optional(Type.String()),
+
 			corpus_root: Type.Optional(Type.String()),
 			collection: Type.Optional(
 				Type.String({ description: "Target collection name; reuse it or create it atomically" }),
@@ -42,12 +42,8 @@ export function registerLiteratureImportTool(pi: ExtensionAPI): void {
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const inputPath = resolve(ctx.cwd, params.input_path);
-			const namespace = params.namespace ?? "default";
-			const store = new LiteratureStore(
-				resolveCorpusRoot(ctx.cwd, "personal", namespace, params.corpus_root),
-				"personal",
-				namespace,
-			);
+
+			const store = new LiteratureStore(resolveCorpusRoot(ctx.cwd, "personal", params.corpus_root), "personal");
 			const prepared: Array<{ record: PaperRecord; sourcePath?: string }> = [];
 			const rejected: ImportRejection[] = [];
 			const needsMetadata: PdfMetadataNeedsReview[] = [];

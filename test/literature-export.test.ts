@@ -54,7 +54,7 @@ const curatedPaper = (value: string): PaperRecord => ({
 
 describe("literature research field exports", () => {
 	it("appends fixed CSV columns, preserves multiline quoting, and leaves legacy fields empty", async () => {
-		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal");
 		const record = curatedPaper('中文, "quoted"\r\n第二行\n第三行');
 		await store.upsertPapers([record, paper("paper-legacy")]);
 		const bytes = await readFile(await store.export("csv", "fields.csv"));
@@ -87,7 +87,7 @@ describe("literature research field exports", () => {
 	});
 
 	it("renders every fixed Markdown field per paper without truncating long saved content", async () => {
-		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal");
 		const longText = `第一段\n\n${"完整研究内容".repeat(1500)}\n最后一段`;
 		const record = curatedPaper(longText);
 		const other = curatedPaper("另一篇论文的问题");
@@ -116,7 +116,7 @@ describe("literature research field exports", () => {
 	});
 
 	it("keeps JSON complete and BibTeX limited to citation metadata", async () => {
-		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(await temporaryRoot(), "corpus"), "personal");
 		const record = curatedPaper("已经保存的研究问题");
 		await store.upsertPaper(record);
 		const json = JSON.parse(await readFile(await store.export("json", "fields.json"), "utf8"));
@@ -134,7 +134,7 @@ describe("literature research field exports", () => {
 		await mkdir(staticRoot);
 		await writeFile(join(staticRoot, "index.html"), "<html></html>");
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
-		await application.personalStore("alice").upsertPaper(curatedPaper("保存前的问题"));
+		await application.personalStore().upsertPaper(curatedPaper("保存前的问题"));
 		const server = await startLocalWebServer(application, { staticRoot });
 		const post = (path: string, body: unknown) =>
 			fetch(`${server.url}${path}`, {
@@ -142,21 +142,17 @@ describe("literature research field exports", () => {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
 			});
-		const input = { namespace: "alice", paperIds: ["paper-filled"], format: "csv", filename: "saved.csv" };
+		const input = { paperIds: ["paper-filled"], format: "csv", filename: "saved.csv" };
 		try {
 			const previewResponse = await post("/api/library/export/prepare", input);
 			expect(previewResponse.status).toBe(200);
 			const preview = await previewResponse.json();
 			const oldGrant = await (await post("/api/operations/confirm", preview)).json();
 			const unsavedDraft = fixedFields("尚未保存的草稿");
-			const unchanged = await readFile(
-				await application.personalStore("alice").export("markdown", "before.md"),
-				"utf8",
-			);
+			const unchanged = await readFile(await application.personalStore().export("markdown", "before.md"), "utf8");
 			expect(unchanged).toContain("保存前的问题");
 			expect(unchanged).not.toContain(unsavedDraft[0].value);
 			const change = await application.preparePersonalPaperDetailFields({
-				namespace: "alice",
 				paperId: "paper-filled",
 				expectedRevision: 1,
 				fields: fixedFields("保存后的问题"),
@@ -166,18 +162,18 @@ describe("literature research field exports", () => {
 				change.prepared.operationId,
 				change.prepared.manifestFingerprint,
 			);
-			await application.savePersonalPaperDetailFields({ namespace: "alice", paperId: "paper-filled" }, saveGrant);
+			await application.savePersonalPaperDetailFields({ paperId: "paper-filled" }, saveGrant);
 			const staleResponse = await post("/api/library/export/execute", { ...input, grant: oldGrant });
 			expect(staleResponse.ok).toBe(false);
 			expect(await staleResponse.json()).toMatchObject({ error: expect.stringContaining("manifest") });
-			await expect(
-				stat(join(application.personalStore("alice").root, "exports", input.filename)),
-			).rejects.toMatchObject({ code: "ENOENT" });
+			await expect(stat(join(application.personalStore().root, "exports", input.filename))).rejects.toMatchObject({
+				code: "ENOENT",
+			});
 			const refreshed = await (await post("/api/library/export/prepare", input)).json();
 			const newGrant = await (await post("/api/operations/confirm", refreshed)).json();
 			const result = await post("/api/library/export/execute", { ...input, grant: newGrant });
 			expect(result.status).toBe(200);
-			const downloaded = await fetch(`${server.url}/api/library/exports/saved.csv?namespace=alice`);
+			const downloaded = await fetch(`${server.url}/api/library/exports/saved.csv`);
 			expect(downloaded.status).toBe(200);
 			const bytes = Buffer.from(await downloaded.arrayBuffer());
 			expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);

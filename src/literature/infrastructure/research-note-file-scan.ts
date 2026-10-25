@@ -20,8 +20,8 @@ function isInternalTemporaryName(name: string): boolean {
 	return /\.(?:tmp|bak|delete)-[a-f0-9-]+$/i.test(name);
 }
 
-export async function scanResearchNoteFiles(dataRoot: string, namespace: string): Promise<ResearchNoteFileScan> {
-	const root = join(dataRoot, "notes", namespace);
+export async function scanResearchNoteFiles(dataRoot: string): Promise<ResearchNoteFileScan> {
+	const root = join(dataRoot, "notes");
 	const folderRelativePaths: string[] = [];
 	const notes: DiskResearchNote[] = [];
 	const warnings: string[] = [];

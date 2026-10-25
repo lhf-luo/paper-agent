@@ -20,7 +20,7 @@ const AUTHOR_PROVIDERS: AuthorPaperProvider[] = ["openalex", "semanticscholar", 
 export interface FindAuthorPapersOptions {
 	seed: PaperRecord;
 	authorName: string;
-	namespace: string;
+
 	maxResultsPerProvider?: number;
 	yearFrom?: number;
 	yearTo?: number;
@@ -193,6 +193,5 @@ export async function collectAuthorPapers(options: FindAuthorPapersOptions): Pro
 		candidateTable: buildCandidatePaperTable(results),
 		scope: "personal",
 		mode: "once",
-		namespace: options.namespace,
 	};
 }

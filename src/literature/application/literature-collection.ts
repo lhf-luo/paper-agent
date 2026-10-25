@@ -1,3 +1,4 @@
+import { assertSearchFilterKeys } from "../domain/literature-search-filters.ts";
 import { randomUUID } from "node:crypto";
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { readableErrorMessage } from "../../shared/infrastructure/network-errors.ts";
@@ -26,10 +27,10 @@ import { derivedCacheKey, LiteratureStore, resolveCorpusRoot } from "./literatur
 export type { CollectionResult, CollectLiteratureOptions } from "./literature-collection-contracts.ts";
 
 export function collectionPersistencePlan(options: CollectLiteratureOptions): OperationPlan {
-	const root = resolveCorpusRoot(options.cwd, options.scope, options.namespace, options.corpusRoot);
+	const root = resolveCorpusRoot(options.cwd, options.scope, options.corpusRoot);
 	return {
 		kind: options.scope === "team" ? "team-write" : "personal-corpus-write",
-		summary: `Persist a literature search in ${options.scope}/${options.namespace}`,
+		summary: `Persist a literature search in ${options.scope}`,
 		targets: [{ label: "corpus", value: root, risk: options.scope === "team" ? "high" : "medium" }],
 		details: {
 			queries: uniqueQueries(options.queries),
@@ -38,7 +39,7 @@ export function collectionPersistencePlan(options: CollectLiteratureOptions): Op
 			pagesPerProvider: options.pagesPerProvider,
 			maxResultsPerProvider: options.maxResultsPerProvider,
 			scope: options.scope,
-			namespace: options.namespace,
+
 			corpusRoot: root,
 		},
 	};
@@ -101,22 +102,14 @@ function hasClientSideFilters(provider: LiteratureProvider, filters: SearchFilte
 }
 
 export async function collectLiterature(options: CollectLiteratureOptions): Promise<CollectionResult> {
-	const datedArxivSearch = Boolean(options.filters.arxivSubmittedFrom || options.filters.arxivSubmittedTo);
-	if (
-		datedArxivSearch &&
-		(options.providers.length !== 1 ||
-			options.providers[0] !== "arxiv" ||
-			!options.filters.arxivSubmittedFrom ||
-			!options.filters.arxivSubmittedTo)
-	) {
-		throw new Error("arXiv submission dates require an arXiv-only search with a complete date range");
-	}
+	assertSearchFilterKeys(options.filters);
 	if (options.scope === "team" && options.mode === "persistent") {
 		throw new Error(
 			"Direct persistent writes to a team corpus are disabled; collect into personal scope, then promote",
 		);
 	}
 	const queries = uniqueQueries(options.queries);
+	if (!queries.length) throw new Error("At least one nonempty search query is required");
 	if (options.mode === "persistent") {
 		if (!options.authorization) {
 			throw new Error("Persistent collection requires a user confirmation grant");
@@ -130,6 +123,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		pagesPerProvider: options.pagesPerProvider,
 		maxResultsPerProvider: options.maxResultsPerProvider,
 		corpusOnly: options.corpusOnly ?? false,
+		reuseCorpus: options.reuseCorpus ?? true,
 	};
 	const queryFingerprint = sha256Text(JSON.stringify(normalizedSearchConfig));
 	const providerPageSearch = options.providerPageSearch ?? searchProviderPage;
@@ -139,11 +133,11 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 	const cacheKey = derivedCacheKey({
 		inputHashes: [queryFingerprint],
 		operation: "literature-search",
-		pipelineVersion: "5",
+		pipelineVersion: "6",
 		normalizedConfig: normalizedSearchConfig,
 	});
-	const root = resolveCorpusRoot(options.cwd, options.scope, options.namespace, options.corpusRoot);
-	const corpusStore = new LiteratureStore(root, options.scope, options.namespace);
+	const root = resolveCorpusRoot(options.cwd, options.scope, options.corpusRoot);
+	const corpusStore = new LiteratureStore(root, options.scope);
 	let store: LiteratureStore | undefined;
 	store = corpusStore;
 	await store.initialize();
@@ -154,7 +148,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		}
 	}
 	const corpusHits = new Map<string, PaperRecord>();
-	if (options.reuseCorpus !== false && !datedArxivSearch) {
+	if (options.reuseCorpus !== false) {
 		for (const query of queries) {
 			const discoveredAt = new Date().toISOString();
 			for (const hit of await corpusStore.searchPapers({
@@ -307,17 +301,13 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		failures.push(...outcome.failures);
 	}
 	// 多源结果原本按 provider 块状拼接, 这里按查询相关性统一重排, 精确标题命中排到最前。
-	const initiallyDeduplicated = datedArxivSearch
-		? deduplicatePaperRecords(allRecords)
-		: rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
+	const initiallyDeduplicated = rerankByQueryRelevance(deduplicatePaperRecords(allRecords), queries);
 	const abstractEnrichment = await enrichMissingAbstractsByDoi(initiallyDeduplicated, options.cwd, {
 		signal: options.signal,
 		concurrency: 3,
 		lookup: options.abstractDoiLookup,
 	});
-	const results = datedArxivSearch
-		? deduplicatePaperRecords(abstractEnrichment.records)
-		: rerankByQueryRelevance(deduplicatePaperRecords(abstractEnrichment.records), queries);
+	const results = rerankByQueryRelevance(deduplicatePaperRecords(abstractEnrichment.records), queries);
 	for (const record of results) {
 		if (!record.venueRank) record.venueRank = lookupCcfLevel(record.venue);
 	}
@@ -414,7 +404,6 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 		candidateTable: buildCandidatePaperTable(results),
 		scope: options.scope,
 		mode: options.mode,
-		namespace: options.namespace,
 	};
 
 	let persistenceCounts: CollectionResult["persistenceCounts"];
@@ -431,7 +420,7 @@ export async function collectLiterature(options: CollectLiteratureOptions): Prom
 					paperId: "collection",
 					operation: "literature-search",
 					inputHashes: [queryFingerprint],
-					pipelineVersion: "5",
+					pipelineVersion: "6",
 					normalizedConfig: {
 						queries,
 						providers: options.providers,

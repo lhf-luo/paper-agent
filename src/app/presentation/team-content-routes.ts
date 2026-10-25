@@ -6,7 +6,7 @@ import type {
 	TeamTopicChange,
 } from "../../team/domain/team-corpus-types.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
-import { ApiError, grantFromBody, json, namespaceValue, numberValue, readJson, stringArray } from "./web-http.ts";
+import { ApiError, grantFromBody, json, numberValue, readJson, stringArray } from "./web-http.ts";
 
 function contentRef(body: Record<string, unknown>): TeamContentRef {
 	if (
@@ -28,11 +28,7 @@ export async function handleTeamContentRoutes(
 	const cursor = url.searchParams.get("cursor") ?? undefined;
 	const limit = numberValue(url.searchParams.get("limit"), 50);
 	if (request.method === "GET" && path === "/api/team/artifacts/personal") {
-		json(
-			response,
-			200,
-			await application.listPersonalTeamArtifacts(namespaceValue(url.searchParams.get("namespace")), cursor, limit),
-		);
+		json(response, 200, await application.listPersonalTeamArtifacts(cursor, limit));
 		return true;
 	}
 	if (request.method === "GET" && path === "/api/team/content") {
@@ -150,7 +146,6 @@ export async function handleTeamContentRoutes(
 			if (!Array.isArray(body.entries)) throw new ApiError(400, "Knowledge entries are required");
 			const input = {
 				entries: body.entries.map(contentRef),
-				personalNamespace: namespaceValue(body.personalNamespace),
 			};
 			result = prepare
 				? await application.prepareTeamKnowledgePull(input)

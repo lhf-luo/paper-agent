@@ -58,7 +58,7 @@ export function formatCitationExpansionTable(rows: CitationExpansionTableRow[], 
 					row.doiOrArxiv,
 					row.sources,
 					row.discoveryPath,
-					`${row.relationship}:${row.seedPaperId}:depth=${row.depth}`,
+					row.relationship === "seed" ? "起点论文" : `${row.relationship}:${row.seedPaperId}:depth=${row.depth}`,
 					row.screeningResult,
 					row.pdf,
 					row.code,
@@ -89,7 +89,7 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 				]
 			: []),
 		`Source counts: ${run.providers.map((provider) => `${provider}=${run.sourceCounts[provider] ?? 0}`).join(", ")}`,
-		`Mode: ${run.scope}/${run.mode}/${run.namespace}`,
+		`Mode: ${run.scope}/${run.mode}`,
 		`Cache: ${result.cached ? "hit (no repeated API search)" : "miss"}`,
 		result.corpusPath ? `Corpus: ${result.corpusPath}` : "Corpus: not written (once mode)",
 		"",
@@ -143,7 +143,7 @@ export function formatCollection(result: CollectionResult, displayLimit = 60): s
 
 export function collectionParameters() {
 	return Type.Object({
-		query: Type.String({ description: "Primary focused literature query" }),
+		query: Type.String({ minLength: 1, description: "Primary focused literature query" }),
 		query_expansions: Type.Optional(
 			Type.Array(Type.String(), {
 				maxItems: 11,
@@ -163,14 +163,6 @@ export function collectionParameters() {
 		),
 		year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 		year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-		arxiv_submitted_from: Type.Optional(
-			Type.String({
-				description: "Inclusive arXiv first-submission date in UTC, YYYY-MM-DD; other providers use year filters",
-			}),
-		),
-		arxiv_submitted_to: Type.Optional(
-			Type.String({ description: "Inclusive arXiv first-submission date in UTC, YYYY-MM-DD" }),
-		),
 		venues: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		authors: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		open_access: Type.Optional(Type.Boolean()),
@@ -188,7 +180,7 @@ export function collectionParameters() {
 		),
 		scope: Type.Optional(scopeSchema),
 		mode: Type.Optional(modeSchema),
-		namespace: Type.Optional(Type.String({ description: "Corpus namespace; default: default" })),
+
 		corpus_root: Type.Optional(
 			Type.String({ description: "Optional shared corpus base directory; default: .paper-agent/corpus" }),
 		),
@@ -199,7 +191,8 @@ export function collectionParameters() {
 		),
 		reuse_corpus: Type.Optional(
 			Type.Boolean({
-				description: "Search the selected personal/team corpus before external providers; default: true",
+				default: false,
+				description: "Include existing personal/team corpus records only when requested; default: false",
 			}),
 		),
 		corpus_only: Type.Optional(
@@ -212,7 +205,7 @@ export function collectionParameters() {
 		domain_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		problem_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
 		method_terms: Type.Optional(Type.Array(Type.String(), { maxItems: 20 })),
-	});
+	}, { additionalProperties: false });
 }
 
 export function optionsFromParams(
@@ -223,8 +216,6 @@ export function optionsFromParams(
 		providers?: LiteratureProvider[];
 		year_from?: number;
 		year_to?: number;
-		arxiv_submitted_from?: string;
-		arxiv_submitted_to?: string;
 		venues?: string[];
 		authors?: string[];
 		open_access?: boolean;
@@ -233,7 +224,7 @@ export function optionsFromParams(
 		max_results_per_provider?: number;
 		scope?: CorpusScope;
 		mode?: PersistenceMode;
-		namespace?: string;
+
 		corpus_root?: string;
 		refresh_cache?: boolean;
 		reuse_corpus?: boolean;
@@ -249,6 +240,10 @@ export function optionsFromParams(
 	cwd: string,
 	signal?: AbortSignal,
 ): CollectLiteratureOptions {
+	const declared = collectionParameters().properties;
+	const unknown = Object.keys(params).filter((key) => !Object.hasOwn(declared, key));
+	if (unknown.length) throw new Error(`Unsupported search parameter(s): ${unknown.join(", ")}; reissue using declared parameters`);
+	if (typeof params.query !== "string" || !params.query.trim()) throw new Error("A nonempty search query is required");
 	if (params.year_from && params.year_to && params.year_from > params.year_to) {
 		throw new Error("year_from cannot be later than year_to");
 	}
@@ -261,8 +256,6 @@ export function optionsFromParams(
 		filters: {
 			yearFrom: params.year_from,
 			yearTo: params.year_to,
-			arxivSubmittedFrom: params.arxiv_submitted_from,
-			arxivSubmittedTo: params.arxiv_submitted_to,
 			venues: params.venues,
 			authors: params.authors,
 			openAccess: params.open_access,
@@ -272,11 +265,11 @@ export function optionsFromParams(
 		maxResultsPerProvider: params.max_results_per_provider ?? 20,
 		scope: params.scope ?? "personal",
 		mode: params.mode ?? "once",
-		namespace: params.namespace ?? "default",
+
 		cwd,
 		corpusRoot: params.corpus_root,
 		refreshCache: params.refresh_cache,
-		reuseCorpus: params.reuse_corpus ?? true,
+		reuseCorpus: params.reuse_corpus ?? params.corpus_only ?? false,
 		corpusOnly: params.corpus_only ?? false,
 		signal,
 		searchPlan: planLiteratureSearch({

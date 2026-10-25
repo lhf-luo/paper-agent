@@ -6,7 +6,6 @@ import type { BackgroundJob, MineruMaterialView, MineruStatus, PreparedOperation
 
 interface MineruSource {
 	paperId: string;
-	namespace: string;
 }
 
 export function MineruControl({ source, compact = false }: { source?: MineruSource; compact?: boolean }) {
@@ -22,7 +21,7 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 
 	const load = useCallback(async () => {
 		if (!source) return;
-		const query = `?namespace=${encodeURIComponent(source.namespace)}`;
+		const query = ``;
 		const [engine, current] = await Promise.all([
 			api<MineruStatus>("/api/mineru/status"),
 			api<MineruMaterialView>(`/api/papers/${encodeURIComponent(source.paperId)}/mineru${query}`),
@@ -48,10 +47,7 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 				operation?: PreparedOperation;
 				reused?: boolean;
 				material?: MineruMaterialView["material"];
-			}>(
-				`/api/papers/${encodeURIComponent(source.paperId)}/mineru/prepare?namespace=${encodeURIComponent(source.namespace)}`,
-				jsonBody({ force }),
-			);
+			}>(`/api/papers/${encodeURIComponent(source.paperId)}/mineru/prepare`, jsonBody({ force }));
 			if (result.reused) await load();
 			else if (result.operation) {
 				setPendingAction("generate");
@@ -71,14 +67,11 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 		try {
 			const grant = await confirmOperation(pending);
 			if (pendingAction === "delete") {
-				await api(
-					`/api/papers/${encodeURIComponent(source.paperId)}/mineru/delete/execute?namespace=${encodeURIComponent(source.namespace)}`,
-					jsonBody({ grant }),
-				);
+				await api(`/api/papers/${encodeURIComponent(source.paperId)}/mineru/delete/execute`, jsonBody({ grant }));
 				setMaterial((current) => (current ? { ...current, material: undefined } : current));
 			} else {
 				const queued = await api<BackgroundJob>(
-					`/api/papers/${encodeURIComponent(source.paperId)}/mineru/execute?namespace=${encodeURIComponent(source.namespace)}`,
+					`/api/papers/${encodeURIComponent(source.paperId)}/mineru/execute`,
 					jsonBody({ grant }),
 				);
 				setJobId(queued.id);
@@ -107,7 +100,7 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 			setPendingAction("delete");
 			setPending(
 				await api<PreparedOperation>(
-					`/api/papers/${encodeURIComponent(source.paperId)}/mineru/delete/prepare?namespace=${encodeURIComponent(source.namespace)}`,
+					`/api/papers/${encodeURIComponent(source.paperId)}/mineru/delete/prepare`,
 					jsonBody({}),
 				),
 			);
@@ -177,7 +170,7 @@ export function MineruControl({ source, compact = false }: { source?: MineruSour
 									className="button secondary"
 									onClick={() =>
 										void api(
-											`/api/papers/${encodeURIComponent(source!.paperId)}/mineru/open?namespace=${encodeURIComponent(source!.namespace)}`,
+											`/api/papers/${encodeURIComponent(source!.paperId)}/mineru/open`,
 											jsonBody({}),
 										).catch((reason) => setError(String(reason)))
 									}

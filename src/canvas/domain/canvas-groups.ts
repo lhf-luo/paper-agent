@@ -1,5 +1,5 @@
 import { object, text } from "./canvas-research-validation.ts";
-import type { CanvasGroup, CanvasNode } from "./research-canvas.ts";
+import type { CanvasGroup, CanvasNode } from "./canvas-document.ts";
 
 export function parseCanvasGroups(input: unknown, nodes: CanvasNode[]): CanvasGroup[] | undefined {
 	if (input === undefined) {

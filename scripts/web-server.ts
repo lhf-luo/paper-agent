@@ -74,7 +74,6 @@ const application = new PaperAgentApplication({
 	projectRoot,
 	dataRoot: config.storage.dataRoot,
 	corpusRoot: config.storage.corpusRoot,
-	defaultNamespace: config.storage.defaultNamespace,
 });
 await application.initialize();
 const personalStore = application.personalStore();
@@ -85,19 +84,19 @@ const agentService: WebAgentServiceApi = await createWebAgentService({
 	extensionFactory: paperAgentExtension,
 	systemPrompt: paperSystemPrompt,
 	paperSessionDatabasePath: personalStore.databasePath,
-	canvasDatabasePath: (namespace) => application.personalStore(namespace).databasePath,
+	canvasDatabasePath: () => application.personalStore().databasePath,
 	canvasResearchFactory: (context, sessionId) =>
 		createCanvasResearchRuntime(
 			new CanvasResearchService(
-				application.personalStore(context.namespace),
-				context.namespace,
+				application.personalStore(),
+
 				context.canvasId,
 				sessionId,
 				async (id) => {
 					const session = (
 						await agentService.listSessions({
 							scope: "canvas",
-							namespace: context.namespace,
+
 							canvasId: context.canvasId,
 						})
 					).find((s) => s.id === id);

@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { emptyWebAgentInputs } from "../domain/web-agent-inputs.ts";
-import { WebAgentInputQueue } from "./web-agent-input-queue.ts";
 import {
 	type WebAgentEvent,
 	type WebAgentEventPayload,
@@ -16,6 +14,8 @@ import {
 	type WebAgentThinkingLevel,
 	type WebAgentToolView,
 } from "../domain/web-agent-contracts.ts";
+import { emptyWebAgentInputs } from "../domain/web-agent-inputs.ts";
+import { WebAgentInputQueue } from "./web-agent-input-queue.ts";
 
 export type {
 	WebAgentAttachment,
@@ -55,7 +55,8 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			persist: (state) => this.sessionStore.inputs.write(session.id, state),
 			changed: () => {
 				if (!this.sessions.has(session.id)) return;
-				this.touch(session);
+				// The input journal owns queue durability; do not rewrite the transcript.
+				session.updatedAt = timestamp();
 				this.emit(session, {
 					type: "queue",
 					pendingInputs: this.queueFor(session).view(),
@@ -103,23 +104,14 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 			.filter((session) => {
 				if (filter.scope === "paper") {
 					return (
-						session.context?.kind === "paper" &&
-						(!filter.namespace || session.context.namespace === filter.namespace) &&
-						(!filter.paperId || session.context.paperId === filter.paperId)
+						session.context?.kind === "paper" && (!filter.paperId || session.context.paperId === filter.paperId)
 					);
 				}
 				if (filter.scope === "personal") {
-					return (
-						session.context?.kind === "paper" &&
-						(!filter.namespace || session.context.namespace === filter.namespace)
-					);
+					return session.context?.kind === "paper";
 				}
 				if (filter.scope === "canvas") {
-					return (
-						session.context?.kind === "canvas" &&
-						session.context.namespace === filter.namespace &&
-						session.context.canvasId === filter.canvasId
-					);
+					return session.context?.kind === "canvas" && session.context.canvasId === filter.canvasId;
 				}
 				return !session.context;
 			})
@@ -143,18 +135,17 @@ export abstract class WebAgentSessions extends WebAgentServiceBase {
 		if (title && title.length > 120) throw new WebAgentServiceError(400, "会话标题不能超过 120 个字符");
 		let context: WebAgentSessionContext | undefined;
 		if (input.context?.kind === "paper") {
-			const namespace = input.context.namespace.trim();
 			const paperId = input.context.paperId.trim();
-			if (!namespace || !paperId) throw new WebAgentServiceError(400, "论文会话上下文缺少 namespace 或 paperId");
-			context = { kind: "paper", namespace, paperId };
+			if (!paperId) throw new WebAgentServiceError(400, "论文会话上下文缺少 paperId");
+			context = { kind: "paper", paperId };
 			if (!this.sessionStore.hasPaper(context))
 				throw new WebAgentServiceError(404, "个人库中不存在这篇论文，无法创建论文会话");
 		} else if (input.context?.kind === "canvas") {
 			if (input.mode !== "persistent") throw new WebAgentServiceError(400, "画布 Agent 对话必须是持续会话");
-			const namespace = input.context.namespace.trim();
+
 			const canvasId = input.context.canvasId.trim();
-			if (!namespace || !canvasId) throw new WebAgentServiceError(400, "画布会话上下文缺少 namespace 或 canvasId");
-			context = { kind: "canvas", namespace, canvasId };
+			if (!canvasId) throw new WebAgentServiceError(400, "画布会话上下文缺少 canvasId");
+			context = { kind: "canvas", canvasId };
 			if (!this.sessionStore.hasCanvas(context)) throw new WebAgentServiceError(404, "画布不存在，无法创建会话");
 		} else if (input.context) {
 			throw new WebAgentServiceError(400, "不支持的会话上下文");

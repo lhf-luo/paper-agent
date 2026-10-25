@@ -4,7 +4,7 @@ export type AutomatedResearchDepth = "quick" | "methods" | "full" | "reproduce";
 
 export interface AutomatedResearchRequest {
 	paperId: string;
-	namespace: string;
+
 	depth: AutomatedResearchDepth;
 	researchQuestion?: string;
 	discoverArtifacts: boolean;
@@ -63,7 +63,11 @@ export function automatedResearchPlan(
 		stages.push({ id: "coverage", label: "全文覆盖", purpose: "检查全部物理页并明确缺页、歧义和未验证内容" });
 	}
 	if (discoverArtifacts) {
-		stages.push({ id: "artifacts", label: "Artifact 发现", purpose: "只读发现代码、数据集和补充材料，不自动下载或运行" });
+		stages.push({
+			id: "artifacts",
+			label: "Artifact 发现",
+			purpose: "只读发现代码、数据集和补充材料，不自动下载或运行",
+		});
 	}
 	if (depth === "reproduce") {
 		stages.push({ id: "reproduction", label: "复现计划", purpose: "整理人工可执行的环境、变量、指标和停止条件" });
@@ -111,7 +115,6 @@ export function automatedResearchPrompt(input: {
 			"研究对象：",
 			`- 标题：${input.paper.title}`,
 			`- Paper ID：${input.paper.id}`,
-			`- 个人库 namespace：${input.request.namespace}`,
 			`- 本地 PDF：${input.localPdfPath}`,
 			`- PDF SHA-256：${input.version.sha256}`,
 			`- 研究深度：${plan.depthLabel} (${input.request.depth})`,

@@ -80,7 +80,7 @@ export function TeamCollaborationPanel({
 	canRead,
 	canContribute,
 	canReview,
-	personalNamespace,
+
 	onChanged,
 	autoSync = true,
 	onPreviewPaper,
@@ -88,7 +88,7 @@ export function TeamCollaborationPanel({
 	canRead: boolean;
 	canContribute: boolean;
 	canReview: boolean;
-	personalNamespace: string;
+
 	onChanged: () => void;
 	autoSync?: boolean;
 	/** 打开团队页的论文详情弹窗（合并检索中心后由论文卡片调用）。 */
@@ -459,7 +459,7 @@ export function TeamCollaborationPanel({
 					acquisitions: number;
 				}>
 			>(
-				`/api/team/artifacts/personal?namespace=${encodeURIComponent(personalNamespace)}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
+				`/api/team/artifacts/personal${next ? `&cursor=${encodeURIComponent(next)}` : ""}`,
 			);
 			setArtifactSources((previous) => (next ? [...(previous ?? []), ...page.entries] : page.entries));
 			setArtifactCursor(page.nextCursor);
@@ -812,12 +812,12 @@ export function TeamCollaborationPanel({
 								kind === "papers" && !topicId
 									? {
 											paperIds: selectedEntries.map((entry) => entry.id),
-											personalNamespace,
+
 											includePdf: pullIncludePdf,
 										}
 									: {
 											entries: selectedEntries.map(({ resource, id }) => ({ resource, id })),
-											personalNamespace,
+
 										},
 							)
 						}
@@ -836,7 +836,7 @@ export function TeamCollaborationPanel({
 							<span>同步拉取 PDF 到本地</span>
 						</label>
 					)}
-					<span className="collab-total-tag">目标个人空间：{personalNamespace}</span>
+					<span className="collab-total-tag">目标：个人文献库</span>
 				</div>
 			)}
 			{(tab === "published" || tab === "review") && tab === "published" && kind === "papers" && !topicId && (
@@ -1076,7 +1076,7 @@ export function TeamCollaborationPanel({
 											onClick={() =>
 												void prepare("/api/team/pull", {
 													paperIds: [paper.id],
-													personalNamespace,
+
 													includePdf: pullIncludePdf,
 												})
 											}
@@ -1683,7 +1683,7 @@ export function TeamCollaborationPanel({
 			)}
 			{artifactSources && (
 				<AccessibleModal title="提交个人材料清单" onClose={() => setArtifactSources(undefined)} maxWidth={900}>
-					<p>个人空间：{personalNamespace}。选择已经完成发现或获取的材料清单，预览后提交审核。</p>
+					<p>选择已经完成发现或获取的材料清单，预览后提交审核。</p>
 					{artifactSources.map((entry) => (
 						<article className="team-collaboration-row" key={`${entry.paperId}:${entry.pdfSha256}`}>
 							<div>
@@ -1702,7 +1702,7 @@ export function TeamCollaborationPanel({
 										void prepare("/api/team/artifacts", {
 											paperId: entry.paperId,
 											manifestSha256: entry.pdfSha256,
-											personalNamespace,
+
 										})
 									}
 								>

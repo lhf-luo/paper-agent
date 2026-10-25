@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { ZoteroIntegrationService } from "../src/extensions/zotero/application/zotero-integration.ts";
 import {
@@ -124,7 +123,7 @@ describe("Zotero integration", () => {
 	it("atomically creates the full collection path and Zotero mappings", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-zotero-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const record = paperRecordFromZotero(item(), "server-one");
 		const result = await store.importLocalPapersAtomically(
 			[
@@ -168,17 +167,13 @@ describe("Zotero integration", () => {
 		expect(await store.listZoteroItemMappings("server-one")).toEqual([]);
 		await store.deleteCollection(a.id);
 		expect(await store.listZoteroCollectionMappings("server-one")).toEqual([]);
-		const database = new DatabaseSync(join(root, ".paper-agent", "corpus", "personal.sqlite"));
-		expect(database.prepare("SELECT name FROM schema_migrations WHERE version = 4").get()).toMatchObject({
-			name: "zotero-local-api-mappings",
-		});
-		database.close();
+
 	});
 
 	it("continues a multi-paper import when one Zotero item fails revalidation", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-zotero-isolation-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice"), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const consent = new OperationConsentManager({
 			auditPath: join(root, "audit", "operations.jsonl"),
 			signingKeyPath: join(root, "runtime", "operation-signing.key"),
@@ -205,7 +200,7 @@ describe("Zotero integration", () => {
 		const service = new ZoteroIntegrationService({
 			projectRoot: root,
 			consent,
-			defaultNamespace: "alice",
+
 			store: () => store,
 		});
 		Object.defineProperty(service, "client", { value: async () => client });
@@ -217,7 +212,6 @@ describe("Zotero integration", () => {
 			message: "ready",
 		});
 		const prepared = await service.prepareImport({
-			namespace: "alice",
 			itemKeys: [failing.key, working.key],
 		});
 		const grant = await consent.confirm(

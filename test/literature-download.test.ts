@@ -58,7 +58,7 @@ function emptyArxivFeed(): Response {
 describe("downloadLiteraturePdfs", () => {
 	it("tries a formal record PDF before an earlier arXiv link", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-formal-first-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { doi: "10.5555/formal-first", arxivId: "2501.01234" },
 			links: [
@@ -81,7 +81,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("skips a paper that already has a local PDF", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-existing-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({ links: [{ url: "https://example.org/paper.pdf", kind: "pdf" }] });
 		await store.upsertPaper(record);
 		const fetcher = vi.fn(
@@ -99,7 +99,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("uses the primary PDF without acquiring later arXiv candidates", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-primary-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { doi: "10.5555/saved-link", arxivId: "2501.01234" },
 			links: [{ url: "https://example.org/paper.pdf", kind: "pdf", openAccess: true }],
@@ -131,7 +131,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("queries DOI providers only after saved PDF links fail and retains the successful fallback", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-lazy-doi-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { doi: "10.5555/lazy.fallback" },
 			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf" }],
@@ -179,7 +179,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("falls back from a blocked primary link to an existing arXiv identifier", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-arxiv-id-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { arxivId: "2501.01234" },
 			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf" }],
@@ -207,7 +207,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("rejects a spoofed PDF content type and continues to arXiv", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-signature-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { arxivId: "2501.01234" },
 			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf" }],
@@ -237,7 +237,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("freezes an exact DOI to Semantic Scholar arXiv fallback before confirmation", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-doi-arxiv-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { doi: "10.5555/fallback.test" },
 		});
@@ -279,7 +279,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("extracts a publisher PDF URL when DOI providers return no direct file", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-publisher-meta-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({ identifiers: { doi: "10.3390/math12213431" } });
 		await store.upsertPaper(record);
 		const pdfUrl = "https://mdpi-res.example/article.pdf";
@@ -327,7 +327,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("falls back from an MDPI article endpoint to its static published PDF", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-mdpi-static-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({ identifiers: { doi: "10.3390/math12213431" } });
 		await store.upsertPaper(record);
 		const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -374,7 +374,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("uses an exact arXiv DOI result when Semantic Scholar has no arXiv identifier", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-arxiv-doi-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({ identifiers: { doi: "10.5555/arxiv.lookup" } });
 		await store.upsertPaper(record);
 		const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -405,7 +405,7 @@ describe("downloadLiteraturePdfs", () => {
 		const config = defaultPaperAgentConfig();
 		config.credentials = { unpaywallEmail: "researcher@example.com" };
 		await savePaperAgentConfig(root, config);
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { doi: "10.5555/oa.chain" },
 			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf" }],
@@ -459,7 +459,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("reports every failed candidate without saving a partial version", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-all-fail-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({
 			identifiers: { arxivId: "2501.09999" },
 			links: [{ url: "https://publisher.example/paper.pdf", kind: "pdf" }],
@@ -479,7 +479,7 @@ describe("downloadLiteraturePdfs", () => {
 
 	it("rejects request changes after the frozen candidate manifest was confirmed", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-pdf-change-"));
-		const store = new LiteratureStore(join(root, "corpus"), "personal", "default");
+		const store = new LiteratureStore(join(root, "corpus"), "personal");
 		const record = paper({ links: [{ url: "https://example.org/paper.pdf", kind: "pdf" }] });
 		await store.upsertPaper(record);
 		const fetcher = vi.fn(async () => new Response("%PDF-test", { headers: { "content-type": "application/pdf" } }));

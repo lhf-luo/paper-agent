@@ -45,7 +45,7 @@ describe("literature identifiers and corpus", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-backup-path-"));
 		temporaryPaths.push(root);
 		const corpusRoot = join(root, "corpus");
-		const store = new LiteratureStore(corpusRoot, "team", "default");
+		const store = new LiteratureStore(corpusRoot, "team");
 		await store.initialize();
 		await expect(store.backupTo(corpusRoot)).rejects.toThrow("must not be inside");
 		await expect(store.backupTo(join(corpusRoot, "nested"))).rejects.toThrow("must not be inside");
@@ -291,8 +291,8 @@ describe("literature identifiers and corpus", () => {
 	it("persists, audits, exports, promotes, and reuses deterministic derived keys", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-corpus-"));
 		temporaryPaths.push(root);
-		const personal = new LiteratureStore(join(root, "personal"), "personal", "alice");
-		const team = new LiteratureStore(join(root, "team"), "team", "shared");
+		const personal = new LiteratureStore(join(root, "personal"), "personal");
+		const team = new LiteratureStore(join(root, "team"), "team");
 		const record = paper();
 		const run: SearchRun = {
 			id: "search-test",
@@ -309,7 +309,6 @@ describe("literature identifiers and corpus", () => {
 			deduplicatedCount: 0,
 			scope: "personal",
 			mode: "persistent",
-			namespace: "alice",
 		};
 		expect(await personal.persistSearchRun(run)).toEqual({ created: 1, updated: 0, unchanged: 0 });
 		expect((await personal.audit()).manifest.recordCount).toBe(1);
@@ -377,7 +376,7 @@ describe("literature identifiers and corpus", () => {
 	it("serializes concurrent corpus updates without losing records", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-concurrent-corpus-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(root, "personal", "alice");
+		const store = new LiteratureStore(root, "personal");
 		const records = Array.from({ length: 8 }, (_value, index) => {
 			const record = paper({
 				title: `Concurrent Paper ${index}`,
@@ -426,5 +425,4 @@ describe("literature identifiers and corpus", () => {
 		expect(merged.metadataConflicts?.publicationType).toHaveLength(2);
 		expect(merged.metadataConflicts?.citedByApiUrl).toHaveLength(2);
 	});
-
 });

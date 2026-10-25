@@ -1,10 +1,14 @@
+import {handleCanvasExpansionRoutes} from "./canvas-expansion-routes.ts";
+import { SearchRunGraphStore } from "../../canvas/infrastructure/search-run-graph-store.ts";
+import { handleCanvasGraphRoutes } from "./canvas-graph-routes.ts";
+import { handleSearchRunGraphRoutes } from "./search-run-graph-routes.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { WebAgentServiceApi } from "../../agent/domain/web-agent-contracts.ts";
 import { CanvasDocumentError } from "../../canvas/domain/research-canvas.ts";
 import { CanvasRevisionConflict, ResearchCanvasStore } from "../../canvas/infrastructure/research-canvas-store.ts";
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import { handleCanvasResearchRoutes } from "./canvas-research-routes.ts";
-import { ApiError, json, namespaceValue, readJson } from "./web-http.ts";
+import { ApiError, json, readJson } from "./web-http.ts";
 
 export async function handleCanvasRoutes(
 	application: PaperAgentApplication,
@@ -15,13 +19,15 @@ export async function handleCanvasRoutes(
 	openStreams?: Set<ServerResponse>,
 ): Promise<boolean> {
 	if (!url.pathname.startsWith("/api/canvases")) return false;
+	if (await handleCanvasExpansionRoutes(application,request,response,url)) return true;
+	if (await handleSearchRunGraphRoutes(application, request, response, url)) return true;
+	if (await handleCanvasGraphRoutes(application, request, response, url)) return true;
 	if (await handleCanvasResearchRoutes(application, request, response, url, agentService, openStreams)) return true;
 	const body = request.method === "GET" ? undefined : await readJson(request);
-	const namespace =
-		namespaceValue(body?.namespace ?? url.searchParams.get("namespace")) ?? application.defaultNamespace;
-	const personal = application.personalStore(namespace);
+
+	const personal = application.personalStore();
 	await personal.initialize();
-	const store = new ResearchCanvasStore(personal.databasePath, namespace);
+	const store = new ResearchCanvasStore(personal.databasePath);
 	const match = /^\/api\/canvases\/([^/]+)$/.exec(url.pathname);
 	const id = match ? decodeURIComponent(match[1]) : undefined;
 	const copyMatch = /^\/api\/canvases\/([^/]+)\/copy$/.exec(url.pathname);
@@ -29,7 +35,7 @@ export async function handleCanvasRoutes(
 	const sessionMatch = /^\/api\/canvases\/([^/]+)\/agent-sessions\/([^/]+)$/.exec(url.pathname);
 	try {
 		if (request.method === "GET" && url.pathname === "/api/canvases") {
-			json(response, 200, { namespace, canvases: store.list() });
+			json(response, 200, { canvases: store.list() });
 			return true;
 		}
 		if (request.method === "POST" && url.pathname === "/api/canvases") {
@@ -55,7 +61,7 @@ export async function handleCanvasRoutes(
 					const session = await agentService!.createSession({
 						mode: "persistent",
 						title: node.title || "Agent 对话",
-						context: { kind: "canvas", namespace, canvasId: canvas.id },
+						context: { kind: "canvas", canvasId: canvas.id },
 					});
 					createdSessions.push(session.id);
 					replacements.set(node.id, session.id);
@@ -83,11 +89,7 @@ export async function handleCanvasRoutes(
 			const canvasId = decodeURIComponent(sessionMatch[1]);
 			const sessionId = decodeURIComponent(sessionMatch[2]);
 			const session = await agentService.getSession(sessionId);
-			if (
-				session.context?.kind !== "canvas" ||
-				session.context.namespace !== namespace ||
-				session.context.canvasId !== canvasId
-			)
+			if (session.context?.kind !== "canvas" || session.context.canvasId !== canvasId)
 				throw new ApiError(404, "画布会话不存在");
 			const source = store.get(canvasId);
 			if (!source) throw new ApiError(404, "画布不存在");
@@ -112,7 +114,11 @@ export async function handleCanvasRoutes(
 			const canvas = store.get(id);
 			if (!canvas) throw new ApiError(404, "画布不存在");
 			const paperIds = [
-				...new Set(canvas.nodes.filter((node) => node.kind === "paper").map((node) => node.entityId as string)),
+				...new Set(
+					canvas.nodes
+						.filter((node) => node.kind === "paper" && node.entityId)
+						.map((node) => node.entityId as string),
+				),
 			];
 			const noteIds = [
 				...new Set(canvas.nodes.filter((node) => node.kind === "note").map((node) => node.entityId as string)),
@@ -133,16 +139,26 @@ export async function handleCanvasRoutes(
 		if (request.method === "PUT" && id) {
 			if (!Number.isSafeInteger(body?.expectedRevision) || (body?.expectedRevision as number) < 0)
 				throw new ApiError(400, "expectedRevision is required");
-			const document = body?.document as { nodes?: Array<{ kind?: string; entityId?: string }> } | undefined;
+			const document = body?.document as
+				| { nodes?: Array<{ id?: string; kind?: string; entityId?: string }> }
+				| undefined;
+			const previous = store.get(id);
 			for (const node of document?.nodes ?? []) {
+				if (node.kind === "search_graph" && (!node.entityId || !new SearchRunGraphStore(personal.databasePath, id).get(node.entityId)))
+ throw new ApiError(400, "图谱不属于这张画布，请先在图谱管理中打开搜索结果。");
+				if (node.kind === "paper") {
+					const old = previous?.nodes.find((n) => n.id === node.id && n.kind === "paper");
+					const unchangedSource = old && old.entityId === node.entityId;
+					if (
+						!unchangedSource &&
+						(!node.entityId || !(await personal.getPaper(node.entityId)))
+					)
+						throw new ApiError(400, "关系画布只接收已入库论文；搜索候选请在 Search Run 图谱中查看。");
+				}
 				if (node.kind !== "agent" || !node.entityId) continue;
 				if (!agentService) throw new ApiError(503, "Agent 服务不可用");
 				const session = await agentService.getSession(node.entityId);
-				if (
-					session.context?.kind !== "canvas" ||
-					session.context.namespace !== namespace ||
-					session.context.canvasId !== id
-				) {
+				if (session.context?.kind !== "canvas" || session.context.canvasId !== id) {
 					throw new ApiError(400, "Agent 会话不属于这张画布");
 				}
 			}
@@ -164,7 +180,7 @@ export async function handleCanvasRoutes(
 			if (!Number.isSafeInteger(body?.expectedRevision) || (body?.expectedRevision as number) < 0)
 				throw new ApiError(400, "expectedRevision is required");
 			if (!store.delete(id, body?.expectedRevision as number)) throw new ApiError(404, "画布不存在");
-			await agentService?.deleteCanvasSessions(namespace, id);
+			await agentService?.deleteCanvasSessions(id);
 			json(response, 200, { deleted: true });
 			return true;
 		}

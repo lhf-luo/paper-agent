@@ -9,10 +9,6 @@ import {
 import type { PaperAgentApplication } from "../application/paper-agent-application.ts";
 import { ApiError, boundedStringArray, grantFromBody, json, readJson } from "./web-http.ts";
 
-function namespaceFrom(url: URL, body?: Record<string, unknown>): string | undefined {
-	return typeof body?.namespace === "string" ? body.namespace : (url.searchParams.get("namespace") ?? undefined);
-}
-
 function pageIdFromPath(pathname: string): string | undefined {
 	const match = /^\/api\/wiki\/pages\/([^/]+)$/.exec(pathname);
 	return match ? decodeURIComponent(match[1]) : undefined;
@@ -59,8 +55,6 @@ function wikiChange(value: unknown): IngestWikiPageInput {
 		aliases: strings(body.aliases),
 		tags: strings(body.tags),
 		evidence,
-		sourceNoteIds: strings(body.sourceNoteIds),
-		paperIds: strings(body.paperIds),
 	};
 }
 
@@ -98,41 +92,41 @@ export async function handleWikiRoutes(
 	url: URL,
 ): Promise<boolean> {
 	if (!url.pathname.startsWith("/api/wiki/")) return false;
-	const namespace = namespaceFrom(url) ?? application.defaultNamespace;
+
 	if (request.method === "GET" && url.pathname === "/api/wiki/pages") {
-		json(response, 200, await application.listWikiPages(namespace, searchOptions(url)));
+		json(response, 200, await application.listWikiPages(searchOptions(url)));
 		return true;
 	}
 	if (request.method === "GET" && url.pathname === "/api/wiki/management-file") {
 		const path = url.searchParams.get("path");
 		if (!path) throw new ApiError(400, "Wiki management file path is required");
-		const file = await application.getWikiManagementFile(path, namespace);
+		const file = await application.getWikiManagementFile(path);
 		if (!file) throw new ApiError(404, `Wiki management file not found: ${path}`);
-		json(response, 200, { namespace, file });
+		json(response, 200, { file });
 		return true;
 	}
 	const pageId = pageIdFromPath(url.pathname);
 	if (request.method === "GET" && pageId) {
-		const result = await application.getWikiPage(pageId, namespace);
+		const result = await application.getWikiPage(pageId);
 		if (!result) throw new ApiError(404, `Wiki page not found: ${pageId}`);
-		json(response, 200, { namespace, ...result });
+		json(response, 200, { ...result });
 		return true;
 	}
 	if (request.method === "GET" && url.pathname === "/api/wiki/lint") {
-		json(response, 200, { namespace, ...(await application.lintWiki(namespace)) });
+		json(response, 200, { ...(await application.lintWiki()) });
 		return true;
 	}
 	if (request.method !== "POST") return false;
 	const body = await readJson(request);
-	const bodyNamespace = namespaceFrom(url, body) ?? application.defaultNamespace;
+
 	if (url.pathname === "/api/wiki/sync") {
-		json(response, 200, { namespace: bodyNamespace, ...(await application.lintWiki(bodyNamespace)) });
+		json(response, 200, { ...(await application.lintWiki()) });
 		return true;
 	}
 	if (url.pathname === "/api/wiki/open") {
 		if (body.action !== "folder" && body.action !== "obsidian")
 			throw new ApiError(400, "action must be folder or obsidian");
-		json(response, 200, await application.openWiki(body.action, bodyNamespace));
+		json(response, 200, await application.openWiki(body.action));
 		return true;
 	}
 	if (url.pathname === "/api/wiki/source-pages/delete/prepare") {
@@ -140,11 +134,7 @@ export async function handleWikiRoutes(
 			throw new ApiError(400, "paperId is required");
 		}
 		const includeMixedPageIds = boundedStringArray(body.includeMixedPageIds, "includeMixedPageIds", 100, 128) ?? [];
-		json(
-			response,
-			200,
-			await application.prepareWikiSourcePageDeletion(body.paperId, includeMixedPageIds, bodyNamespace),
-		);
+		json(response, 200, await application.prepareWikiSourcePageDeletion(body.paperId, includeMixedPageIds));
 		return true;
 	}
 	if (url.pathname === "/api/wiki/source-pages/delete/execute") {
@@ -163,19 +153,18 @@ export async function handleWikiRoutes(
 				includeMixedPageIds,
 				body.previewFingerprint,
 				grantFromBody(body),
-				bodyNamespace,
 			),
 		);
 		return true;
 	}
 	if (url.pathname === "/api/wiki/ingest/prepare") {
-		json(response, 200, await application.prepareWikiIngest(wikiIngestRequest(body), bodyNamespace));
+		json(response, 200, await application.prepareWikiIngest(wikiIngestRequest(body)));
 		return true;
 	}
 	if (url.pathname === "/api/wiki/ingest/execute") {
 		const requestInput = wikiIngestRequest(body);
 		json(response, 200, {
-			...(await application.ingestWikiPages(requestInput, grantFromBody(body), bodyNamespace)),
+			...(await application.ingestWikiPages(requestInput, grantFromBody(body))),
 		});
 		return true;
 	}

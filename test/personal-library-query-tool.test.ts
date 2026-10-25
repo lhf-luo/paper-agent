@@ -60,7 +60,7 @@ describe("get_personal_library_paper", () => {
 	it("returns stored links, collection paths, PDF versions, and artifacts for an exact title", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-personal-query-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const parent = await store.createCollection("Security");
 		const child = await store.createCollection("UAF", parent.id);
 		await store.upsertPaper({ ...paper(), collectionIds: [child.id] });
@@ -159,7 +159,7 @@ describe("get_personal_library_paper", () => {
 	it("does not turn an approximate title into a selected paper", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-personal-query-candidate-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.upsertPaper(paper());
 
 		const result = await registeredTool().execute(

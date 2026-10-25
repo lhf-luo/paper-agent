@@ -126,7 +126,7 @@ export function TeamOperationPreview({ operation }: { operation: PreparedOperati
 					{details.personalNamespace ? (
 						<span>
 							{" "}
-							· 个人空间：<strong>{String(details.personalNamespace)}</strong>
+							· 个人空间：<strong>{String()}</strong>
 						</span>
 					) : null}
 				</div>

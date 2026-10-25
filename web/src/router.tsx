@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import type { Page } from "./types";
+import type { Page } from "./types.ts";
 
 export interface RouteState {
 	page: Page;
@@ -20,7 +20,7 @@ function requestRouteChange(proceed: () => void): void {
 	if (window.dispatchEvent(event)) proceed();
 }
 
-function parseUrl(): RouteState {
+export function parseUrl(): RouteState {
 	if (typeof window === "undefined") {
 		return { page: "dashboard", params: {} };
 	}
@@ -36,6 +36,7 @@ function parseUrl(): RouteState {
 		"pdf",
 		"team",
 		"research",
+		"quick-notes",
 		"canvas",
 		"wiki",
 		"settings",

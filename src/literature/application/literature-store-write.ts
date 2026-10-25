@@ -104,7 +104,7 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 					{
 						schemaVersion: 1,
 						scope: this.scope,
-						namespace: this.namespace,
+
 						updatedAt: new Date().toISOString(),
 						recordCount: 0,
 						searchRunCount: 0,
@@ -368,27 +368,5 @@ export abstract class LiteratureStoreWrite extends LiteratureStoreBase {
 
 	protected async writeSearchRunUnlocked(run: SearchRun): Promise<void> {
 		await writeJsonAtomic(this.searchRunPath(run.id), run);
-		await this.trimSearchRunsUnlocked();
-	}
-
-	/** 只保留最近 keep 次搜索运行(按 completedAt 排序), 删除更早的。 */
-	protected async trimSearchRunsUnlocked(keep = 30): Promise<void> {
-		const directory = join(this.root, "search-runs");
-		const names = (await readdir(directory)).filter((name) => name.endsWith(".json"));
-		if (names.length <= keep) return;
-		const entries: Array<{ name: string; completedAt: string }> = [];
-		for (const name of names) {
-			try {
-				const run = (await readJson<SearchRun>(join(directory, name))) as SearchRun | undefined;
-				if (run?.completedAt) entries.push({ name, completedAt: run.completedAt });
-				else await unlink(join(directory, name)).catch(() => {});
-			} catch {
-				await unlink(join(directory, name)).catch(() => {});
-			}
-		}
-		entries.sort((left, right) => (left.completedAt < right.completedAt ? -1 : 1));
-		for (const entry of entries.slice(0, Math.max(0, entries.length - keep))) {
-			await unlink(join(directory, entry.name)).catch(() => {});
-		}
 	}
 }

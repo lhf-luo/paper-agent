@@ -20,7 +20,6 @@ const application = new PaperAgentApplication({
 	projectRoot,
 	dataRoot: config.storage.dataRoot,
 	corpusRoot: config.storage.corpusRoot,
-	defaultNamespace: config.storage.defaultNamespace,
 });
 
 try {
@@ -49,9 +48,7 @@ try {
 		console.log(`Config: ${report.configPath}`);
 		console.log(`Data: ${report.dataRoot}`);
 		console.log(`Corpus: ${report.corpusRoot}`);
-		console.log(`Personal namespace: ${report.defaultNamespace}`);
-		console.log(`Personal namespaces: ${report.personalNamespaces.length}`);
-		console.log(`Personal records: ${report.defaultRecordCount}`);
+		console.log(`Personal records: ${report.recordCount}`);
 		console.log(`Jobs: ${report.jobs.queued} queued, ${report.jobs.running} running, ${report.jobs.failed} failed`);
 		console.log(
 			`Command shim: ${report.commandShim.installed ? "installed" : "not installed"} (${report.commandShim.path})`,

@@ -49,7 +49,7 @@ export interface LocalPdfImportFilePreview {
 
 export interface LocalPdfImportBatchView {
 	id: string;
-	namespace: string;
+
 	collection?: PaperCollection;
 	expiresAt: string;
 	files: LocalPdfImportFilePreview[];
@@ -66,7 +66,7 @@ interface StagedLocalPdf extends LocalPdfImportFilePreview {
 
 interface LocalPdfImportBatch {
 	id: string;
-	namespace: string;
+
 	collection?: PaperCollection;
 	root: string;
 	expiresAt: string;
@@ -81,7 +81,7 @@ interface LocalPdfImportBatchManagerOptions {
 	projectRoot: string;
 	executor: CommandExecutor;
 	consent: OperationConsentManager;
-	store: (namespace: string) => LiteratureStore;
+	store: () => LiteratureStore;
 	now?: () => Date;
 }
 
@@ -131,7 +131,7 @@ export class LocalPdfImportBatchManager {
 	private readonly projectRoot: string;
 	private readonly executor: CommandExecutor;
 	private readonly consent: OperationConsentManager;
-	private readonly storeForNamespace: (namespace: string) => LiteratureStore;
+	private readonly getStore: () => LiteratureStore;
 	private readonly now: () => Date;
 	private initialized = false;
 
@@ -140,7 +140,7 @@ export class LocalPdfImportBatchManager {
 		this.projectRoot = options.projectRoot;
 		this.executor = options.executor;
 		this.consent = options.consent;
-		this.storeForNamespace = options.store;
+		this.getStore = options.store;
 		this.now = options.now ?? (() => new Date());
 	}
 
@@ -170,10 +170,9 @@ export class LocalPdfImportBatchManager {
 		return batch;
 	}
 
-	async create(namespace: string, collectionId?: string): Promise<LocalPdfImportBatchView> {
+	async create(collectionId?: string): Promise<LocalPdfImportBatchView> {
 		await this.sweepExpired();
-		if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(namespace)) throw new LocalPdfImportError("Invalid namespace");
-		const store = this.storeForNamespace(namespace);
+		const store = this.getStore();
 		const collection = collectionId
 			? (await store.listCollections()).find((item) => item.id === collectionId)
 			: undefined;
@@ -183,7 +182,7 @@ export class LocalPdfImportBatchManager {
 		await mkdir(root, { recursive: true });
 		const batch: LocalPdfImportBatch = {
 			id,
-			namespace,
+
 			collection,
 			root,
 			expiresAt: new Date(this.now().getTime() + LOCAL_PDF_IMPORT_TTL_MS).toISOString(),
@@ -234,7 +233,7 @@ export class LocalPdfImportBatchManager {
 	}
 
 	private async prepareRecords(batch: LocalPdfImportBatch): Promise<PaperRecord[]> {
-		const store = this.storeForNamespace(batch.namespace);
+		const store = this.getStore();
 		const existingRecords = await store.listPapers();
 		const working = [...existingRecords];
 		const records: PaperRecord[] = [];
@@ -287,7 +286,7 @@ export class LocalPdfImportBatchManager {
 			})),
 			details: {
 				batchId: batch.id,
-				namespace: batch.namespace,
+
 				collectionId: batch.collection?.id,
 				collectionName: batch.collection?.name,
 				files: batch.files
@@ -316,7 +315,7 @@ export class LocalPdfImportBatchManager {
 		const records = batch.files.flatMap((file) => (file.record ? [file.record] : []));
 		return {
 			id: batch.id,
-			namespace: batch.namespace,
+
 			collection: batch.collection,
 			expiresAt: batch.expiresAt,
 			files: batch.files.map(publicFile),
@@ -338,7 +337,7 @@ export class LocalPdfImportBatchManager {
 		}
 		try {
 			if (batch.collection) {
-				const stillExists = (await this.storeForNamespace(batch.namespace).listCollections()).some(
+				const stillExists = (await this.getStore().listCollections()).some(
 					(collection) => collection.id === batch.collection?.id,
 				);
 				if (!stillExists)
@@ -362,20 +361,20 @@ export class LocalPdfImportBatchManager {
 				}),
 			);
 			const reportId = `web-local-import-${randomUUID()}`;
-			const result = await this.storeForNamespace(batch.namespace).importLocalPapersAtomically(inputs, {
+			const result = await this.getStore().importLocalPapersAtomically(inputs, {
 				reportId,
 				report: {
 					schemaVersion: 1,
 					id: reportId,
 					source: "web-local-pdf-import",
 					createdAt: this.now().toISOString(),
-					namespace: batch.namespace,
+
 					collectionId: batch.collection?.id,
 					files: ready.map((file) => ({ filename: file.filename, sha256: file.sha256 })),
 				},
 			});
 			await this.removeBatch(batch);
-			return { ...result, namespace: batch.namespace };
+			return { ...result };
 		} catch (error) {
 			await this.removeBatch(batch);
 			throw error;

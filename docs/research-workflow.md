@@ -20,6 +20,8 @@ The agent handles discovery, collection, indexing, evidence tracking, and memory
 
 Use the Web **Search papers** page for a visual multi-provider run, provider health, selection, and confirmed import into the personal library.
 
+Generic searches require a nonempty query and use ordinary year filters across providers. arXiv submission-date/category retrieval belongs exclusively to [Latest news](arxiv-news.md), which saves daily batches without creating Search Runs.
+
 In Pi, use `/collect` for a disposable personal search:
 
 ```text
@@ -29,7 +31,7 @@ In Pi, use `/collect` for a disposable personal search:
 Persist only when the collection should be reused:
 
 ```text
-/collect --save --namespace thesis --max 30 stateful fuzzing
+/collect --save --max 30 stateful fuzzing
 ```
 
 Collection checks the selected corpus first, expands explicit queries, searches providers, applies filters, paginates, deduplicates, reports partial failures, and records provenance. Search metadata is discovery evidence; technical claims still require a primary PDF or official artifact.

@@ -47,17 +47,17 @@ function formatUpdatedAt(value: string): string {
 	}).format(new Date(value));
 }
 
-function tabsKey(namespace: string): string {
-	return `paper-agent-research-tabs:${namespace}`;
+function tabsKey(): string {
+	return `paper-agent-research-tabs`;
 }
 
-function expandedKey(namespace: string): string {
-	return `paper-agent-research-folders:${namespace}`;
+function expandedKey(): string {
+	return `paper-agent-research-folders`;
 }
 
-function storedTabs(namespace: string, validIds: Set<string>): { ids: string[]; activeId?: string } {
+function storedTabs(validIds: Set<string>): { ids: string[]; activeId?: string } {
 	try {
-		const parsed = JSON.parse(window.localStorage.getItem(tabsKey(namespace)) ?? "{}") as {
+		const parsed = JSON.parse(window.localStorage.getItem(tabsKey()) ?? "{}") as {
 			ids?: string[];
 			activeId?: string;
 		};
@@ -69,10 +69,9 @@ function storedTabs(namespace: string, validIds: Set<string>): { ids: string[]; 
 }
 
 export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation }) {
-	const targetNamespace = target?.namespace;
 	const targetNoteId = target?.noteId;
 	const targetPaperId = target?.paperId;
-	const [namespace, setNamespace] = useState(targetNamespace ?? "default");
+
 	const [notes, setNotes] = useState<ResearchNoteSummary[]>([]);
 	const [folders, setFolders] = useState<ResearchNoteFolder[]>([]);
 	const [templates, setTemplates] = useState<ResearchNoteTemplate[]>([]);
@@ -109,32 +108,19 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 
 	const loadIndex = useCallback(async () => {
 		const [noteResult, folderResult] = await Promise.all([
-			api<{ notes: ResearchNoteSummary[] }>(`/api/research/notes?namespace=${encodeURIComponent(namespace)}`),
-			api<{ folders: ResearchNoteFolder[] }>(`/api/research/folders?namespace=${encodeURIComponent(namespace)}`),
+			api<{ notes: ResearchNoteSummary[] }>(`/api/research/notes`),
+			api<{ folders: ResearchNoteFolder[] }>(`/api/research/folders`),
 		]);
 		setNotes(noteResult.notes);
 		setFolders(folderResult.folders);
 		return { notes: noteResult.notes, folders: folderResult.folders };
-	}, [namespace]);
+	}, []);
 
 	const fetchNote = useCallback(
 		async (noteId: string) =>
-			(
-				await api<{ note: ResearchNote }>(
-					`/api/research/notes/${encodeURIComponent(noteId)}?namespace=${encodeURIComponent(namespace)}`,
-				)
-			).note,
-		[namespace],
+			(await api<{ note: ResearchNote }>(`/api/research/notes/${encodeURIComponent(noteId)}`)).note,
+		[],
 	);
-
-	useEffect(() => {
-		if (targetNamespace) setNamespace(targetNamespace);
-		else {
-			void api<{ defaultNamespace: string }>("/api/namespaces")
-				.then((value) => setNamespace(value.defaultNamespace))
-				.catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-		}
-	}, [targetNamespace]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -143,23 +129,19 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		setPending(undefined);
 		Promise.all([
 			loadIndex(),
-			api<{ templates: ResearchNoteTemplate[] }>(
-				`/api/research/templates?namespace=${encodeURIComponent(namespace)}`,
-			),
-			api<{ hits: Array<{ record: PaperRecord }> }>(
-				`/api/library?namespace=${encodeURIComponent(namespace)}&limit=1000`,
-			),
+			api<{ templates: ResearchNoteTemplate[] }>(`/api/research/templates`),
+			api<{ hits: Array<{ record: PaperRecord }> }>(`/api/library?limit=1000`),
 		])
 			.then(([loadedIndex, templateResult, paperResult]) => {
 				if (cancelled) return;
 				setTemplates(templateResult.templates);
 				setPapers(paperResult.hits.map((hit) => hit.record));
 				const validIds = new Set(loadedIndex.notes.map((note) => note.id));
-				const restored = storedTabs(namespace, validIds);
+				const restored = storedTabs(validIds);
 				setOpenNoteIds(restored.ids);
 				setActiveId(restored.activeId);
 				try {
-					const saved = window.localStorage.getItem(expandedKey(namespace));
+					const saved = window.localStorage.getItem(expandedKey());
 					setExpanded(
 						saved
 							? new Set(JSON.parse(saved) as string[])
@@ -174,13 +156,13 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		return () => {
 			cancelled = true;
 		};
-	}, [loadIndex, namespace]);
+	}, [loadIndex]);
 
 	// Deep-link handling is keyed on the loaded index rather than folded into the load effect,
 	// so that syncing `noteId` back into the URL does not re-fetch the whole index on every click.
 	useEffect(() => {
 		if (loading) return;
-		const targetKey = targetNamespace ? `${targetNamespace}:${targetNoteId ?? "new"}:${targetPaperId ?? ""}` : "";
+		const targetKey = targetNoteId || targetPaperId ? `${targetNoteId ?? "new"}:${targetPaperId ?? ""}` : "";
 		if (!targetKey || targetHandled.current === targetKey) return;
 		const validIds = new Set(notes.map((note) => note.id));
 		if (targetNoteId) {
@@ -196,7 +178,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 			setNewPaperIds(new Set([targetPaperId]));
 			setCreateOpen(true);
 		}
-	}, [loading, notes, targetNamespace, targetNoteId, targetPaperId]);
+	}, [loading, notes, targetNoteId, targetPaperId]);
 
 	useEffect(() => {
 		if (!activeId) {
@@ -221,13 +203,13 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 
 	useEffect(() => {
 		if (loading) return;
-		window.localStorage.setItem(tabsKey(namespace), JSON.stringify({ ids: openNoteIds, activeId }));
-	}, [activeId, loading, namespace, openNoteIds]);
+		window.localStorage.setItem(tabsKey(), JSON.stringify({ ids: openNoteIds, activeId }));
+	}, [activeId, loading, openNoteIds]);
 
 	useEffect(() => {
 		if (loading) return;
-		window.localStorage.setItem(expandedKey(namespace), JSON.stringify([...expanded]));
-	}, [expanded, loading, namespace]);
+		window.localStorage.setItem(expandedKey(), JSON.stringify([...expanded]));
+	}, [expanded, loading]);
 
 	useEffect(() => {
 		if (!message) return;
@@ -278,7 +260,6 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				`/api/research/notes/${encodeURIComponent(active.id)}`,
 				jsonBody(
 					{
-						namespace,
 						title: active.title,
 						markdown: draftMarkdown,
 						expectedRevision: active.revision,
@@ -298,7 +279,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		} finally {
 			mutationBusy.current = false;
 		}
-	}, [active, draftMarkdown, namespace, refreshNote]);
+	}, [active, draftMarkdown, refreshNote]);
 
 	const refreshFromDisk = useCallback(
 		async (showMessage = false) => {
@@ -433,7 +414,6 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	const prepareCreateNote = async () => {
 		if (!newTitle.trim()) return setError("请输入笔记名称");
 		const payload = {
-			namespace,
 			title: newTitle,
 			templateId: newTemplateId,
 			paperIds: [...newPaperIds],
@@ -448,7 +428,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	};
 
 	const prepareDeleteNote = async (noteId: string) => {
-		const payload = { namespace, noteId, author: "interactive-user" };
+		const payload = { noteId, author: "interactive-user" };
 		try {
 			const operation = await api<PreparedOperation>("/api/research/notes/delete/prepare", jsonBody(payload));
 			setPending({ kind: "delete-note", operation, payload, noteId });
@@ -461,7 +441,6 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 	const submitFolder = async () => {
 		if (!folderEditor?.name.trim()) return setError("请输入文件夹名称");
 		const payload = {
-			namespace,
 			name: folderEditor.name,
 			...(folderEditor.parentId ? { parentId: folderEditor.parentId } : {}),
 		};
@@ -487,7 +466,7 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 		const hasContent =
 			folders.some((folder) => folder.parentId === folderId) || notes.some((note) => note.folderId === folderId);
 		if (hasContent) return setError("文件夹不是空的，请先移动或删除其中的内容");
-		const payload = { namespace, folderId };
+		const payload = { folderId };
 		try {
 			const operation = await api<PreparedOperation>("/api/research/folders/delete/prepare", jsonBody(payload));
 			setPending({ kind: "delete-folder", operation, payload });
@@ -521,7 +500,6 @@ export function ResearchNotesPage({ target }: { target?: ResearchNoteNavigation 
 				`/api/research/notes/${encodeURIComponent(noteEditor.note.id)}`,
 				jsonBody(
 					{
-						namespace,
 						title: noteEditor.title,
 						markdown: noteEditor.note.markdown,
 						folderId: noteEditor.folderId || null,

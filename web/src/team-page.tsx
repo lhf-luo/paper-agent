@@ -54,7 +54,6 @@ import { showDerivedAndArtifactFeatures } from "./team-feature-flags";
 import { TeamMembersPanel } from "./team-members-panel";
 import { TeamOperationModal } from "./team-operation-preview";
 import type { ConfirmationGrant, PaperRecord, PreparedOperation } from "./types";
-import { useWorkspace } from "./workspace-context";
 
 interface ToastItem {
 	id: string;
@@ -106,7 +105,7 @@ function formatConnectionReason(reason?: string, status?: number): { title: stri
 		return {
 			title: "服务端接口协议不匹配 (HTTP 405)",
 			detail: "远程团队服务端正在运行，但部分新特性接口（如页面同步或扩展资产）在服务端未启用或服务端版本待升级。",
-			hint: "系统已自动启用向下兼容模式；如需体验全部功能，建议联系服务端管理员更新版本。",
+			hint: "请更新团队服务端，使其与当前客户端接口一致。",
 		};
 	}
 	if (lower.includes("not configured")) {
@@ -187,7 +186,7 @@ const MOCK_DEMO_OVERVIEW = {
 	isDemoPreview: true,
 	source: "demo",
 	serverUrl: "https://hub.paper-agent.internal:14713",
-	namespace: "lab-core",
+
 	health: { status: "ok", version: "0.2.0" },
 	identity: {
 		id: "usr_demo",
@@ -338,18 +337,12 @@ export function TeamPage() {
 		setToasts((prev) => prev.filter((item) => item.id !== id));
 	}, []);
 
-	const { namespace: workspaceNamespace } = useWorkspace();
+
 	const { params, updateParams, navigate } = useRouterContext();
 
 	// Member identity administration
 	const [oneTimeToken, setOneTimeToken] = useState("");
 	const oneTimeTokenRef = useRef<HTMLOutputElement>(null);
-	const [personalNamespace, setPersonalNamespace] = useState(() => workspaceNamespace || "default");
-	const [personalNamespaces, setPersonalNamespaces] = useState<string[]>(["default"]);
-
-	useEffect(() => {
-		if (workspaceNamespace) setPersonalNamespace(workspaceNamespace);
-	}, [workspaceNamespace]);
 
 	// 凭据卡片渲染在页面画布顶部，而"成员管理"入口在页面下方。签发后若不把卡片带进
 	// 视口，用户会以为没有生成凭据串。已经在视口内时不做任何滚动。
@@ -460,16 +453,9 @@ export function TeamPage() {
 		async (silent = false) => {
 			if (!silent) setIsSyncing(true);
 			try {
-				const [team, library, namespaces] = await Promise.all([
+				const [team, library] = await Promise.all([
 					api<any>("/api/team/overview"),
-					silent
-						? Promise.resolve(null)
-						: api<{ hits: Array<{ record: PaperRecord }> }>(
-								`/api/library?namespace=${encodeURIComponent(personalNamespace)}&limit=100`,
-							),
-					silent
-						? Promise.resolve(null)
-						: api<{ defaultNamespace: string; personal: string[] }>("/api/namespaces"),
+					silent ? Promise.resolve(null) : api<{ hits: Array<{ record: PaperRecord }> }>(`/api/library?limit=100`),
 				]);
 				setOverview(team);
 				if (library) {
@@ -478,15 +464,6 @@ export function TeamPage() {
 					setBlobPaperId((current) =>
 						current && records.some((record) => record.id === current) ? current : (records[0]?.id ?? ""),
 					);
-				}
-				if (namespaces) {
-					setPersonalNamespaces(namespaces.personal);
-					if (
-						!namespaces.personal.includes(personalNamespace) &&
-						namespaces.personal.includes(namespaces.defaultNamespace)
-					) {
-						setPersonalNamespace(namespaces.defaultNamespace);
-					}
 				}
 
 				// Cache approved papers from overview into approvedPaperCache
@@ -508,7 +485,7 @@ export function TeamPage() {
 				if (!silent) setIsSyncing(false);
 			}
 		},
-		[personalNamespace, pushToast],
+		[pushToast],
 	);
 
 	// Initial load
@@ -562,23 +539,18 @@ export function TeamPage() {
 	}, [load]);
 
 	// Detect PDF versions for selected personal papers to advise contributor (P2)
-	const inspectPersonalPdfs = useCallback(
-		async (papers: PaperRecord[]) => {
-			for (const paper of papers.slice(0, 40)) {
-				try {
-					const res = await api<any>(
-						`/api/papers/${encodeURIComponent(paper.id)}?namespace=${encodeURIComponent(personalNamespace)}`,
-					);
-					if (res?.versions && Array.isArray(res.versions)) {
-						setPersonalPaperPdfs((prev) => ({ ...prev, [paper.id]: res.versions.length }));
-					}
-				} catch {
-					// Non-critical background inspection
+	const inspectPersonalPdfs = useCallback(async (papers: PaperRecord[]) => {
+		for (const paper of papers.slice(0, 40)) {
+			try {
+				const res = await api<any>(`/api/papers/${encodeURIComponent(paper.id)}`);
+				if (res?.versions && Array.isArray(res.versions)) {
+					setPersonalPaperPdfs((prev) => ({ ...prev, [paper.id]: res.versions.length }));
 				}
+			} catch {
+				// Non-critical background inspection
 			}
-		},
-		[personalNamespace],
-	);
+		}
+	}, []);
 
 	useEffect(() => {
 		if (personal.length) {
@@ -681,9 +653,7 @@ export function TeamPage() {
 		if (!blobPaperId) return;
 		setBlobLoading(true);
 		try {
-			const details = await api<any>(
-				`/api/papers/${encodeURIComponent(blobPaperId)}?namespace=${encodeURIComponent(personalNamespace)}`,
-			);
+			const details = await api<any>(`/api/papers/${encodeURIComponent(blobPaperId)}`);
 			setBlobVersions(details.versions ?? []);
 			pushToast("info", `读取到 ${details.versions?.length ?? 0} 个本地 PDF 版本`);
 		} catch (reason) {
@@ -697,12 +667,12 @@ export function TeamPage() {
 		try {
 			const result = await api<{
 				entries: Array<{ key: string; operation: string; paperId: string; createdAt: string }>;
-			}>(`/api/team/derived/personal?namespace=${encodeURIComponent(personalNamespace)}`);
+			}>(`/api/team/derived/personal`);
 			setPersonalDerived(result.entries);
 		} catch {
 			// Handled quietly
 		}
-	}, [personalNamespace]);
+	}, []);
 
 	useEffect(() => {
 		void loadPersonalDerived();
@@ -713,13 +683,13 @@ export function TeamPage() {
 			const result = await api<{
 				notes: Array<{ id: string; title: string; revision: number; contentHash: string; updatedAt: string }>;
 				wikiPages: Array<{ id: string; title: string; type: string; status: string; contentHash: string }>;
-			}>(`/api/team/pages/personal?namespace=${encodeURIComponent(personalNamespace)}`);
+			}>(`/api/team/pages/personal`);
 			setPersonalPages({ notes: result.notes ?? [], wikiPages: result.wikiPages ?? [] });
 		} catch {
 			// The picker is optional; hide it quietly when the sources cannot be listed.
 			setPersonalPages({ notes: [], wikiPages: [] });
 		}
-	}, [personalNamespace]);
+	}, []);
 
 	useEffect(() => {
 		void loadPersonalPages();
@@ -772,7 +742,7 @@ export function TeamPage() {
 		}
 		void prepare("/api/team/pull/prepare", "/api/team/pull/execute", {
 			paperIds: ids,
-			personalNamespace,
+
 			includePdf,
 		});
 	};
@@ -1338,7 +1308,6 @@ export function TeamPage() {
 				canRead={canRead}
 				canContribute={contributor}
 				canReview={reviewer}
-				personalNamespace={personalNamespace}
 				autoSync={autoSync}
 				onChanged={() => void load()}
 				onPreviewPaper={setPreviewPaper}
@@ -2767,21 +2736,6 @@ export function TeamPage() {
 						</div>
 
 						<div className="namespace-and-submit-row">
-							<select
-								className="avant-select namespace-picker"
-								value={personalNamespace}
-								onChange={(e) => {
-									setPersonalNamespace(e.target.value);
-									setSelectedPersonal(new Set());
-									setBlobVersions([]);
-								}}
-							>
-								{personalNamespaces.map((ns) => (
-									<option key={ns} value={ns}>
-										个人空间: {ns}
-									</option>
-								))}
-							</select>
 							<button
 								className="avant-btn avant-btn-primary"
 								type="button"
@@ -2789,7 +2743,7 @@ export function TeamPage() {
 								onClick={() =>
 									void prepare("/api/team/proposals/prepare", "/api/team/proposals/execute", {
 										paperIds: [...selectedPersonal],
-										personalNamespace,
+
 										topicIds: [...proposalTopicIds],
 									})
 								}
@@ -2973,7 +2927,6 @@ export function TeamPage() {
 														void prepare("/api/team/blobs/prepare", "/api/team/blobs/execute", {
 															paperId: blobPaperId,
 															sha256: version.sha256,
-															personalNamespace,
 														})
 													}
 												>
@@ -3014,7 +2967,6 @@ export function TeamPage() {
 												onClick={() =>
 													void prepare("/api/team/derived/prepare", "/api/team/derived/execute", {
 														keys: [...derivedSelection],
-														personalNamespace,
 													})
 												}
 											>
@@ -3084,7 +3036,6 @@ export function TeamPage() {
 															kind: key.startsWith("wiki.") ? ("wiki" as const) : ("note" as const),
 															id: key.slice(key.indexOf(".") + 1),
 														})),
-														personalNamespace,
 													} satisfies TeamPageSourcesInput)
 												}
 											>
@@ -3449,9 +3400,9 @@ export function TeamPage() {
 							)}
 						</div>
 						<TeamMembersPanel
+							namespace={overview.namespace ?? ""}
 							identities={overview.identities ?? []}
 							selfId={overview.identity?.id}
-							namespace={overview.namespace}
 							busy={busy}
 							prepare={prepare}
 						/>

@@ -1,0 +1,45 @@
+.mcp-panel {
+	min-width: 0;
+}
+.mcp-actions,
+.mcp-server-heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.mcp-server {
+	padding: 16px 0;
+	border-bottom: 1px solid var(--border, #d7e3df);
+}
+.mcp-server .mcp-actions {
+	margin: 12px 0;
+}
+.mcp-server ul {
+	max-height: 240px;
+	overflow: auto;
+	padding-left: 24px;
+}
+.mcp-config {
+	display: grid;
+	gap: 8px;
+	margin-top: 20px;
+}
+.mcp-config textarea {
+	width: 100%;
+	resize: vertical;
+	min-height: 220px;
+	font: 13px / 1.6 monospace;
+}
+.mcp-path,
+.mcp-error {
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+.mcp-error {
+	color: var(--danger, #a22);
+}
+.mcp-panel > small {
+	display: block;
+	margin-top: 10px;
+}

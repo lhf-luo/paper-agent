@@ -87,34 +87,36 @@ export function registerLiteratureDiscoveryTools(pi: ExtensionAPI): void {
 			"Quick search across arXiv, OpenAlex, and Crossref with DOI/arXiv/title deduplication and partial-source failure reporting. For reproducible searches use collect_literature.",
 		promptSnippet: "Quickly search three literature metadata providers",
 		promptGuidelines: [
+			"Provide a nonempty query; use year_from/year_to for year constraints. arXiv submission-date and category retrieval belongs to Latest news.",
+			"This searches external providers only; use a library tool when the user explicitly requests saved personal or team papers.",
 			"Use the complete title plus the first author when filling missing metadata.",
 			"Use the returned searchRunId and Paper ID for later list edits or saves.",
 			"Verify technical claims against the paper or another primary source.",
 		],
 		parameters: Type.Object({
-			query: Type.String({ description: "Paper title, author/title combination, or focused research query" }),
+			query: Type.String({ minLength: 1, description: "Paper title, author/title combination, or focused research query" }),
 			max_results_per_source: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 5 })),
-			namespace: Type.Optional(Type.String({ description: "Personal namespace; default: default" })),
+
 			year_from: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
 			year_to: Type.Optional(Type.Integer({ minimum: 1000, maximum: 9999 })),
-			arxiv_submitted_from: Type.Optional(Type.String()),
-			arxiv_submitted_to: Type.Optional(Type.String()),
-		}),
+		}, { additionalProperties: false }),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const unknown = Object.keys(params).filter((key) => !["query", "max_results_per_source", "year_from", "year_to"].includes(key));
+			if (unknown.length) throw new Error(`Unsupported search parameter(s): ${unknown.join(", ")}`);
+			if (typeof params.query !== "string" || !params.query.trim()) throw new Error("A nonempty search query is required");
 			const result = await collectLiterature({
 				queries: [params.query],
 				providers: QUICK_SEARCH_PROVIDERS,
 				filters: {
 					yearFrom: params.year_from,
 					yearTo: params.year_to,
-					arxivSubmittedFrom: params.arxiv_submitted_from,
-					arxivSubmittedTo: params.arxiv_submitted_to,
 				},
 				pagesPerProvider: 1,
 				maxResultsPerProvider: params.max_results_per_source ?? 5,
 				scope: "personal",
 				mode: "once",
-				namespace: params.namespace ?? "default",
+				reuseCorpus: false,
+
 				cwd: ctx.cwd,
 				signal,
 			});

@@ -4,29 +4,44 @@ import { emptyWebAgentInputs, type WebAgentInputState } from "../domain/web-agen
 
 export class WebAgentInputStore {
 	private readonly directory: string;
-	private readonly writes = new Map<string, Promise<void>>();
+	private readonly writes = new Map<string, { latest?: string; running: Promise<void> }>();
 	constructor(root: string) {
 		this.directory = join(root, ".paper-agent", "web-agent-memory", "input-queues");
 	}
 
 	write(id: string, state: WebAgentInputState): Promise<void> {
 		const content = JSON.stringify(state);
-		const previous = this.writes.get(id) ?? Promise.resolve();
-		const writing = previous
-			.catch(() => undefined)
-			.then(async () => {
+		const existing = this.writes.get(id);
+		if (existing) {
+			existing.latest = content;
+			return existing.running;
+		}
+		const pending = { latest: content as string | undefined, running: Promise.resolve() };
+		pending.running = Promise.resolve().then(async () => {
+			try {
 				await mkdir(this.directory, { recursive: true });
-				const path = join(this.directory, `${id}.json`);
-				const temporary = `${path}.tmp`;
-				try {
-					await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 });
-					await rename(temporary, path);
-				} finally {
-					await rm(temporary, { force: true }).catch(() => undefined);
+				while (pending.latest !== undefined) {
+					const latest = pending.latest;
+					pending.latest = undefined;
+					await this.writeSnapshot(id, latest);
 				}
-			});
-		this.writes.set(id, writing);
-		return writing;
+			} finally {
+				if (this.writes.get(id) === pending) this.writes.delete(id);
+			}
+		});
+		this.writes.set(id, pending);
+		return pending.running;
+	}
+
+	private async writeSnapshot(id: string, content: string): Promise<void> {
+		const path = join(this.directory, `${id}.json`);
+		const temporary = `${path}.tmp`;
+		try {
+			await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 });
+			await rename(temporary, path);
+		} finally {
+			await rm(temporary, { force: true }).catch(() => undefined);
+		}
 	}
 
 	async restore(id: string, piFile?: string): Promise<WebAgentInputState> {
@@ -99,9 +114,9 @@ export class WebAgentInputStore {
 		if (id) {
 			let writing: Promise<void> | undefined;
 			do {
-				writing = this.writes.get(id);
+				writing = this.writes.get(id)?.running;
 				await writing;
-			} while (writing !== this.writes.get(id));
+			} while (this.writes.has(id));
 		} else await Promise.all([...this.writes.keys()].map((key) => this.flush(key)));
 	}
 

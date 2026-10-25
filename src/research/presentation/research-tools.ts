@@ -6,10 +6,8 @@ import { runAuthorizedMutation } from "../../literature/application/literature-w
 import type { OperationPlan } from "../../shared/application/operation-consent.ts";
 import { ResearchNotebook } from "../application/research-notebook.ts";
 
-function notebook(cwd: string, namespace: string): ResearchNotebook {
-	return new ResearchNotebook(
-		new LiteratureStore(resolveCorpusRoot(cwd, "personal", namespace), "personal", namespace),
-	);
+function notebook(cwd: string): ResearchNotebook {
+	return new ResearchNotebook(new LiteratureStore(resolveCorpusRoot(cwd, "personal"), "personal"));
 }
 
 export function registerResearchTools(pi: ExtensionAPI): void {
@@ -17,30 +15,28 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 		name: "search_research_notes",
 		label: "Search research notes",
 		description:
-			"List or read Markdown research notes in one personal namespace, or read a note template by template_id. Filter notes by note id, title query, or an associated personal-library paper id.",
+			"List or read Markdown research notes in the personal workspace, or read a note template by template_id. Filter notes by note id, title query, or an associated personal-library paper id.",
 		promptSnippet: "Find existing Markdown research notes before creating another note",
 		promptGuidelines: [
 			"Search by paper_id before creating a new paper-specific note.",
 			"A note may cite zero, one, or many personal-library papers; do not infer unrecorded associations.",
 			"Use the returned folderId and folderPath when the user asks to organize notes in an existing folder.",
-			"Pass template_id alone with namespace to read the current local template before filling a new note.",
+			"Pass template_id alone to read the current local template before filling a new note.",
 		],
 		parameters: Type.Object({
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
 			note_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			query: Type.Optional(Type.String({ maxLength: 300 })),
 			paper_id: Type.Optional(Type.String({ maxLength: 512 })),
 			template_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const workspace = notebook(ctx.cwd, namespace);
+			const workspace = notebook(ctx.cwd);
 			if (params.template_id) {
 				const template = await workspace.templateStore.get(params.template_id);
 				if (!template) throw new Error(`Research note template not found: ${params.template_id}`);
 				return {
 					content: [{ type: "text", text: template.markdown }],
-					details: { namespace, template },
+					details: { template },
 				};
 			}
 			if (params.note_id) {
@@ -48,7 +44,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 				if (!note) throw new Error(`Research note not found: ${params.note_id}`);
 				return {
 					content: [{ type: "text", text: `# ${note.title}\n\n${note.markdown}` }],
-					details: { namespace, note },
+					details: { note },
 				};
 			}
 			const notes = await workspace.list(params.query, params.paper_id);
@@ -67,7 +63,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 							: "No research notes matched.",
 					},
 				],
-				details: { namespace, notes, folders },
+				details: { notes, folders },
 			};
 		},
 	});
@@ -76,7 +72,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 		name: "manage_research_note",
 		label: "Manage research note",
 		description:
-			"Create, update, delete, link, or unlink a Markdown research note. All paper ids must already exist in the same personal namespace. Mutations follow the configured research confirmation policy.",
+			"Create, update, delete, link, or unlink a Markdown research note. All paper ids must already exist in the personal workspace. Mutations follow the configured research confirmation policy.",
 		promptSnippet: "Persist or organize a Markdown research note with explicit confirmation",
 		promptGuidelines: [
 			"Use template_id=skim for a skim-card note, deep-reading for a close-reading note, or comparison-matrix for a comparison note.",
@@ -91,7 +87,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 				Type.Literal("link"),
 				Type.Literal("unlink"),
 			]),
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
+
 			note_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			title: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
 			markdown: Type.Optional(Type.String({ maxLength: 2 * 1024 * 1024 })),
@@ -100,8 +96,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 			folder_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const workspace = notebook(ctx.cwd, namespace);
+			const workspace = notebook(ctx.cwd);
 			const existing = params.note_id ? await workspace.get(params.note_id) : undefined;
 			if (params.action !== "create" && !existing) {
 				throw new Error(`Research note not found: ${params.note_id ?? "missing note_id"}`);
@@ -114,11 +109,11 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 				targets: [
 					{
 						label: "Research note",
-						value: `${namespace}/${params.note_id ?? params.title}`,
+						value: `${params.note_id ?? params.title}`,
 						risk: params.action === "delete" ? "high" : "low",
 					},
 				],
-				details: { namespace, ...params, existingRevision: existing?.revision },
+				details: { ...params, existingRevision: existing?.revision },
 			};
 			const authorization = await requestInteractiveOperationAuthorization(ctx, plan, {
 				title: params.action === "delete" ? "删除这篇调研笔记？" : "保存调研笔记更改？",
@@ -162,7 +157,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
 				content: [
 					{ type: "text", text: `Research note ${params.action} completed: ${result?.id ?? existing?.id}` },
 				],
-				details: { namespace, action: params.action, note: result },
+				details: { action: params.action, note: result },
 			};
 		},
 	});

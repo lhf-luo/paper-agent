@@ -126,7 +126,7 @@ describe("author paper expansion", () => {
 		const run = await collectAuthorPapers({
 			seed,
 			authorName: "Example, Ada",
-			namespace: "default",
+
 			fetcher: fixtureFetcher(),
 		});
 		expect(run.runKind).toBe("author-expansion");
@@ -144,7 +144,7 @@ describe("author paper expansion", () => {
 		expect(run.authorExpansion?.sources.openalex?.authorId).toBe("A10");
 		expect(run.authorExpansion?.sources.semanticscholar?.authorId).toBe("44");
 		expect(run.authorExpansion?.sources.dblp?.authorId).toBe("a/AdaExample");
-		const store = new LiteratureStore(root, "personal", "default");
+		const store = new LiteratureStore(root, "personal");
 		await store.saveSearchRun(run);
 		expect((await store.getSearchRun(run.id))?.results).toHaveLength(2);
 		expect(await store.listPapers()).toHaveLength(0);
@@ -165,16 +165,14 @@ describe("author paper expansion", () => {
 			collectAuthorPapers({
 				seed,
 				authorName: "Unknown",
-				namespace: "default",
+
 				sourceSearch: async () => {
 					throw new Error("should not query");
 				},
 			}),
 		).rejects.toThrow("uniquely match");
 		const duplicateName = { ...seed, authors: ["Ada Example", "Example, Ada"] };
-		await expect(
-			collectAuthorPapers({ seed: duplicateName, authorName: "Ada Example", namespace: "default" }),
-		).rejects.toThrow("found 2");
+		await expect(collectAuthorPapers({ seed: duplicateName, authorName: "Ada Example" })).rejects.toThrow("found 2");
 	});
 
 	it("supports exact-title seed resolution without DOI and reports missing identity without guessing", async () => {
@@ -199,7 +197,7 @@ describe("author paper expansion", () => {
 			fetcher,
 		});
 		expect(resolved.authorId).toBe("A10");
-		const run = await collectAuthorPapers({ seed: noDoi, authorName: "Ada Example", namespace: "default", fetcher });
+		const run = await collectAuthorPapers({ seed: noDoi, authorName: "Ada Example", fetcher });
 		expect(run.authorExpansion?.sources.semanticscholar?.status).toBe("unresolved");
 		expect(run.authorExpansion?.sources.dblp?.status).toBe("unresolved");
 	});
@@ -223,7 +221,7 @@ describe("author paper expansion", () => {
 		const run = await collectAuthorPapers({
 			seed,
 			authorName: "Ada Example",
-			namespace: "default",
+
 			maxResultsPerProvider: 1,
 			sourceSearch,
 		});
@@ -252,7 +250,7 @@ describe("author paper expansion", () => {
 		const run = await collectAuthorPapers({
 			seed,
 			authorName: "Ada Example",
-			namespace: "default",
+
 			maxResultsPerProvider: 1,
 			sourceSearch,
 		});

@@ -15,11 +15,11 @@ describe("web API request helpers", () => {
 		});
 
 		const { jsonBody } = await import("../web/src/api.ts");
-		const request = jsonBody({ collectionIds: ["col-1"], namespace: "research" }, "PATCH");
+		const request = jsonBody({ collectionIds: ["col-1"] }, "PATCH");
 
 		expect(request).toEqual({
 			method: "PATCH",
-			body: JSON.stringify({ collectionIds: ["col-1"], namespace: "research" }),
+			body: JSON.stringify({ collectionIds: ["col-1"] }),
 		});
 	});
 });

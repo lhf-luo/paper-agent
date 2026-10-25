@@ -67,7 +67,7 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 				.toISOString()
 				.replace(/[^0-9]/g, "")
 				.slice(0, 14);
-			const name = `${this.scope}-${this.namespace}-${timestamp}-${randomUUID().slice(0, 8)}`;
+			const name = `${this.scope}-${timestamp}-${randomUUID().slice(0, 8)}`;
 			const temporaryPath = join(destinationBase, `${name}.tmp`);
 			const finalPath = join(destinationBase, name);
 			await mkdir(destinationBase, { recursive: true });
@@ -95,7 +95,7 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 				{
 					schemaVersion: 1,
 					scope: this.scope,
-					namespace: this.namespace,
+
 					exportedAt: new Date().toISOString(),
 					records,
 				},
@@ -162,7 +162,7 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 			content = [
 				"# Literature corpus",
 				"",
-				`Scope: ${this.scope} / ${this.namespace}`,
+				`Scope: ${this.scope}`,
 				"",
 				...records.flatMap((record) => [
 					`## ${record.title}`,
@@ -231,7 +231,7 @@ export class LiteratureStoreTeam extends LiteratureStoreMaterials {
 		return {
 			schemaVersion: 1,
 			scope: this.scope,
-			namespace: this.namespace,
+
 			updatedAt: new Date().toISOString(),
 			recordCount: await countJson(join(this.root, "records")),
 			searchRunCount: await countJson(join(this.root, "search-runs")),

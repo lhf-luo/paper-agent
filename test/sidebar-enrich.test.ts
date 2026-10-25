@@ -11,7 +11,7 @@ const tempDirs: string[] = [];
 async function makeStore(): Promise<{ root: string; store: LiteratureStore }> {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-"));
 	tempDirs.push(root);
-	const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+	const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 	return { root, store };
 }
 
@@ -47,7 +47,6 @@ function run(id: string, results: PaperRecord[]): SearchRun {
 		deduplicatedCount: results.length,
 		scope: "personal",
 		mode: "once",
-		namespace: "default",
 	};
 }
 

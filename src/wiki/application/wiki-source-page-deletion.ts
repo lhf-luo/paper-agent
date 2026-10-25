@@ -14,14 +14,13 @@ import { safeWikiPath } from "./wiki-page-codec.ts";
 import { restoreWikiFiles, withWikiWriteLock } from "./wiki-write-lock.ts";
 
 interface WikiSourcePageDeletionDependencies {
-	namespace: string;
 	directory: string;
 	root: string;
 	scanPages(): Promise<{ pages: WikiPage[] }>;
 	sync(): Promise<WikiSyncResult>;
 }
 
-type PreviewDependencies = Pick<WikiSourcePageDeletionDependencies, "namespace" | "scanPages">;
+type PreviewDependencies = Pick<WikiSourcePageDeletionDependencies, "scanPages">;
 
 export async function previewWikiSourcePageDeletion(
 	dependencies: PreviewDependencies,
@@ -71,11 +70,9 @@ export async function previewWikiSourcePageDeletion(
 		.filter((page) => page.targetPageIds.length > 0)
 		.sort((a, b) => a.pageId.localeCompare(b.pageId));
 	return {
-		namespace: dependencies.namespace,
 		paperId,
 		includeMixedPageIds,
 		fingerprint: sourceDeletionFingerprint(
-			dependencies.namespace,
 			paperId,
 			includeMixedPageIds,
 			targetPages,
@@ -94,8 +91,7 @@ export async function applyWikiSourcePageDeletion(
 	dependencies: WikiSourcePageDeletionDependencies,
 	preview: WikiSourcePageDeletionPreview,
 ): Promise<WikiSourcePageDeletionResult> {
-	if (preview.namespace !== dependencies.namespace)
-		throw new Error("Wiki deletion preview namespace does not match workspace");
+
 	if (preview.blocked) throw new Error("Wiki deletion has external backlinks; update those pages and preview again");
 	return withWikiWriteLock(dependencies.root, async () => {
 		const current = await previewWikiSourcePageDeletion(dependencies, preview.paperId, preview.includeMixedPageIds);
@@ -175,7 +171,6 @@ function deletionEntry(page: WikiPage, paperId: string): WikiSourcePageDeletionE
 }
 
 function sourceDeletionFingerprint(
-	namespace: string,
 	paperId: string,
 	includeMixedPageIds: string[],
 	targetPages: WikiSourcePageDeletionEntry[],
@@ -184,7 +179,6 @@ function sourceDeletionFingerprint(
 	return createHash("sha256")
 		.update(
 			JSON.stringify({
-				namespace,
 				paperId,
 				includeMixedPageIds,
 				targetPages: targetPages.map((page) => ({

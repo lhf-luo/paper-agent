@@ -41,6 +41,6 @@ export class WebAgentService extends WebAgentActions implements WebAgentServiceA
 
 export async function createWebAgentService(options: WebAgentServiceOptions): Promise<WebAgentService> {
 	const piModels = options.piModels ?? new PiModelService(options.projectRoot);
-	await piModels.initialize(await loadPaperAgentConfig(options.projectRoot));
+	await piModels.initialize();
 	return WebAgentService.create({ ...options, piModels });
 }

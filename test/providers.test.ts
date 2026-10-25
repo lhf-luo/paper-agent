@@ -94,22 +94,19 @@ describe("literature providers", () => {
 		expect(page.records[0].links.some((link) => link.kind === "pdf")).toBe(true);
 	});
 
-	it("sends arXiv UTC submission dates to the API and sorts newest first", async () => {
+	it("uses relevance keyword search with an offset, not news query options", async () => {
 		let requestUrl: URL | undefined;
 		await searchArxivPage({
-			query: "kernel bugs",
-			limit: 20,
-			filters: { arxivSubmittedFrom: "2026-10-10", arxivSubmittedTo: "2026-10-12" },
+			query: "kernel bugs", limit: 20, cursor: "40", filters: { yearFrom: 2026, yearTo: 2026 },
 			fetcher: async (input) => {
 				requestUrl = new URL(String(input));
 				return new Response("<feed></feed>");
 			},
 		});
-		expect(requestUrl?.searchParams.get("search_query")).toBe(
-			"(all:kernel bugs) AND submittedDate:[202610100000 TO 202610122359]",
-		);
-		expect(requestUrl?.searchParams.get("sortBy")).toBe("submittedDate");
-		expect(requestUrl?.searchParams.get("sortOrder")).toBe("descending");
+		expect(requestUrl?.searchParams.get("search_query")).toBe("all:kernel bugs");
+		expect(requestUrl?.searchParams.get("sortBy")).toBe("relevance");
+		expect(requestUrl?.searchParams.get("sortOrder")).toBeNull();
+		expect(requestUrl?.searchParams.get("start")).toBe("40");
 	});
 
 	it("parses OpenAlex cursor, abstract, references, authors, and OA PDF provenance", async () => {

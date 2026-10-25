@@ -15,7 +15,7 @@ afterEach(async () => {
 async function memStore(): Promise<LiteratureStore> {
 	const root = await mkdtemp(join(tmpdir(), "paper-agent-collections-"));
 	temporaryPaths.push(root);
-	const store = new LiteratureStore(root, "personal", "default");
+	const store = new LiteratureStore(root, "personal");
 	await store.initialize();
 	return store;
 }

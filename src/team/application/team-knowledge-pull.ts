@@ -6,7 +6,6 @@ import type { TeamCorpusClient } from "./team-corpus-client.ts";
 
 export interface TeamKnowledgePullInput {
 	entries: TeamContentRef[];
-	personalNamespace?: string;
 }
 
 export function teamSnapshotMarkdown(

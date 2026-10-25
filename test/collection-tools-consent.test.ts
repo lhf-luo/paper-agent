@@ -58,7 +58,6 @@ function searchRun(id: string, records: PaperRecord[]): SearchRun {
 		deduplicatedCount: records.length,
 		scope: "personal",
 		mode: "once",
-		namespace: "default",
 	};
 }
 
@@ -84,7 +83,7 @@ describe("collection tool mutation consent", () => {
 	it("records duplicate decisions and merges same-work search records under the chosen id", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-duplicate-review-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const value = searchRun("run-duplicates", [paper("paper-a"), paper("paper-b")]);
 		value.possibleDuplicates = [
 			{ leftId: "paper-a", rightId: "paper-b", titleSimilarity: 0.97, reason: "similar-title" },
@@ -114,7 +113,7 @@ describe("collection tool mutation consent", () => {
 	it("keeps valid duplicate decisions when another decision references a merged or missing paper", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-duplicate-partial-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const value = searchRun("run-duplicate-partial", [
 			paper("paper-a"),
 			paper("paper-b"),
@@ -163,7 +162,7 @@ describe("collection tool mutation consent", () => {
 	it("reads sidebar pages and selected search abstracts on demand", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-read-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const first = { ...paper("paper-a"), abstract: "First abstract" };
 		const second = { ...paper("paper-b"), abstract: "Second abstract" };
 		await store.saveSearchRun(searchRun("run-a", [first, second]));
@@ -222,7 +221,7 @@ describe("collection tool mutation consent", () => {
 	it("returns every retained Paper ID and lets update_literature_sidebar build the full list", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-filter-table-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const records = [
 			{
 				...paper("paper-a"),
@@ -330,7 +329,7 @@ describe("collection tool mutation consent", () => {
 	it("narrows a saved filter result without creating a child Search Run", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-filter-chain-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.saveSearchRun(
 			searchRun("run-chain", [
 				{ ...paper("paper-a"), title: "Linux UAF", abstract: "kernel use after free" },
@@ -391,7 +390,7 @@ describe("collection tool mutation consent", () => {
 	it("keeps all unique papers beyond 500 across overlapping groups and rejects invalid annotations", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-filter-large-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		const records = Array.from({ length: 520 }, (_, index) => {
 			const id = `paper-${String(index).padStart(4, "0")}`;
 			const title =
@@ -614,7 +613,7 @@ describe("collection tool mutation consent", () => {
 	it("saves one generated sidebar whose papers belong to multiple search runs", async () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-sidebar-save-"));
 		temporaryPaths.push(root);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "default"), "personal", "default");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		await store.saveSearchRun(searchRun("run-a", [paper("paper-a")]));
 		await store.saveSearchRun(searchRun("run-b", [paper("paper-b")]));
 		const resultsDir = join(root, ".paper-agent", "web-agent-memory", "results");
@@ -655,13 +654,12 @@ describe("collection tool mutation consent", () => {
 				providers: ["arxiv"],
 				corpus_only: true,
 				mode: "once",
-				namespace: "research",
 			},
 			undefined,
 			undefined,
 			context(root),
 		);
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "research"), "personal", "research");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal"), "personal");
 		expect((await store.listSearchRuns()).map((run) => run.id)).toEqual([result.details.searchRunId]);
 		await expect(stat(join(root, ".paper-agent", "search-runs.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
@@ -679,7 +677,7 @@ describe("collection tool mutation consent", () => {
 			pipeline_version: "1",
 			result: { claim: "checked" },
 			created_by: "Ada",
-			namespace: "alice",
+
 			corpus_root: corpusBase,
 		};
 
@@ -691,7 +689,7 @@ describe("collection tool mutation consent", () => {
 		const confirm = vi.fn(async () => true);
 		const result = await tool.execute("memory-confirmed", params, undefined, undefined, context(root, confirm));
 		expect(confirm).toHaveBeenCalledWith("Record derived research memory?", expect.stringContaining("Manifest:"));
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice", corpusBase), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", corpusBase), "personal");
 		expect(await store.getDerived(result.details.key)).toMatchObject({
 			createdBy: "Ada",
 			result: { claim: "checked" },
@@ -704,7 +702,7 @@ describe("collection tool mutation consent", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-corpus-consent-"));
 		temporaryPaths.push(root);
 		const corpusBase = join(root, "corpus");
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice", corpusBase), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", corpusBase), "personal");
 		await store.upsertPaper(paper("paper-1"));
 		const tool = registeredTools().get("manage_literature_corpus");
 
@@ -712,7 +710,7 @@ describe("collection tool mutation consent", () => {
 			"annotate-automatic",
 			{
 				action: "annotate",
-				namespace: "alice",
+
 				corpus_root: corpusBase,
 				paper_ids: ["paper-1"],
 				contributor: "Ada",
@@ -725,7 +723,7 @@ describe("collection tool mutation consent", () => {
 		expect((await store.getPaper("paper-1"))?.curation?.tags).toEqual(["private-tag", "reviewed"]);
 		const automaticExport = await tool.execute(
 			"export-automatic",
-			{ action: "export", namespace: "alice", corpus_root: corpusBase, format: "json", filename: "automatic.json" },
+			{ action: "export", corpus_root: corpusBase, format: "json", filename: "automatic.json" },
 			undefined,
 			undefined,
 			context(root),
@@ -740,7 +738,7 @@ describe("collection tool mutation consent", () => {
 				"annotate-blocked",
 				{
 					action: "annotate",
-					namespace: "alice",
+
 					corpus_root: corpusBase,
 					paper_ids: ["paper-1"],
 					contributor: "Ada",
@@ -758,7 +756,7 @@ describe("collection tool mutation consent", () => {
 			"annotate-confirmed",
 			{
 				action: "annotate",
-				namespace: "alice",
+
 				corpus_root: corpusBase,
 				paper_ids: ["paper-1"],
 				contributor: "Ada",
@@ -772,7 +770,7 @@ describe("collection tool mutation consent", () => {
 
 		const exported = await tool.execute(
 			"export-confirmed",
-			{ action: "export", namespace: "alice", corpus_root: corpusBase, format: "json", filename: "papers.json" },
+			{ action: "export", corpus_root: corpusBase, format: "json", filename: "papers.json" },
 			undefined,
 			undefined,
 			context(root, confirm),
@@ -784,20 +782,16 @@ describe("collection tool mutation consent", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-team-consent-"));
 		temporaryPaths.push(root);
 		const corpusBase = join(root, "corpus");
-		const personal = new LiteratureStore(
-			resolveCorpusRoot(root, "personal", "alice", corpusBase),
-			"personal",
-			"alice",
-		);
+		const personal = new LiteratureStore(resolveCorpusRoot(root, "personal", corpusBase), "personal");
 		await personal.upsertPaper(paper("paper-1"));
-		const teamRoot = resolveCorpusRoot(root, "team", "lab", corpusBase);
+		const teamRoot = resolveCorpusRoot(root, "team", corpusBase);
 		const tool = registeredTools().get("manage_literature_corpus");
 		const proposal = {
 			action: "promote",
-			namespace: "alice",
+
 			corpus_root: corpusBase,
 			paper_ids: ["paper-1"],
-			target_namespace: "lab",
+
 			target_corpus_root: corpusBase,
 			contributor: "Ada",
 		};
@@ -809,7 +803,7 @@ describe("collection tool mutation consent", () => {
 
 		const confirm = vi.fn(async () => true);
 		await tool.execute("promote-confirmed", proposal, undefined, undefined, context(root, confirm));
-		const team = new LiteratureStore(teamRoot, "team", "lab");
+		const team = new LiteratureStore(teamRoot, "team");
 		const proposed = await team.getPaper("paper-1");
 		expect(proposed?.curation).toMatchObject({ userNotes: [], teamReview: { status: "team-proposed" } });
 		expect(proposed?.curation?.screening).toBeUndefined();
@@ -820,7 +814,7 @@ describe("collection tool mutation consent", () => {
 				{
 					action: "review",
 					scope: "team",
-					namespace: "lab",
+
 					corpus_root: corpusBase,
 					paper_ids: ["paper-1"],
 					reviewer: "Reviewer",
@@ -838,7 +832,7 @@ describe("collection tool mutation consent", () => {
 			{
 				action: "review",
 				scope: "team",
-				namespace: "lab",
+
 				corpus_root: corpusBase,
 				paper_ids: ["paper-1"],
 				reviewer: "Reviewer",
@@ -858,14 +852,14 @@ describe("collection tool mutation consent", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-collection-management-"));
 		temporaryPaths.push(root);
 		const corpusBase = join(root, "corpus");
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice", corpusBase), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", corpusBase), "personal");
 		await store.upsertPaper(paper("paper-1"));
 		const tool = registeredTools().get("manage_literature_collections");
 		const confirm = vi.fn(async () => true);
 
 		const created = await tool.execute(
 			"collection-create",
-			{ action: "create", namespace: "alice", corpus_root: corpusBase, collection_name: "Compiler Testing" },
+			{ action: "create", corpus_root: corpusBase, collection_name: "Compiler Testing" },
 			undefined,
 			undefined,
 			context(root, confirm),
@@ -875,7 +869,7 @@ describe("collection tool mutation consent", () => {
 			"collection-assign",
 			{
 				action: "assign",
-				namespace: "alice",
+
 				corpus_root: corpusBase,
 				collection_id: collectionId,
 				paper_ids: ["paper-1"],
@@ -891,7 +885,7 @@ describe("collection tool mutation consent", () => {
 				"collection-unassign-blocked",
 				{
 					action: "unassign",
-					namespace: "alice",
+
 					corpus_root: corpusBase,
 					collection_id: collectionId,
 					paper_ids: ["paper-1"],
@@ -907,7 +901,7 @@ describe("collection tool mutation consent", () => {
 			"collection-unassign",
 			{
 				action: "unassign",
-				namespace: "alice",
+
 				corpus_root: corpusBase,
 				collection_id: collectionId,
 				paper_ids: ["paper-1"],
@@ -922,7 +916,7 @@ describe("collection tool mutation consent", () => {
 			"collection-rename",
 			{
 				action: "rename",
-				namespace: "alice",
+
 				corpus_root: corpusBase,
 				collection_id: collectionId,
 				new_name: "Compiler Validation",
@@ -933,7 +927,7 @@ describe("collection tool mutation consent", () => {
 		);
 		const listed = await tool.execute(
 			"collection-list",
-			{ action: "list", namespace: "alice", corpus_root: corpusBase },
+			{ action: "list", corpus_root: corpusBase },
 			undefined,
 			undefined,
 			context(root),
@@ -944,7 +938,7 @@ describe("collection tool mutation consent", () => {
 
 		await tool.execute(
 			"collection-delete",
-			{ action: "delete", namespace: "alice", corpus_root: corpusBase, collection_id: collectionId },
+			{ action: "delete", corpus_root: corpusBase, collection_id: collectionId },
 			undefined,
 			undefined,
 			context(root, confirm),
@@ -956,14 +950,14 @@ describe("collection tool mutation consent", () => {
 		const root = await mkdtemp(join(tmpdir(), "paper-agent-paper-delete-"));
 		temporaryPaths.push(root);
 		const corpusBase = join(root, "corpus");
-		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", "alice", corpusBase), "personal", "alice");
+		const store = new LiteratureStore(resolveCorpusRoot(root, "personal", corpusBase), "personal");
 		await store.upsertPaper(paper("paper-1"));
 		const tool = registeredTools().get("manage_literature_corpus");
 
 		await expect(
 			tool.execute(
 				"delete-blocked",
-				{ action: "delete", namespace: "alice", corpus_root: corpusBase, paper_ids: ["paper-1"] },
+				{ action: "delete", corpus_root: corpusBase, paper_ids: ["paper-1"] },
 				undefined,
 				undefined,
 				context(root),
@@ -973,7 +967,7 @@ describe("collection tool mutation consent", () => {
 
 		await tool.execute(
 			"delete-confirmed",
-			{ action: "delete", namespace: "alice", corpus_root: corpusBase, paper_ids: ["paper-1"] },
+			{ action: "delete", corpus_root: corpusBase, paper_ids: ["paper-1"] },
 			undefined,
 			undefined,
 			context(

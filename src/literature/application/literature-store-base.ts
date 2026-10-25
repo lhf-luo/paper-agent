@@ -27,7 +27,7 @@ import { pathExists, readJson, safeSegment } from "./literature-store-support.ts
 export abstract class LiteratureStoreBase {
 	readonly root: string;
 	readonly scope: CorpusScope;
-	readonly namespace: string;
+
 	protected readonly searchIndex: LiteratureSearchIndex;
 	protected readonly personalDatabase?: PersonalCorpusDatabase;
 	protected initialized = false;
@@ -37,12 +37,12 @@ export abstract class LiteratureStoreBase {
 	abstract listPaperVersions(paperId: string): Promise<PaperVersion[]>;
 	protected abstract refreshManifestUnlocked(): Promise<CorpusManifest>;
 
-	constructor(root: string, scope: CorpusScope, namespace: string) {
+	constructor(root: string, scope: CorpusScope) {
 		this.root = resolve(root);
 		this.scope = scope;
-		this.namespace = safeSegment(namespace, "namespace");
+
 		this.searchIndex = new LiteratureSearchIndex(join(this.root, "index", "literature.sqlite"));
-		this.personalDatabase = scope === "personal" ? new PersonalCorpusDatabase(this.root, this.namespace) : undefined;
+		this.personalDatabase = scope === "personal" ? new PersonalCorpusDatabase(this.root) : undefined;
 	}
 
 	get databasePath(): string {
@@ -187,8 +187,7 @@ export abstract class LiteratureStoreBase {
 			try {
 				candidate = await open(lockPath, "wx");
 				await candidate.writeFile(
-					JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), namespace: this.namespace }) +
-						"\n",
+					JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }) + "\n",
 					"utf8",
 				);
 				handle = candidate;

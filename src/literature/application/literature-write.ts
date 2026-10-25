@@ -12,14 +12,13 @@ export function corpusUpsertPlan(store: LiteratureStore, records: PaperRecord[])
 	const recordsFingerprint = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 	return {
 		kind: store.scope === "team" ? "team-write" : "personal-corpus-write",
-		summary: `Save ${records.length} literature records to ${store.scope}/${store.namespace}`,
+		summary: `Save ${records.length} literature records to ${store.scope}`,
 		targets: [{ label: "corpus", value: store.root, risk: store.scope === "team" ? "high" : "medium" }],
 		details: {
 			recordIds: normalized.map((record) => record.id),
 			recordsFingerprint,
 			corpusPath: store.root,
 			scope: store.scope,
-			namespace: store.namespace,
 		},
 	};
 }
@@ -46,7 +45,6 @@ export function derivedRecordWritePlan(store: LiteratureStore, record: DerivedRe
 			recordFingerprint,
 			corpusPath: store.root,
 			scope: store.scope,
-			namespace: store.namespace,
 		},
 	};
 }

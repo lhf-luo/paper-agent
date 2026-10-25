@@ -1,6 +1,5 @@
 import type {
 	MineruAssetIndex,
-	MineruPackageManifest,
 	MineruPackageStatistics,
 	MineruSectionIndex,
 } from "../domain/mineru-types.ts";
@@ -211,20 +210,4 @@ export function buildMineruIndex(
 		codeBlocks: blockTypes.code ?? 0,
 	};
 	return { sections, assets, statistics };
-}
-
-export function effectiveMineruIndex(manifest: MineruPackageManifest, blocks: MineruContentBlock[], markdown: string) {
-	if (
-		manifest.schemaVersion === 2 &&
-		manifest.sections &&
-		manifest.statistics &&
-		manifest.assets.every((item) => item.id)
-	) {
-		return {
-			sections: manifest.sections,
-			assets: manifest.assets as MineruAssetIndex[],
-			statistics: manifest.statistics,
-		};
-	}
-	return buildMineruIndex(blocks, markdown);
 }

@@ -24,10 +24,10 @@ import { type MineruReadRequest, readMineruMaterial, resolveMineruAsset } from "
 
 interface MineruServiceOptions {
 	projectRoot: string;
-	defaultNamespace: string;
+
 	executor: CommandExecutor;
 	consent: OperationConsentManager;
-	store: (namespace: string) => LiteratureStore;
+	store: () => LiteratureStore;
 }
 
 interface PreparedGeneration {
@@ -40,7 +40,7 @@ interface PreparedGeneration {
 
 interface PreparedDeletion {
 	paperId: string;
-	namespace: string;
+
 	plan: OperationPlan;
 	expiresAt: string;
 }
@@ -104,8 +104,8 @@ export class MineruService {
 			if (Date.parse(item.expiresAt) <= now) this.preparedDeletions.delete(id);
 	}
 
-	async material(paperId: string, namespace = this.options.defaultNamespace) {
-		const store = this.options.store(namespace);
+	async material(paperId: string) {
+		const store = this.options.store();
 		const [record, versions, material] = await Promise.all([
 			store.getPaper(paperId),
 			store.listPaperVersions(paperId),
@@ -120,7 +120,7 @@ export class MineruService {
 			: false;
 		return {
 			paperId,
-			namespace,
+
 			material: present ? material : undefined,
 			missing: Boolean(material && !present),
 			preferredSha256: preferred?.sha256,
@@ -133,13 +133,13 @@ export class MineruService {
 	): Promise<{ operation?: PreparedOperation; reused?: boolean; material?: unknown }> {
 		const request: MineruGenerationRequest = {
 			paperId: safePaperId(input.paperId?.trim() ?? ""),
-			namespace: input.namespace?.trim() || this.options.defaultNamespace,
+
 			force: input.force === true,
 		};
 		const configuration = await this.configuration();
 		const extractor = await findArchiveExtractor(this.options.executor);
 		if (!extractor) throw new Error("MinerU requires the system unzip or tar command");
-		const store = this.options.store(request.namespace);
+		const store = this.options.store();
 		const [paper, versions, existing] = await Promise.all([
 			store.getPaper(request.paperId),
 			store.listPaperVersions(request.paperId),
@@ -170,7 +170,6 @@ export class MineruService {
 			actor: "local-user",
 			targets: [{ label: "PDF", value: `${request.paperId}/${source.sha256}`, risk: "medium" }],
 			details: {
-				namespace: request.namespace,
 				paperId: request.paperId,
 				sourceSha256: source.sha256,
 				bytes: source.bytes,
@@ -235,7 +234,7 @@ export class MineruService {
 			configuration.language !== input.configuration.language
 		)
 			throw new Error("MinerU configuration changed after confirmation; prepare the operation again");
-		const store = this.options.store(input.request.namespace);
+		const store = this.options.store();
 		const currentSource = preferredVersion(await store.listPaperVersions(input.request.paperId));
 		if (!currentSource || currentSource.sha256 !== input.source.sha256) {
 			throw new Error("The preferred PDF changed after MinerU generation was confirmed");
@@ -309,8 +308,8 @@ export class MineruService {
 		}
 	}
 
-	async openFolder(paperId: string, namespace = this.options.defaultNamespace) {
-		const material = await this.options.store(namespace).getPdfMaterial(paperId);
+	async openFolder(paperId: string) {
+		const material = await this.options.store().getPdfMaterial(paperId);
 		if (!material) throw new Error("This paper has no MinerU material");
 		await access(material.path).catch(() => {
 			throw new Error("The MinerU material directory is missing");
@@ -322,8 +321,8 @@ export class MineruService {
 		return { opened: true, path: material.path };
 	}
 
-	private async currentMaterial(paperId: string, namespace: string): Promise<PdfMaterialRecord> {
-		const store = this.options.store(namespace);
+	private async currentMaterial(paperId: string): Promise<PdfMaterialRecord> {
+		const store = this.options.store();
 		const [material, versions] = await Promise.all([store.getPdfMaterial(paperId), store.listPaperVersions(paperId)]);
 		if (!material) throw new Error("This paper has no MinerU material");
 		const current = preferredVersion(versions);
@@ -333,29 +332,29 @@ export class MineruService {
 		return material;
 	}
 
-	async read(paperId: string, namespace: string, request: MineruReadRequest) {
-		const material = await this.currentMaterial(paperId, namespace);
+	async read(paperId: string, request: MineruReadRequest) {
+		const material = await this.currentMaterial(paperId);
 		return readMineruMaterial(material, request);
 	}
 
-	async readAsset(paperId: string, namespace: string, assetPath: string): Promise<{ path: string; body: Buffer }> {
-		const material = await this.currentMaterial(paperId, namespace);
+	async readAsset(paperId: string, assetPath: string): Promise<{ path: string; body: Buffer }> {
+		const material = await this.currentMaterial(paperId);
 		const path = resolveMineruAsset(material, assetPath);
 		return { path, body: await readFile(path) };
 	}
 
-	async prepareDelete(paperId: string, namespace = this.options.defaultNamespace): Promise<PreparedOperation> {
-		const material = await this.options.store(namespace).getPdfMaterial(safePaperId(paperId));
+	async prepareDelete(paperId: string): Promise<PreparedOperation> {
+		const material = await this.options.store().getPdfMaterial(safePaperId(paperId));
 		if (!material) throw new Error("This paper has no MinerU material");
 		const plan: OperationPlan = {
 			kind: "pdf-material-delete",
 			summary: "删除这篇论文的 MinerU 解析材料",
 			actor: "local-user",
 			targets: [{ label: "MinerU 材料", value: material.path, risk: "medium" }],
-			details: { namespace, paperId, sourceSha256: material.sourceSha256 },
+			details: { paperId, sourceSha256: material.sourceSha256 },
 		};
 		const operation = await this.options.consent.prepare(plan);
-		this.preparedDeletions.set(operation.operationId, { paperId, namespace, plan, expiresAt: operation.expiresAt });
+		this.preparedDeletions.set(operation.operationId, { paperId, plan, expiresAt: operation.expiresAt });
 		return operation;
 	}
 
@@ -365,11 +364,11 @@ export class MineruService {
 		if (!prepared) throw new Error("Prepared MinerU deletion was not found or expired");
 		await authorizeOperationExecution({ manager: this.options.consent, grant }, prepared.plan);
 		this.preparedDeletions.delete(grant.operationId);
-		return this.delete(prepared.paperId, prepared.namespace);
+		return this.delete(prepared.paperId);
 	}
 
-	async delete(paperId: string, namespace = this.options.defaultNamespace) {
-		const store = this.options.store(namespace);
+	async delete(paperId: string) {
+		const store = this.options.store();
 		const existing = await store.getPdfMaterial(paperId);
 		if (!existing) return { deleted: false };
 		const source = resolve(existing.path);

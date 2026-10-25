@@ -18,7 +18,7 @@ const existing = await loadPaperAgentConfig(projectRoot);
 
 async function initializeWikiStorage(config: Awaited<ReturnType<typeof loadPaperAgentConfig>>): Promise<void> {
 	const dataRoot = resolve(config.storage.dataRoot ?? join(projectRoot, ".paper-agent"));
-	await new WikiWorkspace(dataRoot, config.storage.defaultNamespace).initialize();
+	await new WikiWorkspace(dataRoot).initialize();
 }
 
 if (defaultsOnly) {
@@ -47,7 +47,7 @@ try {
 	console.log("\nPaper Agent first-run setup");
 	console.log("Secrets are never written to this config. Enter environment-variable names only.\n");
 	const next = structuredClone(existing);
-	next.storage.defaultNamespace = await ask("Default personal namespace", existing.storage.defaultNamespace);
+
 	next.storage.dataRoot =
 		(await ask("Local data directory (blank uses .paper-agent)", existing.storage.dataRoot ?? "")) || undefined;
 	next.interface.port = Number(await ask("Local Web port (0 chooses a free port)", String(existing.interface.port)));

@@ -17,16 +17,12 @@ import type {
 	WikiSourcePageDeletionPreview,
 } from "../domain/wiki-types.ts";
 
-function workspace(cwd: string, namespace: string): WikiWorkspace {
+function workspace(cwd: string): WikiWorkspace {
 	const config = loadPaperAgentConfigSync(cwd);
 	const dataRoot = resolve(config.storage.dataRoot ?? join(cwd, ".paper-agent"));
-	const store = new LiteratureStore(
-		resolveCorpusRoot(cwd, "personal", namespace, config.storage.corpusRoot),
-		"personal",
-		namespace,
-	);
+	const store = new LiteratureStore(resolveCorpusRoot(cwd, "personal", config.storage.corpusRoot), "personal");
 	const notebook = new ResearchNotebook(store);
-	return new WikiWorkspace(dataRoot, namespace, {
+	return new WikiWorkspace(dataRoot, {
 		resolvePaper: async (id) => {
 			const record = await store.getPaper(id);
 			if (!record) return undefined;
@@ -104,8 +100,6 @@ const pageChange = Type.Object({
 	aliases: Type.Optional(Type.Array(Type.String({ maxLength: 300 }), { maxItems: 100 })),
 	tags: Type.Optional(Type.Array(Type.String({ maxLength: 100 }), { maxItems: 100 })),
 	evidence: Type.Array(wikiEvidence, { maxItems: 200 }),
-	paper_ids: Type.Optional(Type.Array(Type.String({ maxLength: 512 }), { maxItems: 200 })),
-	source_note_ids: Type.Optional(Type.Array(Type.String({ maxLength: 128 }), { maxItems: 100 })),
 });
 
 function changeInput(value: {
@@ -134,8 +128,6 @@ function changeInput(value: {
 			line?: number;
 		};
 	}>;
-	paper_ids?: string[];
-	source_note_ids?: string[];
 }): IngestWikiPageInput {
 	return {
 		pageId: value.page_id,
@@ -163,8 +155,6 @@ function changeInput(value: {
 				...(item.locator.line ? { line: item.locator.line } : {}),
 			},
 		})),
-		paperIds: value.paper_ids,
-		sourceNoteIds: value.source_note_ids,
 	};
 }
 
@@ -177,11 +167,10 @@ function wikiIngestPlan(preview: WikiIngestPreview): OperationPlan {
 		actor: "paper-agent",
 		targets: preview.changes.map((change) => ({
 			label: change.pageId ? "Wiki page" : "New Wiki page",
-			value: `${preview.namespace}/${change.title}`,
+			value: `${change.title}`,
 			risk: "medium",
 		})),
 		details: {
-			namespace: preview.namespace,
 			previewFingerprint: preview.fingerprint,
 			changes: preview.changes.map((change) => ({
 				action: change.action,
@@ -202,11 +191,10 @@ function wikiSourcePageDeletionPlan(preview: WikiSourcePageDeletionPreview): Ope
 		actor: "paper-agent",
 		targets: preview.targetPages.map((page) => ({
 			label: "Wiki page",
-			value: `${preview.namespace}/${page.title}`,
+			value: `${page.title}`,
 			risk: "high",
 		})),
 		details: {
-			namespace: preview.namespace,
 			paperId: preview.paperId,
 			previewFingerprint: preview.fingerprint,
 			pages: preview.targetPages.map((page) => ({
@@ -249,7 +237,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 		name: "search_research_wiki",
 		label: "Search research Wiki",
 		description:
-			"Search or read the curated Markdown research Wiki for one personal namespace. Search can use page metadata, body chunks, aliases, source paper/note ids, type, and status. This tool never falls back to transient search results, research notes, PDFs, or model memory.",
+			"Search or read the curated Markdown research Wiki for the personal workspace. Search can use page metadata, body chunks, aliases, source paper/note ids, type, and status. This tool never falls back to transient search results, research notes, PDFs, or model memory.",
 		promptSnippet: "Query deposited research knowledge before claiming the personal Wiki contains an answer",
 		promptGuidelines: [
 			"Treat results as curated Wiki content and retain their evidence ids and source ids in the answer.",
@@ -257,7 +245,6 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 			"If no page supports the question, say that the knowledge has not been deposited; suggest research or an explicit ingest instead of silently using other materials.",
 		],
 		parameters: Type.Object({
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
 			page_id: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			query: Type.Optional(Type.String({ maxLength: 500 })),
 			paper_id: Type.Optional(Type.String({ maxLength: 512 })),
@@ -268,8 +255,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 			include_related: Type.Optional(Type.Boolean({ default: false })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const wiki = workspace(ctx.cwd, namespace);
+			const wiki = workspace(ctx.cwd);
 			if (params.page_id) {
 				const found = await wiki.get(params.page_id);
 				if (!found) throw new Error(`Wiki page not found: ${params.page_id}`);
@@ -289,7 +275,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 							].join("\n"),
 						},
 					],
-					details: { namespace, ...found },
+					details: { ...found },
 				};
 			}
 			const result = await wiki.search({
@@ -322,16 +308,14 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			mode: Type.Union([Type.Literal("preview"), Type.Literal("apply")]),
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
+
 			summary: Type.String({ minLength: 1, maxLength: 500 }),
 			changes: Type.Array(pageChange, { minItems: 1, maxItems: 100 }),
 			preview_fingerprint: Type.Optional(Type.String({ maxLength: 128 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const wiki = workspace(ctx.cwd, namespace);
+			const wiki = workspace(ctx.cwd);
 			const requestInput = {
-				namespace,
 				summary: params.summary,
 				changes: params.changes.map(changeInput),
 			};
@@ -351,7 +335,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 							].join("\n"),
 						},
 					],
-					details: { namespace, preview },
+					details: { preview },
 				};
 			}
 			if (!params.preview_fingerprint) throw new Error("preview_fingerprint is required when mode=apply");
@@ -364,7 +348,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 			if (!preview.changes.some((change) => change.action === "create" || change.action === "update")) {
 				return {
 					content: [{ type: "text", text: "Wiki batch is already up to date; no write was needed." }],
-					details: { namespace, preview },
+					details: { preview },
 				};
 			}
 			const plan = wikiIngestPlan(preview);
@@ -385,7 +369,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 						text: `Wiki batch saved: ${result.pages.length} page(s), fingerprint ${result.previewFingerprint}`,
 					},
 				],
-				details: { namespace, preview, result },
+				details: { preview, result },
 			};
 		},
 	});
@@ -396,12 +380,9 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 		description:
 			"Synchronize and inspect the Markdown research Wiki for schema, evidence, provenance, links, duplicates, staleness, and indexing problems. This tool is read-only.",
 		promptSnippet: "Audit Wiki structure and provenance without changing files",
-		parameters: Type.Object({
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const result = await workspace(ctx.cwd, namespace).lint();
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const result = await workspace(ctx.cwd).lint();
 			const errors = result.issues.filter((issue) => issue.severity === "error").length;
 			const warnings = result.issues.filter((issue) => issue.severity === "warning").length;
 			return {
@@ -419,7 +400,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 							: `Wiki lint passed: ${result.pageCount} pages indexed.`,
 					},
 				],
-				details: { namespace, ...result },
+				details: { ...result },
 			};
 		},
 	});
@@ -438,7 +419,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({
 			mode: Type.Union([Type.Literal("preview"), Type.Literal("apply")]),
-			namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 64, default: "default" })),
+
 			paper_id: Type.String({ minLength: 1, maxLength: 512 }),
 			include_mixed_page_ids: Type.Optional(
 				Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100, uniqueItems: true }),
@@ -446,8 +427,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 			preview_fingerprint: Type.Optional(Type.String({ minLength: 64, maxLength: 128 })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const namespace = params.namespace ?? "default";
-			const wiki = workspace(ctx.cwd, namespace);
+			const wiki = workspace(ctx.cwd);
 			const preview = await wiki.previewSourcePageDeletion(params.paper_id, params.include_mixed_page_ids ?? []);
 			if (params.mode === "preview") {
 				return {
@@ -474,7 +454,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 							].join("\n"),
 						},
 					],
-					details: { namespace, preview },
+					details: { preview },
 				};
 			}
 			if (!params.preview_fingerprint) throw new Error("preview_fingerprint is required when mode=apply");
@@ -487,7 +467,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 			if (!preview.targetPages.length) {
 				return {
 					content: [{ type: "text", text: "No Wiki pages were eligible for deletion; no write was needed." }],
-					details: { namespace, preview },
+					details: { preview },
 				};
 			}
 			const plan = wikiSourcePageDeletionPlan(preview);
@@ -510,7 +490,7 @@ export function registerWikiTools(pi: ExtensionAPI): void {
 						text: `Deleted ${result.deletedPages.length} Wiki page(s) and ${result.deletedEvidenceCount} matching evidence entries. Remaining lint: ${errors} errors, ${warnings} warnings.`,
 					},
 				],
-				details: { namespace, preview, result },
+				details: { preview, result },
 			};
 		},
 	});

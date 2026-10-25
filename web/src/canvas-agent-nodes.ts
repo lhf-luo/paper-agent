@@ -2,7 +2,7 @@ import type { CanvasRichContent, CanvasRichNode } from "../../src/canvas/domain/
 import { getTeamLeaderNames, getTeamMemberNames } from "../../src/canvas/domain/canvas-team.js";
 import { canvasTextDocument } from "./canvas-rich-text.js";
 
-export type CanvasAgentNodeKind = "paper" | "note" | "text" | "author" | "team" | "agent";
+export type CanvasAgentNodeKind = "paper" | "note" | "text" | "author" | "team" | "agent" | "search_graph";
 
 export interface CanvasAgentNode {
 	id: string;
@@ -27,7 +27,7 @@ export interface CanvasAgentNodeCandidate {
 	kind: Exclude<CanvasAgentNodeKind, "agent">;
 	title: string;
 	caption: string;
-	namespace: string;
+
 	available: boolean;
 	unavailableReason?: string;
 	node: CanvasAgentNode;
@@ -41,6 +41,7 @@ export const canvasAgentKindLabels: Record<CanvasAgentNodeCandidate["kind"], str
 	text: "文本",
 	author: "作者",
 	team: "团队",
+ search_graph: "搜索图谱",
 };
 
 export function resolveCanvasAgentSelection(
@@ -60,7 +61,7 @@ export function connectedCanvasAgentNodes(input: {
 	nodes: CanvasAgentNode[];
 	edges: Array<{ from: string; to: string; label: string }>;
 	sessionId: string;
-	namespace: string;
+
 	papers: ReadonlyMap<string, { title: string }>;
 	notes: ReadonlyMap<string, { title: string }>;
 }): CanvasAgentNodeCandidate[] {
@@ -86,7 +87,7 @@ export function connectedCanvasAgentNodes(input: {
 				kind: node.kind,
 				title: source?.title ?? node.title,
 				caption: node.alias?.trim() || canvasAgentKindLabels[node.kind],
-				namespace: input.namespace,
+
 				available: !needsSource || Boolean(node.entityId && source),
 				...(needsSource && !source ? { unavailableReason: "个人库中已找不到来源记录" } : {}),
 				node,
@@ -199,11 +200,13 @@ export function composeCanvasNodeMessage(
 ): string {
 	if (!nodes.length) return task;
 	const lines = nodes.map((candidate) => {
-		const { node, namespace, title } = candidate;
+		const { node, title } = candidate;
 		if (node.kind === "paper")
-			return `- 个人库论文：${JSON.stringify(title)}；namespace=${JSON.stringify(namespace)}；paper_id=${JSON.stringify(node.entityId)}。需要内容时使用 get_personal_library_paper 查询。`;
+			return `- 个人库论文：${JSON.stringify(title)}；paper_id=${JSON.stringify(node.entityId)}。需要内容时使用 get_personal_library_paper 查询。`;
+		if (node.kind === "search_graph")
+ return `- 搜索图谱：${JSON.stringify(title)}；search_run_id=${JSON.stringify(node.entityId)}。引用整份搜索结果，不是个人库论文 ID；使用搜索结果工具按需读取。`;
 		if (node.kind === "note")
-			return `- 个人库笔记：${JSON.stringify(title)}；namespace=${JSON.stringify(namespace)}；note_id=${JSON.stringify(node.entityId)}。需要内容时使用 search_research_notes 查询。`;
+			return `- 个人库笔记：${JSON.stringify(title)}；note_id=${JSON.stringify(node.entityId)}。需要内容时使用 search_research_notes 查询。`;
 		if (node.kind === "text")
 			return `- 画布文本：${JSON.stringify(title)}；内容见附件 ${JSON.stringify(textAttachments.get(node.id) ?? canvasNodeAttachmentName(node.id))}。`;
 		if (node.kind === "author") {

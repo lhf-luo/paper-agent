@@ -4,9 +4,7 @@
 		"port": 43127,
 		"openBrowser": true
 	},
-	"storage": {
-		"defaultNamespace": "default"
-	},
+	"storage": {},
 	"externalTools": {
 		"commandDirectories": []
 	},

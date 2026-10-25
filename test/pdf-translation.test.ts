@@ -14,9 +14,9 @@ import {
 import { Pdf2zhProgressParser } from "../src/extensions/pdf-translation/infrastructure/pdf2zh-progress.ts";
 import type { PaperRecord, PaperVersion } from "../src/literature/domain/literature-types.ts";
 import {
-	NodeCommandExecutor,
 	type CommandExecOptions,
 	type CommandExecutor,
+	NodeCommandExecutor,
 } from "../src/shared/infrastructure/command-executor.ts";
 
 const temporaryPaths: string[] = [];
@@ -185,7 +185,7 @@ describe("PDF translation", () => {
 			try {
 				const request = {
 					paperId: paper.id,
-					namespace: "default",
+
 					sourceSha256: source.sha256,
 					sourceLanguage: "en",
 					targetLanguage: "zh-CN",

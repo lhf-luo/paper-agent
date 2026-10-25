@@ -17,9 +17,9 @@ import {
 	type PersonalLocalImportResult,
 	safePathSegment,
 } from "./personal-database-support.ts";
-import { PersonalLegacyCorpusMigration } from "./personal-legacy-corpus-migration.ts";
+import { PersonalFileRepository } from "./personal-file-repository.ts";
 
-export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpusMigration {
+export abstract class PersonalLocalImportRepository extends PersonalFileRepository {
 	async importLocalPapersAtomically(
 		inputs: PersonalLocalImportInput[],
 		options: PersonalLocalImportOptions,
@@ -101,7 +101,7 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 			preparedInputs.push({ input, record: merged });
 		}
 
-		const reportDirectory = join(this.legacyRoot, "imports");
+		const reportDirectory = join(this.root, "imports");
 		const reportPath = join(reportDirectory, `${safePathSegment(options.reportId, "import-report")}.json`);
 		const createdFiles: string[] = [];
 		const database = this.open();
@@ -111,17 +111,15 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 				(value) => !existingCollections.some((old) => old.id === value.id),
 			)) {
 				database
-					.prepare(
-						"INSERT INTO collections(id, namespace_id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-					)
-					.run(value.id, this.namespace, value.name, value.parentId ?? null, value.createdAt, value.updatedAt);
+					.prepare("INSERT INTO collections(id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+					.run(value.id, value.name, value.parentId ?? null, value.createdAt, value.updatedAt);
 			}
 			if (collection) {
 				database
 					.prepare(
-						"INSERT OR IGNORE INTO collections(id, namespace_id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)",
+						"INSERT OR IGNORE INTO collections(id, name, parent_id, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)",
 					)
-					.run(collection.id, this.namespace, collection.name, collection.createdAt, collection.updatedAt);
+					.run(collection.id, collection.name, collection.createdAt, collection.updatedAt);
 			}
 			for (const { input, record } of preparedInputs) {
 				const previous = existingRecords.find(
@@ -133,15 +131,13 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 					.get(rowId) as { paper_id: string; title: string; record_json: string };
 				if (input.zotero) {
 					database
-						.prepare(`INSERT INTO zotero_item_mappings(
-							namespace_id, paper_row_id, server_id, library_id, zotero_item_key,
+						.prepare(`INSERT INTO zotero_item_mappings( paper_row_id, server_id, library_id, zotero_item_key,
 							item_version, last_direction, last_synced_at
-						) VALUES (?, ?, ?, ?, ?, ?, 'zotero-to-personal', ?)
-						ON CONFLICT(namespace_id, paper_row_id, server_id, library_id) DO UPDATE SET
+						) VALUES ( ?, ?, ?, ?, ?, 'zotero-to-personal', ?)
+						ON CONFLICT(paper_row_id, server_id, library_id) DO UPDATE SET
 							zotero_item_key=excluded.zotero_item_key, item_version=excluded.item_version,
 							last_direction=excluded.last_direction, last_synced_at=excluded.last_synced_at`)
 						.run(
-							this.namespace,
 							rowId,
 							input.zotero.serverId,
 							input.zotero.libraryId,
@@ -196,12 +192,12 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 			const now = new Date().toISOString();
 			database
 				.prepare(`INSERT OR REPLACE INTO import_runs(
-				id, namespace_id, status, target_collection_id, started_at, completed_at,
+				id, status, target_collection_id, started_at, completed_at,
 				parsed_count, imported_count, needs_metadata_count, rejected_count, report_json
-			) VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, 0, 0, ?)`)
+			) VALUES (?, 'completed', ?, ?, ?, ?, ?, 0, 0, ?)`)
 				.run(
 					options.reportId,
-					this.namespace,
+
 					collection?.id ?? null,
 					now,
 					now,
@@ -215,16 +211,14 @@ export abstract class PersonalLocalImportRepository extends PersonalLegacyCorpus
 					const collectionId = collectionIdByExternalKey.get(spec.externalKey);
 					if (!collectionId) continue;
 					database
-						.prepare(`INSERT INTO zotero_collection_mappings(
-							namespace_id, collection_id, server_id, library_id, zotero_collection_key,
+						.prepare(`INSERT INTO zotero_collection_mappings( collection_id, server_id, library_id, zotero_collection_key,
 							collection_version, path_json, last_synced_at
-						) VALUES (?, ?, ?, '0', ?, ?, ?, ?)
-						ON CONFLICT(namespace_id, collection_id, server_id, library_id) DO UPDATE SET
+						) VALUES ( ?, ?, '0', ?, ?, ?, ?)
+						ON CONFLICT(collection_id, server_id, library_id) DO UPDATE SET
 							zotero_collection_key=excluded.zotero_collection_key,
 							collection_version=excluded.collection_version,
 							path_json=excluded.path_json, last_synced_at=excluded.last_synced_at`)
 						.run(
-							this.namespace,
 							collectionId,
 							mappingServerId,
 							spec.externalKey,

@@ -4,26 +4,26 @@
 
 | Choice | Meaning | Default use |
 | --- | --- | --- |
-| personal | Private working namespace; may contain unreviewed records | New collection |
-| team | Shared namespace containing proposed and reviewed records | Reuse or explicit proposal/review only |
+| personal | Private workspace; may contain unreviewed records | New collection |
+| team | Remote shared namespace containing proposed and reviewed records | Reuse or explicit proposal/review only |
 | once | Persist the search run for later selection, but do not merge candidate papers into the library | Exploration |
 | persistent | Reusable records, search cache, derived outputs, and exports | Continuing projects |
 
-Search the authenticated team service first when it is configured. Treat team records as reusable discovery memory, not primary-source proof. Store new searches, private notes, and personal screening only in personal scope.
+Search external providers by default with `reuse_corpus=false`. Search personal or authenticated team records only when the user requests library search or reuse. Treat team records as reusable discovery memory, not primary-source proof. Store new searches, private notes, and personal screening only in personal scope.
 
 A team path may point to a mounted group directory. Paper-agent serializes local writes with an atomic lock, but a multi-host network share must use the single-writer service because cross-host filesystem-lock guarantees vary. Run one service instance per corpus root and use tested backups.
 
-Tool entrypoints live in feature `presentation/` directories; corpus state must still be read or written only through the approved application services, repositories, and consent helpers. Do not edit `personal.sqlite`, personal PDF directories, search runs, PDF versions, search indexes, or artifact manifests by hand. Research note bodies are Markdown under `.paper-agent/notes/{namespace}/`; SQLite stores their index, revision, hash, and paper relationships. Old `.paper-agent/research/` JSON files and `audit.jsonl` are obsolete.
+Tool entrypoints live in feature `presentation/` directories; corpus state must still be read or written only through the approved application services, repositories, and consent helpers. Do not edit `personal.sqlite`, personal PDF directories, search runs, PDF versions, search indexes, or artifact manifests by hand. Research note bodies are Markdown under `.paper-agent/notes/`; SQLite stores their index, revision, hash, and paper relationships. Old `.paper-agent/research/` JSON files and `audit.jsonl` are obsolete.
 
 ## Provenance minimum
 
 Each paper record must retain provider, query, retrieval time, provider record id when available, identifiers, and final links. Search runs must retain query variants, filters, provider counts, pagination bounds, deduplication count, discovery paths, candidate-table rows, and failures.
 
-Downloaded PDFs require source/final URL, retrieval time, content type, byte size, SHA-256, and stored path. Personal PDFs use readable, title-based filenames under the namespace and paper directory; SHA-256 is retained for integrity, exact duplicate detection, and transfer verification. Team storage may continue to use content-addressed blobs. Artifact acquisitions require candidate context, status, local path, final URL, SHA-256 or Git commit, detected license files, and failure reason.
+Downloaded PDFs require source/final URL, retrieval time, content type, byte size, SHA-256, and stored path. Personal PDFs use readable, title-based filenames under the paper directory; SHA-256 is retained for integrity, exact duplicate detection, and transfer verification. Team storage may continue to use content-addressed blobs. Artifact acquisitions require candidate context, status, local path, final URL, SHA-256 or Git commit, detected license files, and failure reason.
 
 Zotero exchange uses the official loopback Local API, never direct access to `zotero.sqlite`. Preserve complete collection ancestry and multiple memberships in both directions. Transfers are explicit copy/update operations and never propagate deletion. Do not transfer personal notes, screening state, research records, Artifacts, Zotero annotations, or child notes.
 
-Saved selections require a durable source `search_run_id`, selected paper ids, target personal namespace, contributor, confirmation fingerprint, write outcomes, and missing ids. Material packages require paper id, metadata summary, PDF version summary, stored PDF path or link, artifact manifest/acquisition summary, discovery source, screening status, reading status, and latest update time.
+Saved selections require a durable source `search_run_id`, selected paper ids, personal workspace, contributor, confirmation fingerprint, write outcomes, and missing ids. Material packages require paper id, metadata summary, PDF version summary, stored PDF path or link, artifact manifest/acquisition summary, discovery source, screening status, reading status, and latest update time.
 
 ## Reuse and proposal
 
@@ -35,7 +35,7 @@ Do not use `collect_literature` persistent mode or citation expansion to write d
 
 Use reading status only as workflow state. It can say unread, queued, reading, read, or skimmed; it is not proof that every claim in the paper was verified.
 
-Research notes may link only papers in the same personal namespace. Deleting a paper removes its links from notes but does not delete the Markdown notes themselves.
+Research notes may link only papers in the personal workspace. Deleting a paper removes its links from notes but does not delete the Markdown notes themselves.
 
 ## Security
 

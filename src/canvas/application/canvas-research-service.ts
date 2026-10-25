@@ -1,3 +1,4 @@
+import { resolveCanvasPaper } from "./canvas-graph-service.ts";
 import { randomUUID } from "node:crypto";
 import type { LiteratureStore } from "../../literature/application/literature-store.ts";
 import { applyCanvasOperations, parseChangeOperations, selectedChangeIds } from "../domain/canvas-changes.ts";
@@ -11,6 +12,7 @@ import { defaultResearchSettings } from "../domain/canvas-research.ts";
 import { parseResearchContext, parseResearchSettings } from "../domain/canvas-research-validation.ts";
 import { CanvasResearchStore } from "../infrastructure/canvas-research-store.ts";
 import { ResearchCanvasStore } from "../infrastructure/research-canvas-store.ts";
+import { validateCanvasNodeProposal } from "./canvas-node-proposals.ts";
 import { CanvasAnalysisWriter } from "./canvas-research-analysis.ts";
 import { type ResearchLayout, researchLayout } from "./canvas-research-layout.ts";
 import {
@@ -28,7 +30,7 @@ type SessionSummary = (
 ) => Promise<{ title: string; status: string; updatedAt: string; pendingRequests: number } | undefined>;
 export class CanvasResearchService {
 	readonly library: LiteratureStore;
-	readonly namespace: string;
+
 	readonly canvasId: string;
 	readonly sessionId: string;
 	readonly sessionSummary?: SessionSummary;
@@ -40,18 +42,18 @@ export class CanvasResearchService {
 	readonly canvases: ResearchCanvasStore;
 	constructor(
 		library: LiteratureStore,
-		namespace: string,
+
 		canvasId: string,
 		sessionId = "user",
 		sessionSummary?: SessionSummary,
 	) {
 		this.library = library;
-		this.namespace = namespace;
+
 		this.canvasId = canvasId;
 		this.sessionId = sessionId;
 		this.sessionSummary = sessionSummary;
-		this.records = new CanvasResearchStore(library.databasePath, namespace, canvasId);
-		this.canvases = new ResearchCanvasStore(library.databasePath, namespace);
+		this.records = new CanvasResearchStore(library.databasePath, canvasId);
+		this.canvases = new ResearchCanvasStore(library.databasePath);
 	}
 	board() {
 		const board = this.canvases.get(this.canvasId);
@@ -99,7 +101,21 @@ export class CanvasResearchService {
 	}
 	async inventory(scope = this.context(), validateOwner = true) {
 		const board = this.board();
-		const raw = scopedNodes(board, scope, validateOwner && this.sessionId !== "user" ? this.sessionId : undefined);
+		const scoped = scopedNodes(board, scope, validateOwner && this.sessionId !== "user" ? this.sessionId : undefined);
+		const resolved = await Promise.all(
+			scoped.map(async (n) =>
+				n.kind === "paper"
+					? { node: n, source: await resolveCanvasPaper(this.library, n) }
+					: { node: n, source: undefined },
+			),
+		);
+		const raw = resolved.flatMap(({ node, source }) =>
+			node.kind !== "paper"
+				? [node]
+				: source?.personal
+					? [{ ...node, entityId: source.personal.id }]
+					: [node],
+		);
 		const refs = [...new Set(raw.filter((n) => n.kind === "paper").map((n) => n.entityId!))];
 		const index = await researchPaperIndex(this.library, refs);
 		const nodes = raw.map((n) => (n.kind === "paper" ? { ...n, entityId: index.canonicalIds[n.entityId!] } : n));
@@ -128,6 +144,9 @@ export class CanvasResearchService {
 	async overview() {
 		const board = this.board();
 		const nodes = scopedNodes(board, this.context(), this.sessionId === "user" ? undefined : this.sessionId);
+		const resolvedPapers = await Promise.all(
+			nodes.filter((n) => n.kind === "paper").map((n) => resolveCanvasPaper(this.library, n)),
+		);
 		const latest = this.records
 			.list<CanvasResearchAnalysis>("analysis")
 			.slice(0, 5)
@@ -140,22 +159,16 @@ export class CanvasResearchService {
 				cards: value.cards.length,
 			}));
 		return {
-			namespace: this.namespace,
 			canvasId: this.canvasId,
 			title: board.title,
 			revision: board.revision,
 			scope: this.context(),
 			settings: this.settings(),
 			nodes: nodes.length,
-			uniquePapers: new Set(
-				await Promise.all(
-					[...new Set(nodes.filter((n) => n.kind === "paper").map((n) => n.entityId!))].map(
-						async (id) => (await this.library.getPaper(id))?.id ?? id,
-					),
-				),
-			).size,
+			libraryPapers: new Set(resolvedPapers.flatMap((s) => (s.personal ? [s.personal.id] : []))).size,
+			uniquePapers: new Set(resolvedPapers.flatMap((s) => (s.paper ? [s.paper.id] : []))).size,
 			types: Object.fromEntries(
-				["paper", "note", "text", "author", "team", "agent"].map((kind) => [
+				["paper", "note", "text", "author", "team", "agent", "search_graph"].map((kind) => [
 					kind,
 					nodes.filter((n) => n.kind === kind).length,
 				]),
@@ -172,12 +185,22 @@ export class CanvasResearchService {
 		const nodes = await Promise.all(
 			selected.map(async (node) => {
 				if (node.kind === "agent") return { ...node, session: await this.sessionSummary?.(node.entityId!) };
+				if (node.kind === "search_graph") return { ...node, source: { kind: "search_run", searchRunId: node.entityId }, readingEnabled: false };
 				if (node.kind !== "paper") return node;
-				const source = await paperSource(this.library, node.entityId!);
+				const resolved = await resolveCanvasPaper(this.library, node);
+				if (!resolved.personal)
+					return {
+						...node,
+						paper: paperMetadata(resolved.paper),
+						available: !!resolved.paper,
+						readingEnabled: false,
+					};
+				const source = await paperSource(this.library, resolved.personal.id);
 				return {
 					...node,
 					entityId: source.paper?.id ?? node.entityId,
 					paper: paperMetadata(source.paper),
+					readingEnabled: Boolean(source.paper),
 					available: Boolean(source.paper),
 					pdf: source.preferred ? { sha256: source.preferred.sha256, path: source.preferred.blobPath } : undefined,
 					mineru: source.material ? { id: source.material.id, pageCount: source.material.pageCount } : undefined,
@@ -236,6 +259,8 @@ export class CanvasResearchService {
 		const visible = new Set(snapshot.nodes.map((n) => n.id));
 		const newIds = new Set(operations.flatMap((op) => (op.kind === "add_node" ? [op.node.id] : [])));
 		for (const op of operations) {
+			if (op.kind === "add_node" && op.node.kind !== "paper" && op.node.kind !== "text")
+				throw new Error("研究提案仅能新增论文或总结文本卡；作者、团队请使用 propose_canvas_nodes");
 			if (op.kind === "add_node" && op.node.kind === "text") {
 				if (!input.analysisId || !this.records.get("analysis", input.analysisId))
 					throw new Error("研究总结卡必须关联分析记录");
@@ -279,6 +304,11 @@ export class CanvasResearchService {
 	async apply(id: string, selectedIds: string[], revision: number, undo = false) {
 		const proposal = this.records.get<CanvasChangeProposal>("proposal", id);
 		if (!proposal) throw new Error("提案不存在");
+		if (proposal.value.purpose === "editing") {
+			if (!undo && proposal.value.status === "pending")
+				await validateCanvasNodeProposal(this, proposal.value, selectedIds, proposal.sessionId);
+			return this.records.commitProposal(id, selectedIds, revision, undo);
+		}
 		if (
 			!undo &&
 			proposal.value.status === "pending" &&

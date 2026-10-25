@@ -83,7 +83,7 @@ async function backgroundHarness(options: HarnessOptions = {}) {
 			const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
 			requests.push({ url, body });
 			if (url.endsWith("/api/connector/ping")) {
-				return new Response(JSON.stringify({ defaultNamespace: "default", ok: true }), {
+				return new Response(JSON.stringify({ ok: true }), {
 					headers: { "content-type": "application/json" },
 					status: options.pingStatus ?? 200,
 				});
@@ -121,7 +121,7 @@ describe("browser extension automatic PDF capture", () => {
 		expect(harness.requests[1]).toMatchObject({
 			body: {
 				localPath: "C:/Downloads/paper.pdf",
-				namespace: "default",
+
 				metadata: {
 					pageUrl: "https://dl.acm.org/doi/10.1145/3548606.3560625",
 					pdfUrl: "https://dl.acm.org/doi/pdf/10.1145/3548606.3560625",

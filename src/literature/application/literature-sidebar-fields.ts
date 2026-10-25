@@ -82,7 +82,7 @@ export function sidebarMetadataFromRecord(
 	record: PaperRecord,
 	input: {
 		searchRunId: string;
-		namespace: string;
+
 		screeningStatus?: string;
 		preserved?: Record<string, unknown>;
 	},
@@ -92,7 +92,7 @@ export function sidebarMetadataFromRecord(
 		title: record.title,
 		paper_id: record.id,
 		search_run_id: input.searchRunId,
-		namespace: input.namespace,
+
 		curated: "search",
 		authors: record.authors.join(", "),
 		identifier: primaryIdentifier(record),

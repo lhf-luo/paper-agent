@@ -20,7 +20,7 @@ import type { AutomatedResearchDepth, PaperVersionView } from "./types";
 
 export interface AutomatedResearchLaunchInput {
 	paperId: string;
-	namespace: string;
+
 	depth: AutomatedResearchDepth;
 	researchQuestion?: string;
 	discoverArtifacts: boolean;
@@ -82,7 +82,7 @@ export function ResearchLauncher({
 	paperId,
 	paperTitle,
 	versions,
-	namespace,
+
 	busy,
 	onPreparePdf,
 	onStart,
@@ -90,7 +90,7 @@ export function ResearchLauncher({
 	paperId: string;
 	paperTitle?: string;
 	versions: PaperVersionView[];
-	namespace: string;
+
 	busy: boolean;
 	onPreparePdf: () => Promise<void>;
 	onStart: (input: AutomatedResearchLaunchInput) => Promise<void>;
@@ -111,7 +111,7 @@ export function ResearchLauncher({
 		try {
 			await onStart({
 				paperId,
-				namespace,
+
 				depth,
 				researchQuestion: question.trim() || undefined,
 				discoverArtifacts,
@@ -204,17 +204,17 @@ export function ResearchLauncher({
 										</button>
 									);
 								})}
-								</div>
-								<p className="research-field-hint">
-									本深度将使用思考强度「{depthThinkingLabels[depth]}」，启动后可在 Agent 对话中随时调整。
-								</p>
 							</div>
+							<p className="research-field-hint">
+								本深度将使用思考强度「{depthThinkingLabels[depth]}」，启动后可在 Agent 对话中随时调整。
+							</p>
+						</div>
 
-							<div className="research-form-section">
-								<div className="research-section-header">
-									<label htmlFor={`research-question-${paperId}`} className="research-section-title">
-										你想重点弄清楚什么问题？
-									</label>
+						<div className="research-form-section">
+							<div className="research-section-header">
+								<label htmlFor={`research-question-${paperId}`} className="research-section-title">
+									你想重点弄清楚什么问题？
+								</label>
 								<span className="research-optional-badge">可选</span>
 							</div>
 							<p className="research-field-hint">

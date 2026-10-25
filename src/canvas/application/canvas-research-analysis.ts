@@ -8,7 +8,7 @@ import type {
 } from "../domain/canvas-research.ts";
 import { object, parseAnalysisContent } from "../domain/canvas-research-validation.ts";
 import { checkEvidence, researchSources } from "./canvas-research-materials.ts";
-import type { CanvasResearchService } from "./canvas-research-service.ts";
+import type { CanvasResearchHost } from "./canvas-research-host.ts";
 
 type Snapshot = Pick<CanvasResearchAnalysis, "scope" | "settings" | "nodeIds" | "paperIds" | "sources" | "inputHash">;
 const coverageRank = { unread: 0, abstract: 1, method: 2, full: 3 };
@@ -24,8 +24,8 @@ function cardKey(hash: string, settings: CanvasResearchSettings) {
 	});
 }
 export class CanvasAnalysisWriter {
-	readonly service: CanvasResearchService;
-	constructor(service: CanvasResearchService) {
+	readonly service: CanvasResearchHost;
+	constructor(service: CanvasResearchHost) {
 		this.service = service;
 	}
 	async save(input: unknown, id?: string, expectedRevision?: number) {

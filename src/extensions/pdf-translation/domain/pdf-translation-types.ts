@@ -2,7 +2,7 @@ export type PdfTranslationOutputMode = "mono" | "dual";
 
 export interface PdfTranslationRequest {
 	paperId: string;
-	namespace: string;
+
 	sourceSha256: string;
 	sourceLanguage: string;
 	targetLanguage: string;
@@ -20,7 +20,7 @@ export interface PdfTranslationEngineStatus {
 
 export interface PdfTranslationResult {
 	paperId: string;
-	namespace: string;
+
 	sourceSha256: string;
 	version: {
 		sha256: string;

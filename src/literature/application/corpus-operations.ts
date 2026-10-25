@@ -38,7 +38,6 @@ export function corpusExportPlan(
 			recordsFingerprint: sha256Text(JSON.stringify(normalized)),
 			corpusPath: store.root,
 			scope: store.scope,
-			namespace: store.namespace,
 		},
 	};
 }
@@ -64,7 +63,7 @@ export function corpusAnnotationPlan(
 		targets: recordIds.map((id) => ({ label: "personal-paper", value: id, risk: "medium" })),
 		details: {
 			corpusPath: store.root,
-			namespace: store.namespace,
+
 			recordIds,
 			recordsFingerprint: sha256Text(
 				JSON.stringify([...records].sort((left, right) => left.id.localeCompare(right.id))),
@@ -102,7 +101,7 @@ export function corpusTitleRepairPlan(
 		targets: changed.map((entry) => ({ label: "personal-paper", value: entry.id, risk: "low" })),
 		details: {
 			corpusPath: store.root,
-			namespace: store.namespace,
+
 			recordIds: changed.map((entry) => entry.id),
 			titles: changed,
 		},

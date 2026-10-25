@@ -22,10 +22,10 @@ import type { AuthorizedPdfTranslationJob } from "./pdf-translation-job.ts";
 
 interface PdfTranslationServiceOptions {
 	projectRoot: string;
-	defaultNamespace: string;
+
 	executor: CommandExecutor;
 	consent: OperationConsentManager;
-	store: (namespace: string) => LiteratureStore;
+	store: () => LiteratureStore;
 }
 
 interface PreparedTranslation {
@@ -54,10 +54,10 @@ function configuredTranslationModel(
 		.find((model) => modelKey(model) === selectedKey);
 }
 
-function normalizedRequest(input: Partial<PdfTranslationRequest>, defaultNamespace: string): PdfTranslationRequest {
+function normalizedRequest(input: Partial<PdfTranslationRequest>): PdfTranslationRequest {
 	const request: PdfTranslationRequest = {
 		paperId: input.paperId?.trim() ?? "",
-		namespace: input.namespace?.trim() || defaultNamespace,
+
 		sourceSha256: input.sourceSha256?.trim().toLowerCase() ?? "",
 		sourceLanguage: input.sourceLanguage?.trim() || "en",
 		targetLanguage: input.targetLanguage?.trim() || "zh-CN",
@@ -76,17 +76,17 @@ function normalizedRequest(input: Partial<PdfTranslationRequest>, defaultNamespa
 
 export class PdfTranslationService {
 	private readonly projectRoot: string;
-	private readonly defaultNamespace: string;
+
 	private readonly consent: OperationConsentManager;
-	private readonly storeForNamespace: (namespace: string) => LiteratureStore;
+	private readonly getStore: () => LiteratureStore;
 	private readonly client: Pdf2zhNextClient;
 	private readonly prepared = new Map<string, PreparedTranslation>();
 
 	constructor(options: PdfTranslationServiceOptions) {
 		this.projectRoot = options.projectRoot;
-		this.defaultNamespace = options.defaultNamespace;
+
 		this.consent = options.consent;
-		this.storeForNamespace = options.store;
+		this.getStore = options.store;
 		this.client = new Pdf2zhNextClient({ executor: options.executor });
 	}
 
@@ -130,7 +130,7 @@ export class PdfTranslationService {
 		translationModelKey: string,
 		command: string,
 	): Promise<OperationPlan> {
-		const store = this.storeForNamespace(request.namespace);
+		const store = this.getStore();
 		const paper = await store.getPaper(request.paperId);
 		if (!paper) throw new Error(`个人库中不存在论文：${request.paperId}`);
 		const source = (await store.listPaperVersions(request.paperId)).find(
@@ -148,7 +148,6 @@ export class PdfTranslationService {
 				{ label: "译文", value: `${request.targetLanguage} / ${request.outputMode}`, risk: "medium" },
 			],
 			details: {
-				namespace: request.namespace,
 				paperId: request.paperId,
 				sourceSha256: request.sourceSha256,
 				sourceLanguage: request.sourceLanguage,
@@ -170,7 +169,7 @@ export class PdfTranslationService {
 	}
 
 	async prepare(input: Partial<PdfTranslationRequest>): Promise<PreparedOperation> {
-		const request = normalizedRequest(input, this.defaultNamespace);
+		const request = normalizedRequest(input);
 		const configuration = await this.translationConfiguration();
 		const status = await this.client.status(
 			configuration.command,
@@ -225,7 +224,7 @@ export class PdfTranslationService {
 		) {
 			throw new Error("翻译引擎或激活模型在确认后发生变化，请重新发起 PDF 翻译");
 		}
-		const store = this.storeForNamespace(input.request.namespace);
+		const store = this.getStore();
 		const source = (await store.listPaperVersions(input.request.paperId)).find(
 			(version) => version.sha256.toLowerCase() === input.request.sourceSha256,
 		);
@@ -284,7 +283,7 @@ export class PdfTranslationService {
 		context.report(1, "PDF 翻译完成");
 		return {
 			paperId: input.request.paperId,
-			namespace: input.request.namespace,
+
 			sourceSha256: input.request.sourceSha256,
 			version: {
 				sha256: stored.sha256,

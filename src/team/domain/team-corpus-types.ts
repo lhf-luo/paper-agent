@@ -31,7 +31,6 @@ export type TeamPageSourceKind = "note" | "wiki";
 
 export interface TeamPageSourcesInput {
 	sources: Array<{ kind: TeamPageSourceKind; id: string }>;
-	personalNamespace?: string;
 }
 
 export interface TeamPageSnapshot {

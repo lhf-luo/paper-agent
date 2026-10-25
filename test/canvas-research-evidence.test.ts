@@ -66,7 +66,7 @@ describe("research evidence versions and shared round budgets", () => {
 		expect(next.value.newlyReadPaperIds).toEqual(["p1"]);
 	});
 	it("preserves exact PDF page navigation and rejects malformed page fragments", () => {
-		const url = mozillaPdfViewerUrl("/api/papers/p/pdf/sha?namespace=n#page=7", "http://localhost");
+		const url = mozillaPdfViewerUrl("/api/papers/p/pdf/sha#page=7", "http://localhost");
 		expect(url).toContain("#page=7&zoom=page-width");
 		expect(url).not.toContain("%23page");
 		expect(mozillaPdfViewerUrl("/paper.pdf#page=-2", "http://localhost")).toContain("#page=1");

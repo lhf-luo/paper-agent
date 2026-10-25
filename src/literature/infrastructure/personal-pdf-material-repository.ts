@@ -24,7 +24,7 @@ export abstract class PersonalPdfMaterialRepository extends PersonalArtifactRepo
 	private hydratePdfMaterial(row: PdfMaterialRow): PdfMaterialRecord {
 		return {
 			id: row.id,
-			namespace: this.namespace,
+
 			paperId: row.paper_id,
 			paperVersionId: row.paper_version_id,
 			sourceSha256: row.source_sha256,
@@ -48,8 +48,8 @@ export abstract class PersonalPdfMaterialRepository extends PersonalArtifactRepo
 			const row = database
 				.prepare(`SELECT m.*, p.paper_id FROM pdf_materials m
 					JOIN papers p ON p.row_id = m.paper_row_id
-					WHERE m.namespace_id = ? AND p.paper_id = ?`)
-				.get(this.namespace, paperId) as PdfMaterialRow | undefined;
+					WHERE p.paper_id = ?`)
+				.get(paperId) as PdfMaterialRow | undefined;
 			return row ? this.hydratePdfMaterial(row) : undefined;
 		});
 	}
@@ -68,10 +68,10 @@ export abstract class PersonalPdfMaterialRepository extends PersonalArtifactRepo
 			if (!version) throw new Error("The source PDF version no longer exists");
 			database
 				.prepare(`INSERT INTO pdf_materials(
-					id, namespace_id, paper_row_id, paper_version_id, source_sha256, relative_path,
+					id, paper_row_id, paper_version_id, source_sha256, relative_path,
 					engine, model_version, package_sha256, content_sha256, page_count, file_count,
 					bytes, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(paper_row_id) DO UPDATE SET
 					paper_version_id=excluded.paper_version_id, source_sha256=excluded.source_sha256,
 					relative_path=excluded.relative_path, engine=excluded.engine,
@@ -80,7 +80,7 @@ export abstract class PersonalPdfMaterialRepository extends PersonalArtifactRepo
 					file_count=excluded.file_count, bytes=excluded.bytes, updated_at=excluded.updated_at`)
 				.run(
 					`material-${randomUUID()}`,
-					this.namespace,
+
 					paper.row_id,
 					version.id,
 					input.sourceSha256,

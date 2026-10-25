@@ -30,7 +30,6 @@ function searchRun(id: string, namespace: string, results: PaperRecord[]): Searc
 		deduplicatedCount: 0,
 		scope: "personal",
 		mode: "once",
-		namespace,
 	};
 }
 
@@ -170,7 +169,7 @@ describe("library collections API", () => {
 		await mkdir(join(staticRoot, "assets"), { recursive: true });
 		await writeFile(join(staticRoot, "index.html"), "<html>Paper Agent</html>");
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
-		const namespace = "nested";
+
 		const paper: PaperRecord = {
 			id: "paper-nested",
 			title: "Nested collections",
@@ -181,7 +180,7 @@ describe("library collections API", () => {
 			mergedFrom: [],
 		};
 		const secondPaper = { ...paper, id: "paper-nested-second", title: "Nested collections II" };
-		await application.personalStore(namespace).upsertPapers([paper, secondPaper]);
+		await application.personalStore().upsertPapers([paper, secondPaper]);
 		const server = await startLocalWebServer(application, { staticRoot });
 		try {
 			const api = (path: string, init: RequestInit = {}) =>
@@ -192,7 +191,7 @@ describe("library collections API", () => {
 			const create = async (name: string, parentId?: string) => {
 				const response = await api("/api/library/collections", {
 					method: "POST",
-					body: JSON.stringify({ name, parentId, namespace }),
+					body: JSON.stringify({ name, parentId }),
 				});
 				expect(response.status).toBe(201);
 				return (await response.json()) as { id: string; parentId?: string };
@@ -200,47 +199,47 @@ describe("library collections API", () => {
 			const parent = await create("Parent");
 			const child = await create("Child", parent.id);
 			const grandchild = await create("Grandchild", child.id);
-			const foreignParent = await application.createLibraryCollection("Foreign", undefined, "other-namespace");
+			await application.createLibraryCollection("Foreign", undefined);
 			const crossNamespace = await api("/api/library/collections", {
 				method: "POST",
-				body: JSON.stringify({ name: "Invalid child", parentId: foreignParent.id, namespace }),
+				body: JSON.stringify({ name: "Invalid child", parentId: "missing-parent" }),
 			});
 			expect(crossNamespace.status).toBe(500);
-			const moved = await api(`/api/library/collections/${grandchild.id}?namespace=${namespace}`, {
+			const moved = await api(`/api/library/collections/${grandchild.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ parentId: parent.id }),
 			});
 			expect(moved.status).toBe(200);
 			expect((await moved.json()) as { parentId: string }).toMatchObject({ parentId: parent.id });
 
-			const cycle = await api(`/api/library/collections/${parent.id}?namespace=${namespace}`, {
+			const cycle = await api(`/api/library/collections/${parent.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ parentId: child.id }),
 			});
 			expect(cycle.status).toBe(500);
 			const assign = await api(`/api/library/collections/${child.id}/papers`, {
 				method: "PATCH",
-				body: JSON.stringify({ namespace, paperIds: [paper.id, secondPaper.id], mode: "assign" }),
+				body: JSON.stringify({ paperIds: [paper.id, secondPaper.id], mode: "assign" }),
 			});
 			expect(assign.status).toBe(200);
-			expect(await application.personalStore(namespace).getPaper(paper.id)).toMatchObject({
+			expect(await application.personalStore().getPaper(paper.id)).toMatchObject({
 				collectionIds: [child.id],
 			});
-			expect(await application.personalStore(namespace).getPaper(secondPaper.id)).toMatchObject({
+			expect(await application.personalStore().getPaper(secondPaper.id)).toMatchObject({
 				collectionIds: [child.id],
 			});
-			const parentView = await api(`/api/library?namespace=${namespace}&collection=${parent.id}`);
+			const parentView = await api(`/api/library?collection=${parent.id}`);
 			expect(((await parentView.json()) as { hits: unknown[] }).hits).toHaveLength(0);
 
-			const deleted = await api(`/api/library/collections/${parent.id}?namespace=${namespace}`, {
+			const deleted = await api(`/api/library/collections/${parent.id}`, {
 				method: "DELETE",
 			});
 			expect(deleted.status).toBe(200);
 			expect((await deleted.json()) as { deletedCollectionIds: string[] }).toMatchObject({
 				deletedCollectionIds: [parent.id, child.id, grandchild.id],
 			});
-			expect(await application.personalStore(namespace).getPaper(paper.id)).toMatchObject({ id: paper.id });
-			expect((await application.personalStore(namespace).getPaper(paper.id))?.collectionIds ?? []).toEqual([]);
+			expect(await application.personalStore().getPaper(paper.id)).toMatchObject({ id: paper.id });
+			expect((await application.personalStore().getPaper(paper.id))?.collectionIds ?? []).toEqual([]);
 		} finally {
 			await server.close();
 			await application.close();
@@ -365,7 +364,6 @@ describe("library collections API", () => {
 			);
 
 			const cleanupPreparedResponse = await api("/api/wiki/source-pages/delete/prepare", {
-				namespace: "default",
 				paperId: record.id,
 				includeMixedPageIds: [],
 			});
@@ -380,7 +378,6 @@ describe("library collections API", () => {
 				preview: { targetPages: [{ id: wikiPage.id }] },
 			});
 			const cleanupExecuted = await api("/api/wiki/source-pages/delete/execute", {
-				namespace: "default",
 				paperId: record.id,
 				includeMixedPageIds: [],
 				previewFingerprint: cleanupPrepared.preview.fingerprint,
@@ -561,17 +558,15 @@ describe("library collections API", () => {
 			mergedFrom: [],
 		});
 		await application
-			.personalStore("default")
+			.personalStore()
 			.saveSearchRun(searchRun("run-default", "default", [candidate("paper-default")]));
 		await application
-			.personalStore("research")
+			.personalStore()
 			.saveSearchRun(searchRun("run-research", "research", [candidate("paper-research")]));
-		await expect(
-			application.prepareCorpusImport({ searchRunId: "run-research", namespace: "default" }),
-		).rejects.toThrow("namespace default");
-		await expect(
-			application.prepareCorpusImport({ searchRunId: "run-research", namespace: "research" }),
-		).resolves.toMatchObject({ kind: "personal-corpus-write" });
+		await expect(application.prepareCorpusImport({ searchRunId: "missing-run" })).rejects.toThrow("not found");
+		await expect(application.prepareCorpusImport({ searchRunId: "run-research" })).resolves.toMatchObject({
+			kind: "personal-corpus-write",
+		});
 
 		const server = await startLocalWebServer(application, { staticRoot });
 		const api = (path: string) => fetch(`${server.url}${path}`);
@@ -579,21 +574,21 @@ describe("library collections API", () => {
 			const defaultList = await api("/api/search/runs");
 			expect(defaultList.status).toBe(200);
 			expect(((await defaultList.json()) as { runs: Array<{ id: string }> }).runs.map((run) => run.id)).toEqual([
-				"run-default",
+				"run-default", "run-research",
 			]);
 
-			const researchList = await api("/api/search/runs?namespace=research");
+			const researchList = await api("/api/search/runs");
 			expect(((await researchList.json()) as { runs: Array<{ id: string }> }).runs.map((run) => run.id)).toEqual([
-				"run-research",
+				"run-default", "run-research",
 			]);
 
-			const detail = await api("/api/search/runs/run-research?namespace=research");
+			const detail = await api("/api/search/runs/run-research");
 			expect(detail.status).toBe(200);
 			expect(((await detail.json()) as { run: SearchRun }).run.results[0]?.id).toBe("paper-research");
-			const abstract = await api("/api/search/runs/run-research/papers/paper-research?namespace=research");
+			const abstract = await api("/api/search/runs/run-research/papers/paper-research");
 			expect(await abstract.json()).toEqual({ paperId: "paper-research", abstract: "paper-research abstract" });
-			expect((await api("/api/search/runs/run-research/papers/missing?namespace=research")).status).toBe(404);
-			expect((await api("/api/search/runs/run-default?namespace=research")).status).toBe(404);
+			expect((await api("/api/search/runs/run-research/papers/missing")).status).toBe(404);
+			expect((await api("/api/search/runs/missing-run")).status).toBe(404);
 		} finally {
 			await server.close();
 			await application.close();
@@ -608,10 +603,10 @@ describe("library collections API", () => {
 		await writeFile(join(staticRoot, "index.html"), "<html>Paper Agent</html>");
 		await writeFile(join(staticRoot, "assets", "worker.mjs"), "export default 'worker';");
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
-		const namespace = "membership-test";
-		const firstCollection = await application.createLibraryCollection("First", undefined, namespace);
-		const secondCollection = await application.createLibraryCollection("Second", undefined, namespace);
-		const emptyCollection = await application.createLibraryCollection("Empty", undefined, namespace);
+
+		const firstCollection = await application.createLibraryCollection("First", undefined);
+		const secondCollection = await application.createLibraryCollection("Second", undefined);
+		const emptyCollection = await application.createLibraryCollection("Empty", undefined);
 		const paper = (id: string, collectionIds?: string[]): PaperRecord => ({
 			id,
 			title: id,
@@ -623,7 +618,7 @@ describe("library collections API", () => {
 			collectionIds,
 		});
 		await application
-			.personalStore(namespace)
+			.personalStore()
 			.upsertPapers([
 				paper("paper-first", [firstCollection.id]),
 				paper("paper-overlap", [firstCollection.id, secondCollection.id]),
@@ -633,9 +628,7 @@ describe("library collections API", () => {
 
 		const server = await startLocalWebServer(application, { staticRoot });
 		try {
-			const response = await fetch(
-				`${server.url}/api/library/collection-memberships?namespace=${encodeURIComponent(namespace)}`,
-			);
+			const response = await fetch(`${server.url}/api/library/collection-memberships`);
 			expect(response.status).toBe(200);
 			const index = (await response.json()) as {
 				namespace: string;
@@ -643,31 +636,36 @@ describe("library collections API", () => {
 				uncategorizedPaperIds: string[];
 				collectionPaperIds: Record<string, string[]>;
 			};
-			expect(index.namespace).toBe(namespace);
-			expect(index.allPaperIds).toEqual(["paper-first", "paper-overlap", "paper-uncategorized"]);
-			expect(index.uncategorizedPaperIds).toEqual(["paper-uncategorized"]);
+			expect(index).not.toHaveProperty("namespace");
+			expect(index.allPaperIds).toEqual([
+				"paper-default-only",
+				"paper-first",
+				"paper-overlap",
+				"paper-uncategorized",
+			]);
+			expect(index.uncategorizedPaperIds).toEqual(["paper-default-only", "paper-uncategorized"]);
 			expect(index.collectionPaperIds[firstCollection.id]).toEqual(["paper-first", "paper-overlap"]);
 			expect(index.collectionPaperIds[secondCollection.id]).toEqual(["paper-overlap"]);
 			expect(index.collectionPaperIds[emptyCollection.id]).toEqual([]);
-			expect(index.allPaperIds).not.toContain("paper-default-only");
+			expect(index.allPaperIds).toContain("paper-default-only");
 
 			const wrongMethod = await fetch(`${server.url}/api/papers/paper-first/collections`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
+				body: JSON.stringify({ collectionIds: [secondCollection.id] }),
 			});
 			expect(wrongMethod.status).toBe(404);
 
 			const assignment = await fetch(`${server.url}/api/papers/paper-first/collections`, {
 				method: "PATCH",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ collectionIds: [secondCollection.id], namespace }),
+				body: JSON.stringify({ collectionIds: [secondCollection.id] }),
 			});
 			expect(assignment.status, await assignment.text()).toBe(200);
-			expect((await application.personalStore(namespace).getPaper("paper-first"))?.collectionIds).toEqual([
+			expect((await application.personalStore().getPaper("paper-first"))?.collectionIds).toEqual([
 				secondCollection.id,
 			]);
-			expect(await application.personalStore().getPaper("paper-first")).toBeUndefined();
+			expect(await application.personalStore().getPaper("paper-first")).toBeDefined();
 		} finally {
 			await server.close();
 			await application.close();
@@ -780,7 +778,7 @@ describe("library collections API", () => {
 		await writeFile(join(staticRoot, "index.html"), "<html>Paper Agent</html>");
 		await writeFile(join(staticRoot, "assets", "worker.mjs"), "export default 'worker';");
 		const application = new PaperAgentApplication({ projectRoot: root, dataRoot: join(root, ".paper-agent") });
-		const namespace = "alternate";
+
 		const record: PaperRecord = {
 			id: "paper-local-pdf",
 			title: "Local PDF target",
@@ -790,31 +788,28 @@ describe("library collections API", () => {
 			provenance: [{ provider: "json-import", query: "fixture", retrievedAt: new Date().toISOString() }],
 			mergedFrom: [],
 		};
-		await application.personalStore(namespace).upsertPaper(record);
+		await application.personalStore().upsertPaper(record);
 		const server = await startLocalWebServer(application, { staticRoot });
 		try {
 			const upload = (body: BodyInit) =>
-				fetch(
-					`${server.url}/api/papers/${encodeURIComponent(record.id)}/pdf?namespace=${encodeURIComponent(namespace)}`,
-					{
-						method: "POST",
-						headers: { "content-type": "application/pdf" },
-						body,
-					},
-				);
+				fetch(`${server.url}/api/papers/${encodeURIComponent(record.id)}/pdf`, {
+					method: "POST",
+					headers: { "content-type": "application/pdf" },
+					body,
+				});
 			const pdf = Buffer.from("%PDF-1.4\nlocal fixture\n%%EOF\n");
 			const firstUpload = await upload(pdf);
 			expect(firstUpload.status, await firstUpload.text()).toBe(200);
 			expect((await upload(pdf)).status).toBe(200);
 
-			const versions = await application.personalStore(namespace).listPaperVersions(record.id);
+			const versions = await application.personalStore().listPaperVersions(record.id);
 			expect(versions).toHaveLength(1);
 			expect(versions[0]).toMatchObject({ versionKind: "published", isPreferred: true });
-			const publicationVersions = await application.personalStore(namespace).listPublicationVersions(record.id);
+			const publicationVersions = await application.personalStore().listPublicationVersions(record.id);
 			expect(publicationVersions).toMatchObject([
 				{ id: versions[0].publicationVersionId, kind: "published", isPreferred: true },
 			]);
-			const pdfUrl = `${server.url}/api/papers/${encodeURIComponent(record.id)}/pdf/${versions[0].sha256}?namespace=${encodeURIComponent(namespace)}`;
+			const pdfUrl = `${server.url}/api/papers/${encodeURIComponent(record.id)}/pdf/${versions[0].sha256}`;
 			const full = await fetch(pdfUrl);
 			expect(full.status).toBe(200);
 			expect(full.headers.get("accept-ranges")).toBe("bytes");
@@ -839,10 +834,8 @@ describe("library collections API", () => {
 			const invalidRange = await fetch(pdfUrl, { headers: { range: `bytes=${pdf.length}-` } });
 			expect(invalidRange.status).toBe(416);
 			expect(invalidRange.headers.get("content-range")).toBe(`bytes */${pdf.length}`);
-			expect((await application.personalStore(namespace).getPaper(record.id))?.materialHashes).toEqual([
-				versions[0].sha256,
-			]);
-			expect(await application.personalStore().getPaper(record.id)).toBeUndefined();
+			expect((await application.personalStore().getPaper(record.id))?.materialHashes).toEqual([versions[0].sha256]);
+			expect(await application.personalStore().getPaper(record.id)).toBeDefined();
 			expect((await upload(Buffer.from("not a pdf"))).status).toBe(400);
 		} finally {
 			await server.close();

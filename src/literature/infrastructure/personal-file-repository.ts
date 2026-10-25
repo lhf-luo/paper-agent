@@ -61,9 +61,9 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 		const sha256 = createHash("sha256").update(data).digest("hex");
 		const existing = this.read(
 			(database) =>
-				database
-					.prepare("SELECT relative_path FROM stored_files WHERE namespace_id = ? AND sha256 = ? LIMIT 1")
-					.get(this.namespace, sha256) as { relative_path: string } | undefined,
+				database.prepare("SELECT relative_path FROM stored_files WHERE sha256 = ? LIMIT 1").get(sha256) as
+					| { relative_path: string }
+					| undefined,
 		);
 		if (existing) {
 			const path = resolve(this.dataRoot, existing.relative_path);
@@ -183,11 +183,11 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 		}
 		database
 			.prepare(
-				"INSERT INTO stored_files(id, namespace_id, relative_path, filename, original_filename, sha256, bytes, content_type, created_at, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO stored_files(id, relative_path, filename, original_filename, sha256, bytes, content_type, created_at, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				file.fileId,
-				this.namespace,
+
 				file.relativePath,
 				file.filename,
 				file.originalFilename,
@@ -274,12 +274,7 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 	}
 
 	async listPaperVersions(paperId: string): Promise<PaperVersion[]> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "paper-versions", `${paperId}.json`)))
-		)
-			return [];
+		if (!this.initialized && !(await pathExists(this.databasePath))) return [];
 		await this.initialize();
 		return this.read((database) => this.versionRows(database, paperId).map((row) => this.hydrateVersion(row)));
 	}
@@ -330,7 +325,7 @@ export abstract class PersonalFileRepository extends PersonalPdfMaterialReposito
 		const path = resolve(version.blobPath);
 		const relativePath = relative(root, path);
 		if (relativePath.startsWith("..") || resolve(root, relativePath) !== path) {
-			throw new Error("PDF file resolves outside the selected namespace");
+			throw new Error("PDF file resolves outside the personal workspace");
 		}
 		const body = await readFile(path);
 		const actual = createHash("sha256").update(body).digest("hex");

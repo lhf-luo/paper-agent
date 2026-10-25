@@ -44,7 +44,7 @@ export function defaultPaperAgentConfig(): PaperAgentConfig {
 		version: 1,
 		interface: { port: 43127, openBrowser: true },
 		readerTranslation: { defaultProvider: "google" },
-		storage: { defaultNamespace: "default" },
+		storage: {},
 		externalTools: { commandDirectories: [] },
 		agent: { builtinTools: [] },
 		confirmations: defaultOperationConfirmationSettings(),
@@ -215,9 +215,6 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 	const port = Number(interfaceSource.port ?? 0);
 	if (!Number.isInteger(port) || port < 0 || port > 65535)
 		throw new Error("interface.port must be 0 or a valid TCP port");
-	const namespace = String(storageSource.defaultNamespace ?? "default");
-	if (!SAFE_SEGMENT.test(namespace))
-		throw new Error("storage.defaultNamespace must be a safe 1-64 character identifier");
 	const commandDirectoryValues = externalToolsSource.commandDirectories ?? [];
 	if (!Array.isArray(commandDirectoryValues) || commandDirectoryValues.length > 32) {
 		throw new Error("externalTools.commandDirectories must be an array of at most 32 paths");
@@ -283,7 +280,6 @@ export function validatePaperAgentConfig(value: unknown, projectRoot: string): P
 		storage: {
 			dataRoot: optionalAbsolutePath(storageSource.dataRoot, "storage.dataRoot", projectRoot),
 			corpusRoot: optionalAbsolutePath(storageSource.corpusRoot, "storage.corpusRoot", projectRoot),
-			defaultNamespace: namespace,
 		},
 		externalTools: { commandDirectories: [...new Set(commandDirectories)] },
 		agent: {

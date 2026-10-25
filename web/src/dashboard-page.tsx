@@ -1,11 +1,4 @@
-import {
-	Activity,
-	ArrowRight,
-	ArrowUpRight,
-	BookMarked,
-	CircleAlert,
-	ShieldCheck,
-} from "lucide-react";
+import { Activity, ArrowRight, ArrowUpRight, BookMarked, CircleAlert, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { EmptyState, StatusPill } from "./components";
@@ -97,8 +90,7 @@ export function DashboardPage({ status, go }: DashboardPageProps) {
 								<BookMarked size={15} />
 							</i>
 						</span>
-						<strong>{status?.defaultRecordCount ?? "—"}</strong>
-						<small>{status?.personalNamespaces.length ?? 0} 个 namespace</small>
+						<strong>{status?.recordCount ?? "—"}</strong>
 					</div>
 				</Reveal>
 				<Reveal delay={150}>

@@ -35,7 +35,7 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 		};
 	}
 
-	async listAvailablePdfs(namespace = this.defaultNamespace): Promise<
+	async listAvailablePdfs(): Promise<
 		Array<{
 			paperId: string;
 			title: string;
@@ -47,7 +47,7 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 		}>
 	> {
 		await this.initialize();
-		const store = this.personalStore(namespace);
+		const store = this.personalStore();
 		await store.initialize();
 		const results: Array<{
 			paperId: string;
@@ -77,11 +77,11 @@ export abstract class PaperAgentTeamAccess extends PaperAgentApplicationBase {
 	}
 
 	/** Personal derived records available to propose to the team (Web submission block + tooling). */
-	async listPersonalDerived(namespace = this.defaultNamespace): Promise<{
+	async listPersonalDerived(): Promise<{
 		entries: Array<{ key: string; operation: string; paperId: string; createdAt: string }>;
 	}> {
 		await this.initialize();
-		const store = this.personalStore(namespace);
+		const store = this.personalStore();
 		const records = await store.listDerived();
 		return {
 			entries: records.map((record) => ({

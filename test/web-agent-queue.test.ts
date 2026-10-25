@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ResearchCanvasStore } from "../src/canvas/infrastructure/research-canvas-store.ts";
 import { LiteratureStore, resolveCorpusRoot } from "../src/literature/application/literature-store.ts";
 import { lastUser, queueFixture } from "./web-agent-queue-fixture.ts";
+import { applyAgentQueueEvent, isNewerAgentSessionState } from "../web/src/agent-session-state.ts";
+import type { AgentSessionSnapshot } from "../web/src/types.ts";
 
 const fixtures: Awaited<ReturnType<typeof queueFixture>>[] = [];
 afterEach(async () => {
@@ -17,6 +19,33 @@ async function fixture() {
 }
 
 describe("Pi native web input queues", () => {
+	it("keeps the canvas composer running through native queue events and pauses through abort", async () => {
+		const f = await fixture();
+		const library = new LiteratureStore(resolveCorpusRoot(f.root, "personal"), "personal");
+		await library.initialize();
+		const board = new ResearchCanvasStore(library.databasePath).create("暂停按钮测试");
+		await f.restart({ paperSessionDatabasePath: library.databasePath });
+		const s = f.service.createSession({ mode: "persistent", context: { kind: "canvas", canvasId: board.id } });
+		let view: AgentSessionSnapshot = f.service.getSession(s.id);
+		const subscription = f.service.subscribeSession(s.id, (event) => {
+			if (event.type === "queue") view = applyAgentQueueEvent(view, event) ?? view;
+			if (event.type === "session" && isNewerAgentSessionState(view, event.session))
+				view = { ...view, ...event.session };
+		});
+		try {
+			await f.service.sendMessage(s.id, { message: "开始研究" });
+			await f.waitRequest(0);
+			expect(view.status).toBe("running");
+			await f.service.sendMessage(s.id, { message: "稍后继续", delivery: "followUp" });
+			expect(view.status).toBe("running");
+			await f.service.abortSession(s.id);
+			await expect.poll(() => view.status).toBe("idle");
+			expect(view.queuePaused).toBe(true);
+			expect(view.pendingInputs.map((input) => input.content)).toEqual(["稍后继续"]);
+		} finally {
+			subscription.unsubscribe();
+		}
+	});
 	it("accepts both kinds of input while Pi performs automatic context compaction", async () => {
 		const f = await fixture(),
 			s = f.service.createSession({ mode: "persistent" });
@@ -66,7 +95,7 @@ describe("Pi native web input queues", () => {
 
 	it("keeps paper queues in their namespace and does not restart canvas research when queueing", async () => {
 		const f = await fixture();
-		const library = new LiteratureStore(resolveCorpusRoot(f.root, "personal", "default"), "personal", "default");
+		const library = new LiteratureStore(resolveCorpusRoot(f.root, "personal"), "personal");
 		await library.upsertPaper({
 			id: "queue-paper",
 			title: "队列论文",
@@ -76,7 +105,7 @@ describe("Pi native web input queues", () => {
 			provenance: [],
 			mergedFrom: [],
 		});
-		const canvases = new ResearchCanvasStore(library.databasePath, "default"),
+		const canvases = new ResearchCanvasStore(library.databasePath),
 			board = canvases.create("队列画布");
 		const rounds: boolean[] = [];
 		await f.restart({
@@ -92,13 +121,13 @@ describe("Pi native web input queues", () => {
 		});
 		const paper = f.service.createSession({
 			mode: "persistent",
-			context: { kind: "paper", namespace: "default", paperId: "queue-paper" },
+			context: { kind: "paper", paperId: "queue-paper" },
 		});
 		await f.service.sendMessage(paper.id, { message: "当前论文" });
 		await f.waitRequest(0);
 		await f.service.sendMessage(paper.id, { message: "后续论文问题", delivery: "followUp" });
 		await f.restart();
-		expect(f.service.listSessions({ scope: "paper", namespace: "other", paperId: "queue-paper" })).toEqual([]);
+		expect(f.service.listSessions({ scope: "paper", paperId: "another-paper" })).toEqual([]);
 		expect(f.service.getSession(paper.id).pendingInputs).toHaveLength(1);
 		await f.service.resumeQueue(paper.id);
 		await f.waitRequest(1);
@@ -107,7 +136,7 @@ describe("Pi native web input queues", () => {
 		await expect.poll(() => f.service.getSession(paper.id).status).toBe("idle");
 		const canvas = f.service.createSession({
 			mode: "persistent",
-			context: { kind: "canvas", namespace: "default", canvasId: board.id },
+			context: { kind: "canvas", canvasId: board.id },
 		});
 		await f.service.sendMessage(canvas.id, { message: "总结画布" });
 		await f.waitRequest(2);

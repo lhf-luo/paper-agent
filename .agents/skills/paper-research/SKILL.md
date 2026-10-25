@@ -26,7 +26,7 @@ description: "Read, investigate, and compare research papers with Paper Agent th
 后一步依赖前一步时按以下顺序执行。已有材料只有在论文身份、首选 PDF SHA 和 provenance 一致时才能复用。
 
 1. **确认论文身份和当前 PDF**
-   - 用个人库查询确认 paper ID、namespace、标题、作者、版本、首选 PDF、SHA-256 和物理页数。
+   - 用个人库查询确认 paper ID、标题、作者、版本、首选 PDF、SHA-256 和物理页数。
    - 材料缺失、版本不一致或不可读时直接披露。跨论文比较为每篇维护独立短标签。
 
 2. **读取当前 MinerU 导航**
@@ -109,11 +109,11 @@ description: "Read, investigate, and compare research papers with Paper Agent th
 
 ## 编辑个人库研究字段卡片
 
-个人库论文详情中的“阅读与研究记录”是另一种简短研究字段卡片，和 Markdown 研究笔记分开保存。用户明确要求填写或更新卡片时，先用 `get_personal_library_paper` 的 `fields: ["detail_fields"]` 读取现有字段及 `revision`，再用 `edit_personal_paper_detail_fields` 按 Paper ID、namespace、`expected_revision` 和字段 ID 局部填写。只写已有证据支持的内容；不要根据标题或模型记忆补全，也不要覆盖用户已写字段。需要新列时才传 `new_fields`。需要查看卡片上的 PDF、派生记忆、引用和被引数量时，可加读只读的 `card_stats`；这些统计和论文元数据不能通过编辑工具修改。修订冲突时重新读取并核对，不能盲目重试。
+个人库论文详情中的“阅读与研究记录”是另一种简短研究字段卡片，和 Markdown 研究笔记分开保存。用户明确要求填写或更新卡片时，先用 `get_personal_library_paper` 的 `fields: ["detail_fields"]` 读取现有字段及 `revision`，再用 `edit_personal_paper_detail_fields` 按 Paper ID、`expected_revision` 和字段 ID 局部填写。只写已有证据支持的内容；不要根据标题或模型记忆补全，也不要覆盖用户已写字段。需要新列时才传 `new_fields`。需要查看卡片上的 PDF、派生记忆、引用和被引数量时，可加读只读的 `card_stats`；这些统计和论文元数据不能通过编辑工具修改。修订冲突时重新读取并核对，不能盲目重试。
 
 ## 创建研究笔记
 
-1. 用 `inspect_agent_tools` 确认 `search_research_notes` 和 `manage_research_note`，并确定 namespace。
+1. 用 `inspect_agent_tools` 确认 `search_research_notes` 和 `manage_research_note`，并确定论文 ID。
 2. 先按 paper ID 或标题搜索已有笔记。只有用户明确要求更新时才覆盖已有笔记，并保留人工内容。
 3. 略读使用 `skim`；方法精读、全文研究和复现准备使用 `deep-reading`；比较使用 `comparison-matrix`。模板只在创建时复制，必须写入实际分析。
 4. 正文保留 MinerU 覆盖、原 PDF 页码、章节、图表/公式、Artifact commit、失败与 `[未知]`。不要把模板提示或空占位符当成结果。

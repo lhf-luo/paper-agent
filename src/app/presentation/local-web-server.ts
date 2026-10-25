@@ -6,6 +6,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { type WebAgentServiceApi, WebAgentServiceError } from "../../agent/application/web-agent-service.ts";
 import type { ModelApiKind } from "../../config/application/config-service.ts";
 import { handleMineruRoutes } from "../../extensions/mineru/presentation/mineru-routes.ts";
+import { handleMcpRoutes } from "../../mcp/presentation/mcp-routes.ts";
 import { handlePdfTranslationRoutes } from "../../extensions/pdf-translation/presentation/pdf-translation-routes.ts";
 import { handleZoteroRoutes } from "../../extensions/zotero/presentation/zotero-routes.ts";
 import type {
@@ -24,6 +25,7 @@ import { handleLibraryRoutes } from "./library-routes.ts";
 import { handlePiModelRoutes } from "./pi-model-routes.ts";
 import { handleReaderTranslationRoutes } from "./reader-translation-routes.ts";
 import { handleResearchRoutes } from "./research-routes.ts";
+import { handleQuickNoteRoutes } from "./quick-note-routes.ts";
 import { handleSearchRoutes } from "./search-routes.ts";
 import { handleTeamRoutes } from "./team-routes.ts";
 import { ApiError, grantFromBody, json, numberValue, readJson, stringArray } from "./web-http.ts";
@@ -128,6 +130,12 @@ export async function startLocalWebServer(
 	const server = createServer(async (request, response) => {
 		try {
 			const url = new URL(request.url ?? "/", "http://paper-agent.local");
+			if (
+				url.pathname.startsWith("/api/") &&
+				["namespace", "personal_namespace", "personalNamespace"].some((key) => url.searchParams.has(key))
+			) {
+				throw new ApiError(400, "本地工作区已升级，请移除旧空间参数后重试。");
+			}
 			if (request.method === "GET" && url.pathname === "/health") {
 				json(response, 200, { ok: true, service: "paper-agent-local", version: 1 });
 				return;
@@ -136,6 +144,7 @@ export async function startLocalWebServer(
 				await serveStatic(response, options.staticRoot, url.pathname);
 				return;
 			}
+			if (await handleMcpRoutes(options.agentService?.mcp,request,response,url)) return;
 			if (await handleConnectorRoutes(application, request, response, url)) return;
 			if (await handleZoteroRoutes(application, request, response, url)) return;
 			if (await handlePdfTranslationRoutes(application, request, response, url)) return;
@@ -161,19 +170,6 @@ export async function startLocalWebServer(
 			}
 			if (request.method === "GET" && url.pathname === "/api/providers") {
 				json(response, 200, { providers: application.providerCatalog() });
-				return;
-			}
-			if (request.method === "GET" && url.pathname === "/api/namespaces") {
-				const [status, teamAccess] = await Promise.all([application.status(), application.teamAccess.status()]);
-				const teamNamespaces =
-					teamAccess.connected && "identity" in teamAccess
-						? [...new Set([teamAccess.namespace, ...teamAccess.identity.namespaces].filter(Boolean))]
-						: [];
-				json(response, 200, {
-					defaultNamespace: status.defaultNamespace,
-					personal: [...new Set([status.defaultNamespace, ...status.personalNamespaces])],
-					team: teamNamespaces,
-				});
 				return;
 			}
 			if (url.pathname.startsWith("/api/jobs") || url.pathname === "/api/events") {
@@ -220,7 +216,7 @@ export async function startLocalWebServer(
 						pdfPath: body.pdfPath,
 						sourceDirectory: typeof body.sourceDirectory === "string" ? body.sourceDirectory : undefined,
 						paperId: typeof body.paperId === "string" ? body.paperId : undefined,
-						namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 						additionalCandidateUrls: stringArray(body.additionalCandidateUrls),
 					}),
 				);
@@ -235,7 +231,6 @@ export async function startLocalWebServer(
 					maxFiles: numberValue(body.maxFiles),
 					maxMegabytesPerFile: numberValue(body.maxMegabytesPerFile),
 					concurrency: numberValue(body.concurrency),
-					namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 				};
 				json(response, 200, await application.preparePdfDownload(input));
 				return;
@@ -247,7 +242,7 @@ export async function startLocalWebServer(
 					pdfPath: body.pdfPath,
 					sourceDirectory: typeof body.sourceDirectory === "string" ? body.sourceDirectory : undefined,
 					paperId: typeof body.paperId === "string" ? body.paperId : undefined,
-					namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 					additionalCandidateUrls: stringArray(body.additionalCandidateUrls),
 					candidateIds: stringArray(body.candidateIds),
 					maxArtifacts: numberValue(body.maxArtifacts),
@@ -299,6 +294,7 @@ export async function startLocalWebServer(
 			}
 			if (await handlePiModelRoutes(application, request, response, url)) return;
 			if (await handleResearchRoutes(application, request, response, url)) return;
+			if (await handleQuickNoteRoutes(application, request, response, url)) return;
 			const artifactJobRoute = /^\/api\/artifacts\/jobs\/([^/]+)$/.exec(url.pathname);
 			if (request.method === "GET" && artifactJobRoute) {
 				json(response, 200, await application.artifactJobDetails(decodeURIComponent(artifactJobRoute[1])));
@@ -342,7 +338,6 @@ export async function startLocalWebServer(
 					maxFiles: numberValue(body.maxFiles),
 					maxMegabytesPerFile: numberValue(body.maxMegabytesPerFile),
 					concurrency: numberValue(body.concurrency),
-					namespace: typeof body.namespace === "string" ? body.namespace : undefined,
 				};
 				json(response, 202, await application.enqueueAuthorizedPdfDownload(input, grantFromBody(body)));
 				return;
@@ -354,7 +349,7 @@ export async function startLocalWebServer(
 					pdfPath: body.pdfPath,
 					sourceDirectory: typeof body.sourceDirectory === "string" ? body.sourceDirectory : undefined,
 					paperId: typeof body.paperId === "string" ? body.paperId : undefined,
-					namespace: typeof body.namespace === "string" ? body.namespace : undefined,
+
 					additionalCandidateUrls: stringArray(body.additionalCandidateUrls),
 					candidateIds: stringArray(body.candidateIds),
 					maxArtifacts: numberValue(body.maxArtifacts),

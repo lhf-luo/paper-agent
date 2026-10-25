@@ -1,4 +1,6 @@
 import type { WebAgentDelivery, WebAgentPendingInput } from "./web-agent-inputs.ts";
+import type { McpControl } from "../../mcp/domain/mcp.ts";
+
 export type { WebAgentDelivery, WebAgentPendingInput } from "./web-agent-inputs.ts";
 export type WebAgentMode = "once" | "persistent";
 export type WebAgentSessionStatus = "idle" | "running" | "stopping" | "error";
@@ -16,9 +18,7 @@ export const WEB_AGENT_THINKING_LEVELS: readonly WebAgentThinkingLevel[] = [
 	"max",
 ];
 
-export type WebAgentSessionContext =
-	| { kind: "paper"; namespace: string; paperId: string }
-	| { kind: "canvas"; namespace: string; canvasId: string };
+export type WebAgentSessionContext = { kind: "paper"; paperId: string } | { kind: "canvas"; canvasId: string };
 
 export interface WebAgentConfiguredModelView {
 	key: string;
@@ -78,12 +78,12 @@ export interface WebAgentToolView {
 export interface WebAgentSessionFilter {
 	/**
 	 * `general` — sessions with no paper context.
-	 * `paper` — sessions bound to one paper (requires namespace and paperId).
-	 * `personal` — any session bound to a paper in the given personal namespace, across papers.
-	 * `canvas` — sessions belonging to one canvas (requires namespace and canvasId).
+	 * `paper` — sessions bound to one paper (requires paperId).
+	 * `personal` — any session bound to a paper in the personal workspace, across papers.
+	 * `canvas` — sessions belonging to one canvas (requires canvasId).
 	 */
 	scope?: "general" | "paper" | "personal" | "canvas";
-	namespace?: string;
+
 	paperId?: string;
 	canvasId?: string;
 }
@@ -162,7 +162,6 @@ export interface WebAgentAttachmentRef {
 
 /** The PDF currently selected in a paper-bound reading workspace. */
 export interface WebAgentPaperMessageContext {
-	namespace: string;
 	paperId: string;
 	title: string;
 	pdfPath: string;
@@ -175,8 +174,9 @@ export interface WebAgentAttachment extends WebAgentAttachmentRef {
 
 export interface WebAgentServiceApi {
 	projectRoot: string;
+	mcp?: McpControl;
 	getConfig(): WebAgentConfigView | Promise<WebAgentConfigView>;
-	listSkills(): Array<{ name: string; description: string; disableModelInvocation: boolean }>;
+	listSkills(sessionId?: string): Array<{ name: string; description: string; disableModelInvocation: boolean }>;
 	updateConfig(input: WebAgentConfigUpdate): WebAgentConfigView | Promise<WebAgentConfigView>;
 	applyConfiguredModel(key: string): WebAgentConfigView | Promise<WebAgentConfigView>;
 	clearKey(): WebAgentConfigView | Promise<WebAgentConfigView>;
@@ -198,7 +198,7 @@ export interface WebAgentServiceApi {
 	): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	getSession(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	deleteSession(id: string): void | Promise<void>;
-	deleteCanvasSessions(namespace: string, canvasId: string): void | Promise<void>;
+	deleteCanvasSessions(canvasId: string): void | Promise<void>;
 	dismissError?(id: string): WebAgentSessionSnapshot | Promise<WebAgentSessionSnapshot>;
 	sendMessage(
 		id: string,

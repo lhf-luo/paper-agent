@@ -15,13 +15,9 @@ export function absolutePathLocations(value: unknown, location = "$"): string[] 
 }
 
 /** Personal evidence adapters shared by the Web proposal flow and the Agent tool. */
-export function createWikiWorkspaceForStore(
-	dataRoot: string,
-	namespace: string,
-	store: LiteratureStore,
-): WikiWorkspace {
+export function createWikiWorkspaceForStore(dataRoot: string, store: LiteratureStore): WikiWorkspace {
 	const notebook = new ResearchNotebook(store);
-	return new WikiWorkspace(dataRoot, namespace, {
+	return new WikiWorkspace(dataRoot, {
 		resolvePaper: async (id) => {
 			const record = await store.getPaper(id);
 			if (!record) return undefined;

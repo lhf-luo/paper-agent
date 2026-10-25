@@ -210,15 +210,6 @@
 .canvas-research-map text {
 	fill: #214b40;
 }
-.canvas-research-panel label.canvas-research-candidate {
-	border-bottom: 1px solid #dce5e1;
-	padding: 10px 0;
-}
-.canvas-research-candidate small {
-	display: block;
-	margin: 5px 0;
-	color: #63766e;
-}
 .canvas-research-panel pre {
 	white-space: pre-wrap;
 	font-size: 12px;

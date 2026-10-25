@@ -30,10 +30,10 @@ describe("canvas research scope and reuse", () => {
 		expect(materialBody).not.toHaveBeenCalled();
 		s.saveContext({ scope: "neighbors", agentNodeId: "agent-a" });
 		expect((await s.nodes()).nodes.map((n) => n.id)).toEqual([f.nodes[0].id]);
-		const other = new CanvasResearchService(f.library, "research", s.canvasId, "session-b");
+		const other = new CanvasResearchService(f.library, s.canvasId, "session-b");
 		expect(() => other.saveContext({ scope: "neighbors", agentNodeId: "agent-a" })).toThrow("当前画布会话");
 		expect(() => s.saveContext({ scope: "selected", selectedNodeIds: [] })).toThrow("请选择");
-		expect(new CanvasResearchService(f.library, "other", s.canvasId).canvases.get(s.canvasId)).toBeUndefined();
+		expect(new CanvasResearchService(f.library, s.canvasId).canvases.get(s.canvasId)?.id).toBe(s.canvasId);
 	});
 	it("reuses versioned cards across sessions; aliases and layout do not invalidate, new papers do", async () => {
 		const f = await researchFixture(),
@@ -55,7 +55,7 @@ describe("canvas research scope and reuse", () => {
 			nodes: board.nodes.map((n) => ({ ...n, alias: "自定义名字", x: n.x + 15 })),
 		});
 		expect((await s.analysis(first.id)).freshness).toBe("current");
-		const other = new CanvasResearchService(f.library, "research", s.canvasId, "session-b");
+		const other = new CanvasResearchService(f.library, s.canvasId, "session-b");
 		const reused = await other.saveAnalysis({});
 		expect(reused.value.reusedPaperIds).toEqual(["p0"]);
 		await expect(other.saveAnalysis({}, first.id, first.revision)).rejects.toThrow("自己的会话");

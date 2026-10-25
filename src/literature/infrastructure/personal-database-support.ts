@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
@@ -145,19 +144,15 @@ export function readablePdfTitle(directory: string, title: string, fallback: str
 	);
 }
 
-export function sqlitePathLayout(root: string, namespace: string) {
+export function sqlitePathLayout(root: string) {
 	const resolvedRoot = resolve(root);
-	const standardLayout = basename(resolvedRoot) === namespace && basename(dirname(resolvedRoot)) === "personal";
-	const corpusRoot = standardLayout ? dirname(dirname(resolvedRoot)) : resolvedRoot;
+	const standardLayout = basename(resolvedRoot) === "personal";
+	const corpusRoot = standardLayout ? dirname(resolvedRoot) : resolvedRoot;
 	const dataRoot = standardLayout ? dirname(corpusRoot) : resolvedRoot;
 	return {
 		databasePath: join(corpusRoot, "personal.sqlite"),
 		dataRoot,
-		filesRoot: join(dataRoot, "files", "personal", namespace),
-		legacyRoot: resolvedRoot,
+		filesRoot: join(dataRoot, "files", "personal"),
+		root: resolvedRoot,
 	};
-}
-
-export function requireLegacyJson(path: string): string {
-	return readFileSync(path, "utf8");
 }

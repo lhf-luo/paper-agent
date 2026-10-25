@@ -13,6 +13,7 @@ export function MozillaPdfReader({
 	translationActivation,
 	onSelection,
 	onExplain,
+	onCapture,
 }: {
 	url: string;
 	title: string;
@@ -21,6 +22,7 @@ export function MozillaPdfReader({
 	translationActivation: number;
 	onSelection: (selection: ReaderTextSelection) => void;
 	onExplain: (selection: ReaderTextSelection) => void;
+	onCapture?: (selection: ReaderTextSelection) => Promise<boolean>;
 }) {
 	const [status, setStatus] = useState<"checking" | "ready" | "error">("checking");
 	const [error, setError] = useState("");
@@ -29,9 +31,11 @@ export function MozillaPdfReader({
 	const bridgeCleanup = useRef<() => void>(() => undefined);
 	const onSelectionRef = useRef(onSelection);
 	const onExplainRef = useRef(onExplain);
+	const onCaptureRef = useRef(onCapture);
 	const translationModeRef = useRef({ enabled: translationEnabled, activation: translationActivation });
 	onSelectionRef.current = onSelection;
 	onExplainRef.current = onExplain;
+	onCaptureRef.current = onCapture;
 	translationModeRef.current = { enabled: translationEnabled, activation: translationActivation };
 	const viewerUrl = useMemo(() => mozillaPdfViewerUrl(url, window.location.origin), [url]);
 
@@ -155,6 +159,7 @@ export function MozillaPdfReader({
 								(value) => onExplainRef.current(value),
 								() => translationModeRef.current,
 								url,
+								onCaptureRef.current ? (value) => onCaptureRef.current?.(value) ?? Promise.resolve(false) : undefined,
 							),
 						);
 					} catch (reason) {

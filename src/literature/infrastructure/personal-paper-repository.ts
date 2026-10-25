@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
 	normalizeArxivId,
@@ -11,8 +10,6 @@ import type { PaperPublicationVersion, PaperRecord } from "../domain/literature-
 import {
 	isCurrentPaperDetailFields,
 	type PaperDetailFieldInput,
-	paperWithCurrentDetailFields,
-	resetPaperDetailFields,
 	updatePaperDetailFields,
 	validatePaperDetailFields,
 } from "../domain/paper-detail-fields.ts";
@@ -127,18 +124,13 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		const existing = this.paperRow(database, previousId ?? record.id);
 		const savedFields = existing ? parseJson<PaperRecord>(existing.record_json).curation?.detailFields : undefined;
 		const incomingFields = record.curation?.detailFields;
-		if (
-			(incomingFields && !isCurrentPaperDetailFields(incomingFields)) ||
-			(isCurrentPaperDetailFields(savedFields) &&
-				(!incomingFields || incomingFields.revision <= (savedFields?.revision ?? -1)))
-		) {
+		if (incomingFields && !isCurrentPaperDetailFields(incomingFields)) throw new Error("Invalid research fields");
+		if (savedFields && (!incomingFields || incomingFields.revision <= savedFields.revision)) {
 			record = {
 				...record,
 				curation: {
 					...(record.curation ?? { tags: [], userNotes: [] }),
-					detailFields: isCurrentPaperDetailFields(savedFields)
-						? savedFields
-						: resetPaperDetailFields(incomingFields, now),
+					detailFields: savedFields,
 				},
 			};
 		}
@@ -158,12 +150,11 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		}
 		database
 			.prepare(`
-				INSERT INTO papers(
-					namespace_id, paper_id, title, normalized_title, abstract, year, venue, venue_rank,
+				INSERT INTO papers( paper_id, title, normalized_title, abstract, year, venue, venue_rank,
 					publication_type, citation_count, cited_by_api_url, doi, arxiv_id, openalex_id,
 					semantic_scholar_id, dblp_key, core_id, opencitations_id, record_json, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(namespace_id, paper_id) DO UPDATE SET
+				) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(paper_id) DO UPDATE SET
 					title=excluded.title, normalized_title=excluded.normalized_title, abstract=excluded.abstract,
 					year=excluded.year, venue=excluded.venue, venue_rank=excluded.venue_rank,
 					publication_type=excluded.publication_type, citation_count=excluded.citation_count,
@@ -173,7 +164,6 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 					record_json=excluded.record_json, updated_at=excluded.updated_at
 			`)
 			.run(
-				this.namespace,
 				record.id,
 				record.title,
 				normalizeTitle(record.title),
@@ -271,9 +261,9 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		);
 		for (const id of record.mergedFrom) mergeInsert.run(paperRowId, id, "exact-identity", now);
 		const collectionInsert = database.prepare(
-			"INSERT OR IGNORE INTO paper_collections(paper_row_id, collection_id, added_at) SELECT ?, id, ? FROM collections WHERE namespace_id = ? AND id = ?",
+			"INSERT OR IGNORE INTO paper_collections(paper_row_id, collection_id, added_at) SELECT ?, id, ? FROM collections WHERE id = ?",
 		);
-		for (const id of record.collectionIds ?? []) collectionInsert.run(paperRowId, now, this.namespace, id);
+		for (const id of record.collectionIds ?? []) collectionInsert.run(paperRowId, now, id);
 		const tagInsert = database.prepare(
 			"INSERT OR IGNORE INTO paper_tags(paper_row_id, tag, normalized_tag) VALUES (?, ?, ?)",
 		);
@@ -282,7 +272,7 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 			"INSERT INTO paper_notes(id, paper_row_id, text, author, created_at) VALUES (?, ?, ?, ?, ?)",
 		);
 		for (const note of record.curation?.userNotes ?? [])
-			noteInsert.run(`${this.namespace}:${note.id}`, paperRowId, note.text, note.author, note.createdAt);
+			noteInsert.run(`${note.id}`, paperRowId, note.text, note.author, note.createdAt);
 		if (record.curation) {
 			const value = record.curation;
 			database
@@ -312,11 +302,11 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		database.prepare("DELETE FROM paper_search WHERE paper_row_id = ?").run(paperRowId);
 		database
 			.prepare(
-				"INSERT INTO paper_search(paper_row_id, namespace_id, title, authors, venue, abstract, tags, identifiers, user_notes, publication_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO paper_search(paper_row_id, title, authors, venue, abstract, tags, identifiers, user_notes, publication_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				paperRowId,
-				this.namespace,
+
 				record.title,
 				record.authors.join(" "),
 				record.venue ?? "",
@@ -331,43 +321,23 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 	}
 
 	async listPapers(): Promise<PaperRecord[]> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "records")))
-		)
-			return [];
+		if (!this.initialized && !(await pathExists(this.databasePath))) return [];
 		await this.initialize();
 		return this.read((database) =>
 			(
-				database
-					.prepare("SELECT record_json FROM papers WHERE namespace_id = ? ORDER BY paper_id")
-					.all(this.namespace) as unknown as Array<{ record_json: string }>
-			).map((row) => paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json))),
-		);
-	}
-
-	async listNamespaces(): Promise<string[]> {
-		if (!(await pathExists(this.databasePath))) return [];
-		await this.initialize();
-		return this.read((database) =>
-			(database.prepare("SELECT id FROM namespaces ORDER BY id").all() as unknown as Array<{ id: string }>).map(
-				(row) => row.id,
-			),
+				database.prepare("SELECT record_json FROM papers ORDER BY paper_id").all() as unknown as Array<{
+					record_json: string;
+				}>
+			).map((row) => parseJson<PaperRecord>(row.record_json)),
 		);
 	}
 
 	async getPaper(id: string): Promise<PaperRecord | undefined> {
-		if (
-			!this.initialized &&
-			!(await pathExists(this.databasePath)) &&
-			!(await pathExists(join(this.legacyRoot, "records", `${id}.json`)))
-		)
-			return undefined;
+		if (!this.initialized && !(await pathExists(this.databasePath))) return undefined;
 		await this.initialize();
 		return this.read((database) => {
 			const row = this.paperRow(database, id);
-			return row ? paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json)) : undefined;
+			return row ? parseJson<PaperRecord>(row.record_json) : undefined;
 		});
 	}
 
@@ -376,11 +346,11 @@ export abstract class PersonalPaperRepository extends PersonalPaperHydrationRepo
 		if (!uniqueIds.length) return [];
 		await this.initialize();
 		return this.read((database) => {
-			const select = database.prepare("SELECT record_json FROM papers WHERE namespace_id = ? AND paper_id = ?");
+			const select = database.prepare("SELECT record_json FROM papers WHERE paper_id = ?");
 			return uniqueIds
-				.map((id) => select.get(this.namespace, id) as { record_json: string } | undefined)
+				.map((id) => select.get(id) as { record_json: string } | undefined)
 				.filter((row): row is { record_json: string } => Boolean(row))
-				.map((row) => paperWithCurrentDetailFields(parseJson<PaperRecord>(row.record_json)));
+				.map((row) => parseJson<PaperRecord>(row.record_json));
 		});
 	}
 

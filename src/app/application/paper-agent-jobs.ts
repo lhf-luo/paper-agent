@@ -1,3 +1,6 @@
+import {validateCanvasExpansion,type CanvasExpansionInput} from "../../canvas/application/canvas-expansion.ts";
+import { SearchRunGraphs } from "../../canvas/application/search-run-graphs.ts";
+import { unionPapers } from "../../literature/domain/citation-seeds.ts";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { artifactAcquisitionPlan, assertArtifactSelection } from "../../artifacts/application/artifact-acquisition.ts";
@@ -11,7 +14,7 @@ import {
 	validateArxivNewsCategories,
 	validateArxivNewsDate,
 	validateArxivNewsPull,
-} from "../../literature/application/arxiv-news.ts";
+} from "../../literature/domain/arxiv-news.ts";
 import { type NewsFilterGroup, screenNewsPapers } from "../../literature/application/arxiv-news-screening.ts";
 import {
 	type DoiEnrichmentResult,
@@ -25,11 +28,7 @@ import {
 import { assignCollection, prepareSidebarSelection } from "../../literature/application/literature-sidebar-save.ts";
 import { corpusUpsertPlan } from "../../literature/application/literature-write.ts";
 import type { ArtifactManifest, PaperRecord, PaperVersion } from "../../literature/domain/literature-types.ts";
-import {
-	ARXIV_NEWS_NAMESPACE,
-	ArxivNewsStore,
-	arxivNewsScopeKey,
-} from "../../literature/infrastructure/arxiv-news-store.ts";
+import { ArxivNewsStore, arxivNewsScopeKey } from "../../literature/infrastructure/arxiv-news-store.ts";
 import { assertKeywordSearchProviders } from "../../literature/infrastructure/literature-providers.ts";
 import { validatePdfPath } from "../../pdf/application/pdf-document.ts";
 import {
@@ -52,6 +51,34 @@ import type {
 } from "./paper-agent-contracts.ts";
 
 export abstract class PaperAgentJobs extends PaperAgentConnector {
+ private readonly graphEnqueues = new Map<string,Promise<BackgroundJob>>();
+ async enqueueSearchGraphEnrichment(canvasId:string,runId:string,budget:number):Promise<BackgroundJob> {
+  if (!Number.isSafeInteger(budget)||budget<1||budget>100)throw new Error("请求预算必须为 1–100");
+  const key=JSON.stringify([canvasId,runId]),pending=this.graphEnqueues.get(key);
+  if(pending)return pending;
+  const task=(async()=>{
+   await this.initialize();
+   const active=this.jobs.list({limit:10000}).find(j=>j.type==="search-graph-enrich"&&["queued","running","paused"].includes(j.status)&&(j.input as {canvasId:string}).canvasId===canvasId&&(j.input as {runId:string}).runId===runId);
+   if(active)return active;
+   const research=await new SearchRunGraphs(this.personalStore(),canvasId).research(runId);
+   return this.jobs.enqueue("search-graph-enrich",{canvasId,runId,budget,fingerprint:research.fingerprint},{maxAttempts:1});
+  })();
+  this.graphEnqueues.set(key,task);
+  try{return await task;}finally{if(this.graphEnqueues.get(key)===task)this.graphEnqueues.delete(key);}
+ }
+
+ private readonly expansionStarts=new Map<string,Promise<BackgroundJob>>();
+ async enqueueCanvasExpansion(input:CanvasExpansionInput):Promise<BackgroundJob>{
+  const key=JSON.stringify([input.canvasId,input.requestId]);const pending=this.expansionStarts.get(key);if(pending){const job=await pending;if(JSON.stringify(job.input)!==JSON.stringify(input))throw new Error("请求标识已用于不同的扩展参数");return job;}
+  const task=(async()=>{
+   await this.initialize();await validateCanvasExpansion(this.personalStore(),input);
+   const previous=this.jobs.list({limit:10000}).find(j=>j.type==="canvas-expansion"&&(j.input as CanvasExpansionInput).requestId===input.requestId&&(j.input as CanvasExpansionInput).canvasId===input.canvasId);
+   if(previous){if(JSON.stringify(previous.input)!==JSON.stringify(input))throw new Error("请求标识已用于不同的扩展参数");return previous;}
+   return this.jobs.enqueue("canvas-expansion",input,{maxAttempts:1});
+  })();this.expansionStarts.set(key,task);
+  try{return await task;}finally{if(this.expansionStarts.get(key)===task)this.expansionStarts.delete(key);}
+ }
+
 	private readonly preparedArtifactManifests = new Map<string, { manifest: ArtifactManifest; expiresAt: string }>();
 	private readonly preparedPdfDownloads = new Map<
 		string,
@@ -71,36 +98,31 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		return new ArxivNewsStore(join(this.dataRoot, "runtime", "arxiv-news.sqlite"));
 	}
 
-	async arxivNewsState(namespace = ARXIV_NEWS_NAMESPACE) {
-		return this.arxivNewsStore().state(namespace);
+	async arxivNewsState() {
+		return this.arxivNewsStore().state();
 	}
 
-	async saveArxivNewsSettings(
-		namespace: string,
-		categories: string[],
-		nextStartDate?: string,
-		filterGroups?: NewsFilterGroup[],
-	) {
+	async saveArxivNewsSettings(categories: string[], nextStartDate?: string, filterGroups?: NewsFilterGroup[]) {
 		const normalized = categories.length ? validateArxivNewsCategories(categories) : [];
 		if (nextStartDate !== undefined) validateArxivNewsDate(nextStartDate);
-		return this.arxivNewsStore().saveSettings(namespace, normalized, nextStartDate, filterGroups);
+		return this.arxivNewsStore().saveSettings(normalized, nextStartDate, filterGroups);
 	}
 
-	async arxivNewsBatch(namespace: string, id: string) {
-		const found = await this.arxivNewsStore().batch(namespace, id);
+	async arxivNewsBatch(id: string) {
+		const found = await this.arxivNewsStore().batch(id);
 		if (!found) return undefined;
-		const settings = await this.arxivNewsState(namespace);
+		const settings = await this.arxivNewsState();
 		return { ...found, screening: screenNewsPapers(found.papers, settings.filterGroups) };
 	}
 
-	async deleteArxivNewsBatch(namespace: string, id: string) {
-		return this.arxivNewsStore().deleteBatch(namespace, id);
+	async deleteArxivNewsBatch(id: string) {
+		return this.arxivNewsStore().deleteBatch(id);
 	}
 
 	async enqueueArxivNewsPull(input: ArxivNewsPullInput): Promise<BackgroundJob> {
 		await this.initialize();
 		const request = validateArxivNewsPull(input);
-		const state = await this.arxivNewsState(request.namespace);
+		const state = await this.arxivNewsState();
 		if (arxivNewsScopeKey(state.categories) !== arxivNewsScopeKey(request.categories)) {
 			throw new Error("Save the selected arXiv subjects before pulling news");
 		}
@@ -110,7 +132,6 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 				(job) =>
 					job.type === "arxiv-news-pull" &&
 					["queued", "running", "paused"].includes(job.status) &&
-					(job.input as ArxivNewsPullInput).namespace === request.namespace &&
 					arxivNewsScopeKey((job.input as ArxivNewsPullInput).categories) ===
 						arxivNewsScopeKey(request.categories),
 			);
@@ -131,7 +152,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 				providers,
 				pagesPerProvider: input.pagesPerProvider ?? config.search.pagesPerProvider,
 				maxResultsPerProvider: input.maxResultsPerProvider ?? config.search.maxResultsPerProvider,
-				namespace: input.namespace ?? config.storage.defaultNamespace ?? this.defaultNamespace,
+
 				reuseCorpus: input.reuseCorpus ?? config.search.reuseCorpus,
 			},
 			{ maxAttempts: 2 },
@@ -160,8 +181,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		const authorized = await this.pdfTranslation.authorize(grant.operationId, grant);
 		if (
 			input.paperId !== authorized.request.paperId ||
-			input.sourceSha256?.toLowerCase() !== authorized.request.sourceSha256 ||
-			(input.namespace ?? this.defaultNamespace) !== authorized.request.namespace
+			input.sourceSha256?.toLowerCase() !== authorized.request.sourceSha256
 		) {
 			throw new Error("PDF translation request differs from the confirmed operation");
 		}
@@ -176,8 +196,8 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		return this.mineru.status();
 	}
 
-	async mineruMaterial(paperId: string, namespace?: string) {
-		return this.mineru.material(paperId, namespace ?? this.defaultNamespace);
+	async mineruMaterial(paperId: string) {
+		return this.mineru.material(paperId);
 	}
 
 	async prepareMineru(input: Partial<MineruGenerationRequest>) {
@@ -229,8 +249,8 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 
 	async preparePdfDownload(input: PdfDownloadPreparationInput): Promise<PreparedOperation> {
 		await this.initialize();
-		const namespace = input.namespace ?? this.defaultNamespace;
-		const store = this.personalStore(namespace);
+
+		const store = this.personalStore();
 		const request: LiteraturePdfDownloadRequest = {
 			paperIds: input.paperIds,
 			publicationVersionId: input.publicationVersionId,
@@ -270,8 +290,8 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		signal?: AbortSignal,
 	): Promise<ArtifactManifest> {
 		const config = await loadPaperAgentConfig(this.projectRoot);
-		const namespace = input.namespace ?? config.storage.defaultNamespace ?? this.defaultNamespace;
-		const paper = input.paperId ? await this.personalStore(namespace).getPaper(input.paperId) : undefined;
+
+		const paper = input.paperId ? await this.personalStore().getPaper(input.paperId) : undefined;
 		if (input.paperId && !paper) throw new Error(`Paper not found in personal corpus: ${input.paperId}`);
 		return discoverPaperArtifacts(this.executor, input.pdfPath, {
 			signal,
@@ -306,22 +326,19 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 	protected async readImportRecords(input: CorpusImportInput): Promise<PaperRecord[]> {
 		let records: PaperRecord[];
 		if (input.newsBatchId) {
-			const found = await this.arxivNewsBatch(ARXIV_NEWS_NAMESPACE, input.newsBatchId);
+			const found = await this.arxivNewsBatch(input.newsBatchId);
 			if (!found) throw new Error("News folder not found");
 			const selected = new Set(input.paperIds ?? []);
 			if (!selected.size) throw new Error("Select at least one paper from the news folder");
-			records = found.papers.filter((paper) => selected.has(paper.id));
+			records = found.papers.filter((paper) => selected.has(paper.id))
+				.map(({ firstSubmittedAt: _firstSubmittedAt, ...paper }) => paper);
 			if (records.length !== selected.size) throw new Error("One or more papers are no longer in this news folder");
 			const retained = new Set([...found.screening.matchedIds, ...found.screening.unresolvedIds]);
 			if (records.some((paper) => !retained.has(paper.id))) {
 				throw new Error("Only papers retained by the current news screening rules can be imported");
 			}
 		} else if (input.searchRunId) {
-			records = await this.recordsFromSearchRun(
-				input.searchRunId,
-				input.paperIds,
-				input.namespace ?? this.defaultNamespace,
-			);
+			records = await this.recordsFromSearchRun(input.searchRunId, input.paperIds);
 		} else {
 			records = this.recordsFromSearchJob(input.searchJobId ?? "", input.paperIds);
 		}
@@ -332,7 +349,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		await this.initialize();
 		const sidebar = input.sidebarResultUrl
 			? await prepareSidebarSelection(
-					this.personalStore(input.namespace),
+					this.personalStore(),
 					this.projectRoot,
 					input.sidebarResultUrl,
 					input.paperIds,
@@ -350,7 +367,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 					lookup: this.doiProviderLookup,
 				});
 		const records = assignCollection(enrichment.records, input.collectionId);
-		const prepared = await this.consent.prepare(corpusUpsertPlan(this.personalStore(input.namespace), records));
+		const prepared = await this.consent.prepare(corpusUpsertPlan(this.personalStore(), records));
 		this.preparedCorpusImports.set(prepared.operationId, {
 			records,
 			newsBatchId: input.newsBatchId,
@@ -380,7 +397,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		grant: ConfirmationGrant,
 	): Promise<BackgroundJob> {
 		await this.initialize();
-		const namespace = input.namespace ?? this.defaultNamespace;
+
 		const request: LiteraturePdfDownloadRequest = {
 			paperIds: input.paperIds,
 			publicationVersionId: input.publicationVersionId,
@@ -394,7 +411,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		this.preparedPdfDownloads.delete(grant.operationId);
 		const jobInput: AuthorizedPdfDownloadJob = {
 			executionPermit,
-			namespace,
+
 			request,
 			prepared,
 		};
@@ -426,7 +443,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 			executionPermit,
 			manifest,
 			paperId: input.paperId,
-			namespace: input.namespace ?? this.defaultNamespace,
+
 			candidateIds: input.candidateIds,
 			maxArtifacts,
 			maxBytesPerArtifact,
@@ -454,7 +471,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		if (prepared.newsBatchId) {
 			if (input.newsBatchId !== prepared.newsBatchId)
 				throw new Error("News folder changed after import preparation");
-			const current = await this.arxivNewsBatch(ARXIV_NEWS_NAMESPACE, prepared.newsBatchId);
+			const current = await this.arxivNewsBatch(prepared.newsBatchId);
 			if (!current) throw new Error("News folder was removed after import preparation");
 			const retained = new Set([...current.screening.matchedIds, ...current.screening.unresolvedIds]);
 			if (prepared.records.some((paper) => !retained.has(paper.id))) {
@@ -463,7 +480,7 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		}
 		const executionPermit = await authorizeOperationExecution(
 			{ manager: this.consent, grant },
-			corpusUpsertPlan(this.personalStore(input.namespace), prepared.records),
+			corpusUpsertPlan(this.personalStore(), prepared.records),
 		);
 		this.preparedCorpusImports.delete(grant.operationId);
 		return this.jobs.enqueue("corpus-import", {
@@ -474,16 +491,16 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		} satisfies AuthorizedCorpusImportJob);
 	}
 
-	async readPdfVersionBlob(paperId: string, sha256: string, namespace = this.defaultNamespace): Promise<Buffer> {
-		return this.personalStore(namespace).readPaperVersionBlob(paperId, sha256);
+	async readPdfVersionBlob(paperId: string, sha256: string): Promise<Buffer> {
+		return this.personalStore().readPaperVersionBlob(paperId, sha256);
 	}
 
 	/**
 	 * 把用户本地手动下载的 PDF 关联到个人库已有的论文(存 blob + 版本, 更新 materialHashes)。
 	 * 用于"从本地加载"——用户网页手动下载 PDF 后上传关联到论文。
 	 */
-	async addLocalPdfToPaper(paperId: string, data: Buffer, namespace = this.defaultNamespace): Promise<PaperVersion> {
-		const store = this.personalStore(namespace);
+	async addLocalPdfToPaper(paperId: string, data: Buffer): Promise<PaperVersion> {
+		const store = this.personalStore();
 		const paper = await store.getPaper(paperId);
 		if (!paper) throw new Error(`Paper not found in corpus: ${paperId}`);
 		if (data.length === 0) throw new Error("PDF 内容为空");
@@ -547,14 +564,11 @@ export abstract class PaperAgentJobs extends PaperAgentConnector {
 		return this.filterRecords(run.results as PaperRecord[], paperIds);
 	}
 
-	protected async recordsFromSearchRun(
-		searchRunId: string,
-		paperIds: string[] | undefined,
-		namespace: string,
-	): Promise<PaperRecord[]> {
-		const run = await this.getSearchRun(searchRunId, namespace);
-		if (!run) throw new Error(`Search run was not found in namespace ${namespace}: ${searchRunId}`);
-		return this.filterRecords(run.results, paperIds);
+	protected async recordsFromSearchRun(searchRunId: string, paperIds: string[] | undefined): Promise<PaperRecord[]> {
+		const run = await this.getSearchRun(searchRunId);
+		if (!run) throw new Error(`Search run was not found in the personal workspace: ${searchRunId}`);
+		const contextSeeds = run.runKind === "citation-expansion" ? (run.seedSnapshots ?? []).filter(p => paperIds?.includes(p.id)) : [];
+        return this.filterRecords(contextSeeds.length ? unionPapers([...contextSeeds,...run.results]) : run.results, paperIds);
 	}
 
 	protected filterRecords(records: PaperRecord[], paperIds?: string[]): PaperRecord[] {

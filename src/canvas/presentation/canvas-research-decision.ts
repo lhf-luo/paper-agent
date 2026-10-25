@@ -1,11 +1,11 @@
 import type { CanvasResearchService } from "../application/canvas-research-service.ts";
-import type { CanvasChangeProposal, CanvasSearchPlan } from "../domain/canvas-research.ts";
+import type { CanvasChangeProposal } from "../domain/canvas-research.ts";
 import { subscribeCanvasResearch } from "../infrastructure/canvas-research-events.ts";
 
 /** This waiter only observes human decisions; it has no write capability. */
 export function waitForResearchDecision(
 	service: CanvasResearchService,
-	kind: "proposal" | "search",
+	kind: "proposal",
 	id: string,
 	signal?: AbortSignal,
 ): Promise<unknown> {
@@ -22,7 +22,7 @@ export function waitForResearchDecision(
 		};
 		const check = () => {
 			try {
-				const r = service.records.get<CanvasChangeProposal | CanvasSearchPlan>(kind, id);
+				const r = service.records.get<CanvasChangeProposal>(kind, id);
 				if (r?.value.status === "pending") return;
 				const value = r?.value;
 				finish({
@@ -38,7 +38,7 @@ export function waitForResearchDecision(
 		};
 		const abort = () => finish(undefined, new Error("已停止等待，待确认记录保留"));
 		const timer = setTimeout(() => finish({ id, status: "pending", message: "尚未确认，可稍后继续" }), 300000);
-		unsubscribe = subscribeCanvasResearch(service.library.databasePath, service.namespace, service.canvasId, check);
+		unsubscribe = subscribeCanvasResearch(service.library.databasePath, service.canvasId, check);
 		signal?.addEventListener("abort", abort, { once: true });
 		if (signal?.aborted) abort();
 		else check();

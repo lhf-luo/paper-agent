@@ -1,0 +1,125 @@
+.search-graph-manager {
+	position: absolute;
+	z-index: 20;
+	left: 82px;
+	top: 72px;
+	bottom: 18px;
+	width: min(380px, calc(100% - 96px));
+	display: flex;
+	flex-direction: column;
+	background: var(--surface-base);
+	border: 1px solid var(--border-subtle);
+	border-radius: 14px;
+	box-shadow: var(--shadow-md);
+	overflow: hidden;
+	color: var(--text-primary);
+}
+.search-graph-manager header,
+.search-graph-manager footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 12px;
+	gap: 8px;
+	border-bottom: 1px solid var(--border-subtle);
+}
+.search-graph-manager header strong {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+.search-graph-manager button {
+	padding: 7px 9px;
+	border-radius: 6px;
+}
+.search-graph-manager button:hover {
+	background: var(--surface-hover, #edf6f3);
+}
+.search-graph-manager button:focus-visible,
+.search-graph-manager input:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.search-graph-manager-controls {
+	padding: 12px;
+	display: grid;
+	gap: 10px;
+}
+.search-graph-manager-controls > input,
+.search-graph-manager form > input {
+	width: 100%;
+	min-width: 0;
+	padding: 8px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+}
+.search-graph-manager-controls label {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	font-size: 12px;
+	color: var(--text-secondary);
+}
+.search-graph-manager-list {
+	overflow: auto;
+	flex: 1;
+	min-height: 0;
+	overscroll-behavior: contain;
+	padding: 0 12px;
+}
+.search-graph-manager-list article {
+	padding: 14px 0;
+	border-bottom: 1px solid var(--border-subtle);
+	display: grid;
+	gap: 8px;
+}
+.search-graph-manager-list strong {
+	overflow-wrap: anywhere;
+	line-height: 1.4;
+}
+.search-graph-manager small {
+	color: var(--text-secondary);
+	font-size: 12px;
+}
+.search-graph-manager-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	font-size: 13px;
+}
+.search-graph-manager p {
+	padding: 12px;
+	color: var(--text-secondary);
+}
+.search-graph-manager footer {
+	font-size: 12px;
+}
+.canvas-view-switch .canvas-graph-manager-toggle[aria-expanded="true"] {
+ background: var(--surface-soft, #e4f1eb);
+ color: var(--brand-700, #2d6b5c);
+}
+.search-graph-heading {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 16px;
+	border-bottom: 1px solid var(--border-subtle);
+	min-width: 0;
+}
+.search-graph-heading strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+.search-graph-heading button {
+	flex-shrink: 0;
+	padding: 6px;
+}
+@media (max-width: 600px) {
+	.search-graph-manager {
+		left: 8px;
+		right: 8px;
+		width: auto;
+	}
+}
