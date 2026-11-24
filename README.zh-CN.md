@@ -10,19 +10,6 @@
 
 Paper Agent 围绕真实调研主线 **文献搜索 → 获取 PDF 与 artifact → 略读 → 精读 → 实验 → 形成 idea** 组织功能。它负责搜集、整理、provenance、证据追踪和可复用记忆；深度理解、实验判断和研究 idea 仍由人完成。
 
-## 你会得到什么
-
-- 输入一次 `paper-agent` 即可打开的本地 Web 工作区，内置可流式响应的 Agent 对话页面。
-- 多源论文检索、查询扩展、过滤、分页、缓存、去重、provider 健康状态、checkpoint 和失败续跑。
-- 与一次性搜集任务分开的个人持久论文库。
-- 可自动将 Chrome/Edge 下载的 PDF 导入个人库的本地 Browser Connector。
-- 将图表、表格和算法与 caption、section、正文 mention、上下文、跨页 continuation 关联，并支持人工调整裁剪框。
-- 自动发现 PDF 中的 GitHub、GitLab、Zenodo、Figshare、数据集和补充材料链接。
-- 在受限条件下下载 artifact 或 shallow clone Git 仓库，并记录来源 URL、最终 URL、SHA-256、commit、license 文件和失败原因。
-- Obsidian 风格 Markdown 调研笔记工作区，可关联零篇或多篇个人库论文。
-- 支持提议、审核、derived memory、artifact manifest、blob、审计事件、token 轮换和备份的团队知识库服务。
-- 面向高级用户的原始 Pi 终端界面，用于 `/paper`、`/collect`、`/library` 和 `/team` 对话工作流。
-
 ## 快速开始
 
 ### 环境要求
@@ -51,7 +38,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\paper-agent.ps1 install
 
 ```powershell
 paper-agent init       # 可选的首次配置向导
-paper-agent --doctor
 paper-agent
 ```
 
@@ -89,23 +75,9 @@ paper-agent
 
 ## 启动方式
 
-| 命令 | 结果 |
-| --- | --- |
+| 命令          | 结果                |
+| ------------- | ------------------- |
 | `paper-agent` | 打开本地 Web 工作区 |
-| `paper-agent paper.pdf` | 在可视化阅读器中打开本地 PDF |
-| `paper-agent --no-open` | 只运行本地服务并打印会话 URL，不自动打开浏览器 |
-| `paper-agent --port 43127` | 使用 Browser Connector 默认的固定 loopback 端口 |
-| `paper-agent init` | 运行首次配置向导 |
-| `paper-agent models add` | 添加模型端点，随后在 Agent 对话自行选择模型 |
-| `paper-agent models remove --model <provider/model>` | 删除一个已配置模型 |
-| `paper-agent models remove --provider <provider>` | 删除 Provider 及其全部模型 |
-| `paper-agent --doctor` | 检查运行时、Web 资源、模型、Poppler 和 OCR |
-| `paper-agent --doctor --probe-model` | 探测 OpenAI 兼容 tool calling，或提示需要在 Pi 会话中手工验证 |
-| `paper-agent agent` | 启动面向高级用户的原始 Pi 终端界面 |
-| `paper-agent --agent paper.pdf` | 在 Pi 中使用 paper-research Skill 阅读 PDF |
-| `paper-agent --agent paper.pdf "重点分析方法"` | 用自然语言指定研究要求 |
-| `paper-agent --team demo` | 在 Web 工作区打开 loopback 单人团队库演示 |
-| `paper-agent --team demo --agent` | 在 Pi 中打开同一个团队库演示 |
 
 安装、状态、校验 profile 和卸载行为见 [CLI 详细说明](docs/cli.md)。
 
@@ -144,31 +116,10 @@ Agent 对话页面可填写 Provider ID、Model ID、Base URL、API 类型和 AP
 
 内置 `literature-corpus-manager` Skill 明确区分两个维度：
 
-| 维度 | 选项 | 默认值 |
-| --- | --- | --- |
-| 使用范围 | `personal` 或 `team` | `personal` |
-| 生命周期 | `once` 或 `persistent` | `once` |
-
-因此，一次临时搜索不会静默变成长期知识，个人笔记也不会绕过审核进入团队库。
-
-## Agent 对话、Pi 终端与模型配置
-
-主要对话入口是普通 Web 工作区中的 **Agent 对话** 页面。可在页面配置 provider、模型、Base URL、API 类型和临时 key，或让启动 Paper Agent 的进程读取项目模型设置中指定的 API key 环境变量。网页输入的 key 只存在于服务进程内存，重启后需要重新输入。
-
-需要面向高级用户的原始 Pi 终端界面时运行：
-
-```powershell
-paper-agent agent
-```
-
-在 Pi 中使用内置 provider 时执行 `/login` 和 `/model`。使用自定义中转站时，把 API key 放在环境变量中，并在以下文件定义 provider：
-
-- Windows：`%USERPROFILE%\.pi\agent\models.json`
-- macOS/Linux：`~/.pi/agent/models.json`
-
-中转站必须支持流式响应、tool/function calling、JSON Schema 参数和足够长的上下文。模型出现在 `/model` 中只代表配置被解析。Paper Agent 可自动探测 `openai-completions` 和 `openai-responses`；`anthropic-messages` 与 `google-generative-ai` 需要在 Pi 中执行真实的工具调用任务验证。
-
-完整步骤见 [模型与中转站配置](docs/model-configuration.md)。
+| 维度     | 选项                   | 默认值     |
+| -------- | ---------------------- | ---------- |
+| 使用范围 | `personal` 或 `team`   | `personal` |
+| 生命周期 | `once` 或 `persistent` | `once`     |
 
 ## 数据、Provenance 与安全
 
@@ -206,30 +157,3 @@ Paper Agent 会记录标准化 identifier、provider 查询、分页、重试、
 - [论文调研工作流](docs/research-workflow.md)
 - [独立团队服务器部署](team-server/README.md)
 
-## 项目状态
-
-Paper Agent 当前处于积极开发阶段，源码版本为 `0.1.0`，目前从本地源码 checkout 运行，尚未发布到 npm。
-
-当前仍需继续强化旋转或扫描 PDF、非英语和出版社特定排版、异常复杂的浮动对象、实时 provider 波动，以及更完整的跨平台安装发布体验。
-
-## 常见问题
-
-### 为什么 `node` 报未知的 `.ts` 扩展名？
-
-当前命令使用了过旧的系统 Node.js。请使用 Node `>=22.19`，或者通过已安装的 `paper-agent` 启动器运行；它会在可用时选择受支持的运行时。
-
-### 为什么 Agent 对话或 Pi 提示没有可用模型？
-
-非 Agent 的 Web 页面仍可管理本地数据，但 Agent 对话和 Pi 都需要可用模型凭据。Agent 对话中可提交 endpoint 与临时 key，或设置项目配置指定的环境变量；Pi 终端中可运行 `paper-agent agent` 后执行 `/login`，或者配置通过环境变量引用密钥的自定义 provider。
-
-### 发现链接后会立刻下载或 clone 吗？
-
-不会。发现阶段只读。获取阶段会先展示候选、目标和 manifest fingerprint，再要求用户显式确认。
-
-### Paper Agent 会执行下载的仓库吗？
-
-不会。它只负责记录和整理获取的材料，不执行代码、不安装依赖，也不自动解压 archive。
-
-### 一个人能测试团队功能吗？
-
-可以。运行 `paper-agent --team demo` 测试 Web 流程，或运行 `paper-agent --team demo --agent` 测试 Pi 流程，最后用 `paper-agent --team stop` 停止服务。该模式只监听 loopback，不是生产部署。
